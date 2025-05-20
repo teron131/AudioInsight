@@ -4,10 +4,7 @@ import sys
 import time
 from functools import lru_cache
 
-import librosa
-import numpy as np
-
-from .backends import FasterWhisperASR, MLXWhisper, OpenAIAPIASR, WhisperTimestampedASR
+from .backends import FasterWhisperASR, OpenAIAPIASR
 from .online_asr import OnlineASRProcessor, VACOnlineASRProcessor
 
 logger = logging.getLogger(__name__)
