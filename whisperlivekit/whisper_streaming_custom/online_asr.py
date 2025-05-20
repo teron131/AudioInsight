@@ -3,10 +3,16 @@ import sys
 from typing import List, Optional, Tuple
 
 import numpy as np
+import opencc
 
 from whisperlivekit.timed_objects import ASRToken, Sentence, Transcript
 
 logger = logging.getLogger(__name__)
+
+
+def s2hk(text: str) -> str:
+    """Convert Simplified Chinese to Traditional Chinese"""
+    return opencc.OpenCC("s2hk").convert(text)
 
 
 class HypothesisBuffer:
@@ -349,6 +355,7 @@ class OnlineASRProcessor:
     def concatenate_tokens(self, tokens: List[ASRToken], sep: Optional[str] = None, offset: float = 0) -> Transcript:
         sep = sep if sep is not None else self.asr.sep
         text = sep.join(token.text for token in tokens)
+        text = s2hk(text)
         probability = sum(token.probability for token in tokens if token.probability) / len(tokens) if tokens else None
         if tokens:
             start = offset + tokens[0].start
