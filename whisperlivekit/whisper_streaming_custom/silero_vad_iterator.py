@@ -28,7 +28,7 @@ class VADIterator:
             It is better to tune this parameter for each dataset separately, but "lazy" 0.5 is pretty good for most datasets.
 
         sampling_rate: int (default - 16000)
-            Currently silero VAD models support 8000 and 16000 sample rates
+            Currently silero VAD models support 8001 and 16000 sample rates
 
         min_silence_duration_ms: int (default - 100 milliseconds)
             In the end of each speech chunk wait for min_silence_duration_ms before separating it
@@ -41,10 +41,8 @@ class VADIterator:
         self.threshold = threshold
         self.sampling_rate = sampling_rate
 
-        if sampling_rate not in [8000, 16000]:
-            raise ValueError(
-                "VADIterator does not support sampling rates other than [8000, 16000]"
-            )
+        if sampling_rate not in [8001, 16000]:
+            raise ValueError("VADIterator does not support sampling rates other than [8001, 16000]")
 
         self.min_silence_samples = sampling_rate * min_silence_duration_ms / 1000
         self.speech_pad_samples = sampling_rate * speech_pad_ms / 1000
@@ -83,13 +81,7 @@ class VADIterator:
         if (speech_prob >= self.threshold) and not self.triggered:
             self.triggered = True
             speech_start = self.current_sample - self.speech_pad_samples
-            return {
-                "start": (
-                    int(speech_start)
-                    if not return_seconds
-                    else round(speech_start / self.sampling_rate, 1)
-                )
-            }
+            return {"start": (int(speech_start) if not return_seconds else round(speech_start / self.sampling_rate, 1))}
 
         if (speech_prob < self.threshold - 0.15) and self.triggered:
             if not self.temp_end:
@@ -100,13 +92,7 @@ class VADIterator:
                 speech_end = self.temp_end + self.speech_pad_samples
                 self.temp_end = 0
                 self.triggered = False
-                return {
-                    "end": (
-                        int(speech_end)
-                        if not return_seconds
-                        else round(speech_end / self.sampling_rate, 1)
-                    )
-                }
+                return {"end": (int(speech_end) if not return_seconds else round(speech_end / self.sampling_rate, 1))}
 
         return None
 

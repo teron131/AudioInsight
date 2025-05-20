@@ -297,7 +297,7 @@
         let websocket = null;
         let recorder = null;
         let chunkDuration = 1000;
-        let websocketUrl = "ws://localhost:8000/asr";
+        let websocketUrl = "ws://localhost:8001/asr";
         let userClosing = false;
         let startTime = null;
         let timerInterval = null;
@@ -321,7 +321,7 @@
         const timerElement = document.querySelector(".timer");
 
         const host = window.location.hostname || "localhost";
-        const port = window.location.port || "8000";
+        const port = window.location.port || "8001";
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
         const defaultWebSocketUrl = `${protocol}://${host}:${port}/asr`;
         websocketInput.value = defaultWebSocketUrl;

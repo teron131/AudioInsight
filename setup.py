@@ -1,4 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
+
 setup(
     name="whisperlivekit",
     version="0.1.6",
@@ -20,18 +21,16 @@ setup(
     extras_require={
         "diarization": ["diart"],
         "vac": ["torch"],
-        "sentence": ["mosestokenizer", "wtpsplit"],
+        "sentence": ["mosestokenizer"],
         "whisper": ["whisper"],
-        "whisper-timestamped": ["whisper-timestamped"],
-        "mlx-whisper": ["mlx-whisper"],
         "openai": ["openai"],
     },
     package_data={
-        'whisperlivekit': ['web/*.html'],
+        "whisperlivekit": ["web/*.html"],
     },
     entry_points={
-        'console_scripts': [
-            'whisperlivekit-server=whisperlivekit.basic_server:main',
+        "console_scripts": [
+            "whisperlivekit-server=whisperlivekit.basic_server:main",
         ],
     },
     classifiers=[

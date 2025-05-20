@@ -1,8 +1,13 @@
 try:
-    from whisperlivekit.whisper_streaming_custom.whisper_online import backend_factory, warmup_asr
+    from whisperlivekit.whisper_streaming_custom.whisper_online import (
+        backend_factory,
+        warmup_asr,
+    )
 except ImportError:
     from .whisper_streaming_custom.whisper_online import backend_factory, warmup_asr
-from argparse import Namespace, ArgumentParser
+
+from argparse import ArgumentParser, Namespace
+
 
 def parse_args():
     parser = ArgumentParser(description="Whisper FastAPI Online Server")
@@ -12,9 +17,7 @@ def parse_args():
         default="localhost",
         help="The host address to bind the server to.",
     )
-    parser.add_argument(
-        "--port", type=int, default=8000, help="The port number to bind the server to."
-    )
+    parser.add_argument("--port", type=int, default=8001, help="The port number to bind the server to.")
     parser.add_argument(
         "--warmup-file",
         type=str,
@@ -45,21 +48,21 @@ def parse_args():
         action="store_true",
         help="Disable transcription to only see live diarization results.",
     )
-    
+
     parser.add_argument(
         "--min-chunk-size",
         type=float,
         default=0.5,
         help="Minimum audio chunk size in seconds. It waits up to this time to do processing. If the processing takes shorter time, it waits, otherwise it processes the whole segment that was received by this time.",
     )
-    
+
     parser.add_argument(
         "--model",
         type=str,
         default="tiny",
         help="Name size of the Whisper model to use (default: tiny). Suggested values: tiny.en,tiny,base.en,base,small.en,small,medium.en,medium,large-v1,large-v2,large-v3,large,large-v3-turbo. The model is automatically downloaded from the model hub if not present in model cache dir.",
     )
-    
+
     parser.add_argument(
         "--model_cache_dir",
         type=str,
@@ -73,7 +76,7 @@ def parse_args():
         help="Dir where Whisper model.bin and other files are saved. This option overrides --model and --model_cache_dir parameter.",
     )
     parser.add_argument(
-        "--lan",
+        "--lang",
         "--language",
         type=str,
         default="auto",
@@ -99,16 +102,14 @@ def parse_args():
         default=False,
         help="Use VAC = voice activity controller. Recommended. Requires torch.",
     )
-    parser.add_argument(
-        "--vac-chunk-size", type=float, default=0.04, help="VAC sample size in seconds."
-    )
+    parser.add_argument("--vac-chunk-size", type=float, default=0.04, help="VAC sample size in seconds.")
 
     parser.add_argument(
         "--no-vad",
         action="store_true",
         help="Disable VAD (voice activity detection).",
     )
-    
+
     parser.add_argument(
         "--buffer_trimming",
         type=str,
@@ -133,52 +134,54 @@ def parse_args():
     parser.add_argument("--ssl-certfile", type=str, help="Path to the SSL certificate file.", default=None)
     parser.add_argument("--ssl-keyfile", type=str, help="Path to the SSL private key file.", default=None)
 
-
     args = parser.parse_args()
-    
+
     args.transcription = not args.no_transcription
-    args.vad = not args.no_vad    
-    delattr(args, 'no_transcription')
-    delattr(args, 'no_vad')
-    
+    args.vad = not args.no_vad
+    delattr(args, "no_transcription")
+    delattr(args, "no_vad")
+
     return args
+
 
 class WhisperLiveKit:
     _instance = None
     _initialized = False
-    
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self, **kwargs):
         if WhisperLiveKit._initialized:
             return
-            
+
         default_args = vars(parse_args())
-        
+
         merged_args = {**default_args, **kwargs}
-        
+
         self.args = Namespace(**merged_args)
-        
+
         self.asr = None
         self.tokenizer = None
         self.diarization = None
-        
+
         if self.args.transcription:
             self.asr, self.tokenizer = backend_factory(self.args)
             warmup_asr(self.asr, self.args.warmup_file)
 
         if self.args.diarization:
             from whisperlivekit.diarization.diarization_online import DiartDiarization
+
             self.diarization = DiartDiarization()
-            
+
         WhisperLiveKit._initialized = True
 
     def web_interface(self):
         import pkg_resources
-        html_path = pkg_resources.resource_filename('whisperlivekit', 'web/live_transcription.html')
+
+        html_path = pkg_resources.resource_filename("whisperlivekit", "web/live_transcription.html")
         with open(html_path, "r", encoding="utf-8") as f:
             html = f.read()
         return html

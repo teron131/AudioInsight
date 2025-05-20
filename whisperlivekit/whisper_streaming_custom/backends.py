@@ -1,29 +1,33 @@
-import sys
-import logging
 import io
-import soundfile as sf
+import logging
 import math
-try: 
+import sys
+
+import soundfile as sf
+
+try:
     import torch
-except ImportError: 
+except ImportError:
     torch = None
 from typing import List
+
 import numpy as np
+
 from whisperlivekit.timed_objects import ASRToken
 
 logger = logging.getLogger(__name__)
 
-class ASRBase:
-    sep = " "  # join transcribe words with this character (" " for whisper_timestamped,
-              # "" for faster-whisper because it emits the spaces when needed)
 
-    def __init__(self, lan, modelsize=None, cache_dir=None, model_dir=None, logfile=sys.stderr):
+class ASRBase:
+    sep = ""
+
+    def __init__(self, lang, modelsize=None, cache_dir=None, model_dir=None, logfile=sys.stderr):
         self.logfile = logfile
         self.transcribe_kargs = {}
-        if lan == "auto":
+        if lang == "auto":
             self.original_language = None
         else:
-            self.original_language = lan
+            self.original_language = lang
         self.model = self.load_model(modelsize, cache_dir, model_dir)
 
     def with_offset(self, offset: float) -> ASRToken:
@@ -43,71 +47,23 @@ class ASRBase:
         raise NotImplementedError("must be implemented in the child class")
 
 
-class WhisperTimestampedASR(ASRBase):
-    """Uses whisper_timestamped as the backend."""
-    sep = " "
-
-    def load_model(self, modelsize=None, cache_dir=None, model_dir=None):
-        import whisper
-        import whisper_timestamped
-        from whisper_timestamped import transcribe_timestamped
-
-        self.transcribe_timestamped = transcribe_timestamped
-        if model_dir is not None:
-            logger.debug("ignoring model_dir, not implemented")
-        return whisper.load_model(modelsize, download_root=cache_dir)
-
-    def transcribe(self, audio, init_prompt=""):
-        result = self.transcribe_timestamped(
-            self.model,
-            audio,
-            language=self.original_language,
-            initial_prompt=init_prompt,
-            verbose=None,
-            condition_on_previous_text=True,
-            **self.transcribe_kargs,
-        )
-        return result
-
-    def ts_words(self, r) -> List[ASRToken]:
-        """
-        Converts the whisper_timestamped result to a list of ASRToken objects.
-        """
-        tokens = []
-        for segment in r["segments"]:
-            for word in segment["words"]:
-                token = ASRToken(word["start"], word["end"], word["text"])
-                tokens.append(token)
-        return tokens
-
-    def segments_end_ts(self, res) -> List[float]:
-        return [segment["end"] for segment in res["segments"]]
-
-    def use_vad(self):
-        self.transcribe_kargs["vad"] = True
-
-    def set_translate_task(self):
-        self.transcribe_kargs["task"] = "translate"
-
-
 class FasterWhisperASR(ASRBase):
     """Uses faster-whisper as the backend."""
+
     sep = ""
 
     def load_model(self, modelsize=None, cache_dir=None, model_dir=None):
         from faster_whisper import WhisperModel
 
         if model_dir is not None:
-            logger.debug(f"Loading whisper model from model_dir {model_dir}. "
-                         f"modelsize and cache_dir parameters are not used.")
+            logger.debug(f"Loading whisper model from model_dir {model_dir}. " f"modelsize and cache_dir parameters are not used.")
             model_size_or_path = model_dir
         elif modelsize is not None:
             model_size_or_path = modelsize
         else:
             raise ValueError("Either modelsize or model_dir must be set")
-        device = "auto" # Allow CTranslate2 to decide available device
-        compute_type = "auto" # Allow CTranslate2 to decide faster compute type
-                              
+        device = "auto"  # Allow CTranslate2 to decide available device
+        compute_type = "auto"  # Allow CTranslate2 to decide faster compute type
 
         model = WhisperModel(
             model_size_or_path,
@@ -153,11 +109,12 @@ class MLXWhisper(ASRBase):
     """
     Uses MLX Whisper optimized for Apple Silicon.
     """
+
     sep = ""
 
     def load_model(self, modelsize=None, cache_dir=None, model_dir=None):
-        from mlx_whisper.transcribe import ModelHolder, transcribe
         import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder, transcribe
 
         if model_dir is not None:
             logger.debug(f"Loading whisper model from model_dir {model_dir}. modelsize parameter is not used.")
@@ -230,10 +187,11 @@ class MLXWhisper(ASRBase):
 
 class OpenaiApiASR(ASRBase):
     """Uses OpenAI's Whisper API for transcription."""
-    def __init__(self, lan=None, temperature=0, logfile=sys.stderr):
+
+    def __init__(self, lang=None, temperature=0, logfile=sys.stderr):
         self.logfile = logfile
         self.modelname = "whisper-1"
-        self.original_language = None if lan == "auto" else lan
+        self.original_language = None if lang == "auto" else lang
         self.response_format = "verbose_json"
         self.temperature = temperature
         self.load_model()
@@ -242,6 +200,7 @@ class OpenaiApiASR(ASRBase):
 
     def load_model(self, *args, **kwargs):
         from openai import OpenAI
+
         self.client = OpenAI()
         self.transcribed_seconds = 0
 

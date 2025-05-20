@@ -1,3 +1,8 @@
+*.m4a
+*.mp3
+*.srt
+*.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

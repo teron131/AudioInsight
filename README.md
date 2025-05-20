@@ -48,9 +48,9 @@ WhisperLiveKit consists of three main components:
 pip install whisperlivekit
 
 # Start the transcription server
-whisperlivekit-server --model tiny.en
+whisperlivekit-server --model large-v3-turbo
 
-# Open your browser at http://localhost:8000
+# Open your browser at http://localhost:8001
 ```
 
 ### Quick Start with SSL
@@ -58,7 +58,7 @@ whisperlivekit-server --model tiny.en
 # You must provide a certificate and key
 whisperlivekit-server -ssl-certfile public.crt --ssl-keyfile private.key
 
-# Open your browser at https://localhost:8000
+# Open your browser at https://localhost:8001
 ```
 
 That's it! Start speaking and watch your words appear on screen.
@@ -135,10 +135,10 @@ Start the transcription server with various options:
 
 ```bash
 # Basic server with English model
-whisperlivekit-server --model tiny.en
+whisperlivekit-server --model large-v3-turbo
 
 # Advanced configuration with diarization
-whisperlivekit-server --host 0.0.0.0 --port 8000 --model medium --diarization --language auto
+whisperlivekit-server --host 0.0.0.0 --port 8001 --model large-v3-turbo --diarization --language auto
 ```
 
 ### Python API Integration (Backend)
@@ -152,7 +152,7 @@ from fastapi.responses import HTMLResponse
 
 # Initialize components
 app = FastAPI()
-kit = WhisperLiveKit(model="medium", diarization=True)
+kit = WhisperLiveKit(model="large-v3-turbo", diarization=False)
 
 # Serve the web interface
 @app.get("/")
@@ -197,8 +197,8 @@ WhisperLiveKit offers extensive configuration options:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--host` | Server host address | `localhost` |
-| `--port` | Server port | `8000` |
-| `--model` | Whisper model size | `tiny` |
+| `--port` | Server port | `8001` |
+| `--model` | Whisper model size | `large-v3-turbo` |
 | `--language` | Source language code or `auto` | `en` |
 | `--task` | `transcribe` or `translate` | `transcribe` |
 | `--backend` | Processing backend | `faster-whisper` |
@@ -250,7 +250,7 @@ To deploy WhisperLiveKit in production:
        server_name your-domain.com;
 
        location / {
-           proxy_pass http://localhost:8000;
+           proxy_pass http://localhost:8001;
            proxy_set_header Upgrade $http_upgrade;
            proxy_set_header Connection "upgrade";
            proxy_set_header Host $host;
@@ -270,7 +270,7 @@ A basic Dockerfile is provided which allows re-use of Python package installatio
 - Create a reusable image with only the basics and then run as a named container:
 ```bash
 docker build -t whisperlivekit-defaults .
-docker create --gpus all --name whisperlivekit -p 8000:8000 whisperlivekit-defaults
+docker create --gpus all --name whisperlivekit -p 8001:8001 whisperlivekit-defaults
 docker start -i whisperlivekit
 ```
 
@@ -280,7 +280,7 @@ docker start -i whisperlivekit
 - Customize the container options:
 ```bash
 docker build -t whisperlivekit-defaults .
-docker create --gpus all --name whisperlivekit-base -p 8000:8000 whisperlivekit-defaults --model base
+docker create --gpus all --name whisperlivekit-base -p 8001:8001 whisperlivekit-defaults --model base
 docker start -i whisperlivekit-base
 ```
 

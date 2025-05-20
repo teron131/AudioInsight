@@ -1,15 +1,16 @@
+import argparse
+import asyncio
+import logging
+import os
+import sys
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from whisperlivekit import WhisperLiveKit, parse_args
 from whisperlivekit.audio_processor import AudioProcessor
-
-import asyncio
-import logging
-import os, sys
-import argparse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logging.getLogger().setLevel(logging.WARNING)
@@ -18,11 +19,13 @@ logger.setLevel(logging.DEBUG)
 
 kit = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global kit
     kit = WhisperLiveKit()
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
@@ -59,7 +62,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
     logger.info("WebSocket connection opened.")
-            
+
     results_generator = await audio_processor.create_tasks()
     websocket_task = asyncio.create_task(handle_websocket_results(websocket, results_generator))
 
@@ -68,7 +71,7 @@ async def websocket_endpoint(websocket: WebSocket):
             message = await websocket.receive_bytes()
             await audio_processor.process_audio(message)
     except KeyError as e:
-        if 'bytes' in str(e):
+        if "bytes" in str(e):
             logger.warning(f"Client has closed the connection.")
         else:
             logger.error(f"Unexpected KeyError in websocket_endpoint: {e}", exc_info=True)
@@ -86,39 +89,37 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info("WebSocket results handler task was cancelled.")
         except Exception as e:
             logger.warning(f"Exception while awaiting websocket_task completion: {e}")
-            
+
         await audio_processor.cleanup()
         logger.info("WebSocket endpoint cleaned up successfully.")
+
 
 def main():
     """Entry point for the CLI command."""
     import uvicorn
-    
+
     args = parse_args()
-    
+
     uvicorn_kwargs = {
         "app": "whisperlivekit.basic_server:app",
-        "host":args.host, 
-        "port":args.port, 
+        "host": args.host,
+        "port": args.port,
         "reload": False,
         "log_level": "info",
         "lifespan": "on",
     }
-    
+
     ssl_kwargs = {}
     if args.ssl_certfile or args.ssl_keyfile:
         if not (args.ssl_certfile and args.ssl_keyfile):
             raise ValueError("Both --ssl-certfile and --ssl-keyfile must be specified together.")
-        ssl_kwargs = {
-            "ssl_certfile": args.ssl_certfile,
-            "ssl_keyfile": args.ssl_keyfile
-        }
-
+        ssl_kwargs = {"ssl_certfile": args.ssl_certfile, "ssl_keyfile": args.ssl_keyfile}
 
     if ssl_kwargs:
         uvicorn_kwargs = {**uvicorn_kwargs, **ssl_kwargs}
 
     uvicorn.run(**uvicorn_kwargs)
+
 
 if __name__ == "__main__":
     main()

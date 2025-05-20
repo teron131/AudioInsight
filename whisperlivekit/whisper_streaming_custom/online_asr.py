@@ -1,7 +1,9 @@
-import sys
-import numpy as np
 import logging
-from typing import List, Tuple, Optional
+import sys
+from typing import List, Optional, Tuple
+
+import numpy as np
+
 from whisperlivekit.timed_objects import ASRToken, Sentence, Transcript
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,7 @@ class HypothesisBuffer:
       - buffer: the last hypothesis that is not yet committed
       - new: new tokens coming from the recognizer
     """
+
     def __init__(self, logfile=sys.stderr, confidence_validation=False):
         self.confidence_validation = confidence_validation
         self.committed_in_buffer: List[ASRToken] = []
@@ -27,8 +30,8 @@ class HypothesisBuffer:
 
     def insert(self, new_tokens: List[ASRToken], offset: float):
         """
-        Insert new tokens (after applying a time offset) and compare them with the 
-        already committed tokens. Only tokens that extend the committed hypothesis 
+        Insert new tokens (after applying a time offset) and compare them with the
+        already committed tokens. Only tokens that extend the committed hypothesis
         are added.
         """
         # Apply the offset to each token.
@@ -92,16 +95,16 @@ class HypothesisBuffer:
             self.committed_in_buffer.pop(0)
 
 
-
 class OnlineASRProcessor:
     """
     Processes incoming audio in a streaming fashion, calling the ASR system
     periodically, and uses a hypothesis buffer to commit and trim recognized text.
-    
+
     The processor supports two types of buffer trimming:
       - "sentence": trims at sentence boundaries (using a sentence tokenizer)
       - "segment": trims at fixed segment durations.
     """
+
     SAMPLING_RATE = 16000
 
     def __init__(
@@ -109,7 +112,7 @@ class OnlineASRProcessor:
         asr,
         tokenize_method: Optional[callable] = None,
         buffer_trimming: Tuple[str, float] = ("segment", 15),
-        confidence_validation = False,
+        confidence_validation=False,
         logfile=sys.stderr,
     ):
         """
@@ -132,9 +135,7 @@ class OnlineASRProcessor:
         if self.buffer_trimming_sec <= 0:
             raise ValueError("buffer_trimming_sec must be positive")
         elif self.buffer_trimming_sec > 30:
-            logger.warning(
-                f"buffer_trimming_sec is set to {self.buffer_trimming_sec}, which is very long. It may cause OOM."
-            )
+            logger.warning(f"buffer_trimming_sec is set to {self.buffer_trimming_sec}, which is very long. It may cause OOM.")
 
     def init(self, offset: Optional[float] = None):
         """Initialize or reset the processing buffers."""
@@ -151,7 +152,7 @@ class OnlineASRProcessor:
     def prompt(self) -> Tuple[str, str]:
         """
         Returns a tuple: (prompt, context), where:
-          - prompt is a 200-character suffix of committed text that falls 
+          - prompt is a 200-character suffix of committed text that falls
             outside the current audio buffer.
           - context is the committed text within the current audio buffer.
         """
@@ -177,7 +178,6 @@ class OnlineASRProcessor:
         Get the unvalidated buffer in string format.
         """
         return self.concatenate_tokens(self.transcript_buffer.buffer)
-        
 
     def process_iter(self) -> Transcript:
         """
@@ -186,9 +186,7 @@ class OnlineASRProcessor:
         Returns a Transcript object representing the committed transcript.
         """
         prompt_text, _ = self.prompt()
-        logger.debug(
-            f"Transcribing {len(self.audio_buffer)/self.SAMPLING_RATE:.2f} seconds from {self.buffer_time_offset:.2f}"
-        )
+        logger.debug(f"Transcribing {len(self.audio_buffer)/self.SAMPLING_RATE:.2f} seconds from {self.buffer_time_offset:.2f}")
         res = self.asr.transcribe(self.audio_buffer, init_prompt=prompt_text)
         tokens = self.asr.ts_words(res)  # Expecting List[ASRToken]
         self.transcript_buffer.insert(tokens, self.buffer_time_offset)
@@ -207,9 +205,7 @@ class OnlineASRProcessor:
         if len(self.audio_buffer) / self.SAMPLING_RATE > s:
             self.chunk_completed_segment(res)
             logger.debug("Chunking segment")
-        logger.debug(
-            f"Length of audio buffer now: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f} seconds"
-        )
+        logger.debug(f"Length of audio buffer now: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f} seconds")
         return committed_tokens
 
     def chunk_completed_sentence(self):
@@ -218,19 +214,19 @@ class OnlineASRProcessor:
         buffer at the end time of the penultimate sentence.
         Also ensures chunking happens if audio buffer exceeds a time limit.
         """
-        buffer_duration = len(self.audio_buffer) / self.SAMPLING_RATE        
+        buffer_duration = len(self.audio_buffer) / self.SAMPLING_RATE
         if not self.committed:
             if buffer_duration > self.buffer_trimming_sec:
                 chunk_time = self.buffer_time_offset + (buffer_duration / 2)
                 logger.debug(f"--- No speech detected, forced chunking at {chunk_time:.2f}")
                 self.chunk_at(chunk_time)
             return
-        
+
         logger.debug("COMPLETED SENTENCE: " + " ".join(token.text for token in self.committed))
         sentences = self.words_to_sentences(self.committed)
         for sentence in sentences:
             logger.debug(f"\tSentence: {sentence.text}")
-        
+
         chunk_done = False
         if len(sentences) >= 2:
             while len(sentences) > 2:
@@ -239,7 +235,7 @@ class OnlineASRProcessor:
             logger.debug(f"--- Sentence chunked at {chunk_time:.2f}")
             self.chunk_at(chunk_time)
             chunk_done = True
-        
+
         if not chunk_done and buffer_duration > self.buffer_trimming_sec:
             last_committed_time = self.committed[-1].end
             logger.debug(f"--- Not enough sentences, chunking at last committed time {last_committed_time:.2f}")
@@ -250,17 +246,17 @@ class OnlineASRProcessor:
         Chunk the audio buffer based on segment-end timestamps reported by the ASR.
         Also ensures chunking happens if audio buffer exceeds a time limit.
         """
-        buffer_duration = len(self.audio_buffer) / self.SAMPLING_RATE        
+        buffer_duration = len(self.audio_buffer) / self.SAMPLING_RATE
         if not self.committed:
             if buffer_duration > self.buffer_trimming_sec:
                 chunk_time = self.buffer_time_offset + (buffer_duration / 2)
                 logger.debug(f"--- No speech detected, forced chunking at {chunk_time:.2f}")
                 self.chunk_at(chunk_time)
             return
-        
+
         logger.debug("Processing committed tokens for segmenting")
         ends = self.asr.segments_end_ts(res)
-        last_committed_time = self.committed[-1].end        
+        last_committed_time = self.committed[-1].end
         chunk_done = False
         if len(ends) > 1:
             logger.debug("Multiple segments available for chunking")
@@ -276,28 +272,24 @@ class OnlineASRProcessor:
                 logger.debug("--- Last segment not within committed area")
         else:
             logger.debug("--- Not enough segments to chunk")
-        
+
         if not chunk_done and buffer_duration > self.buffer_trimming_sec:
             logger.debug(f"--- Buffer too large, chunking at last committed time {last_committed_time:.2f}")
             self.chunk_at(last_committed_time)
-        
+
         logger.debug("Segment chunking complete")
-        
+
     def chunk_at(self, time: float):
         """
         Trim both the hypothesis and audio buffer at the given time.
         """
         logger.debug(f"Chunking at {time:.2f}s")
-        logger.debug(
-            f"Audio buffer length before chunking: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f}s"
-        )
+        logger.debug(f"Audio buffer length before chunking: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f}s")
         self.transcript_buffer.pop_committed(time)
         cut_seconds = time - self.buffer_time_offset
-        self.audio_buffer = self.audio_buffer[int(cut_seconds * self.SAMPLING_RATE):]
+        self.audio_buffer = self.audio_buffer[int(cut_seconds * self.SAMPLING_RATE) :]
         self.buffer_time_offset = time
-        logger.debug(
-            f"Audio buffer length after chunking: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f}s"
-        )
+        logger.debug(f"Audio buffer length after chunking: {len(self.audio_buffer)/self.SAMPLING_RATE:.2f}s")
 
     def words_to_sentences(self, tokens: List[ASRToken]) -> List[Sentence]:
         """
@@ -343,6 +335,7 @@ class OnlineASRProcessor:
                 )
                 sentences.append(sentence)
         return sentences
+
     def finish(self) -> Transcript:
         """
         Flush the remaining transcript when processing ends.
@@ -353,12 +346,7 @@ class OnlineASRProcessor:
         self.buffer_time_offset += len(self.audio_buffer) / self.SAMPLING_RATE
         return final_transcript
 
-    def concatenate_tokens(
-        self,
-        tokens: List[ASRToken],
-        sep: Optional[str] = None,
-        offset: float = 0
-    ) -> Transcript:
+    def concatenate_tokens(self, tokens: List[ASRToken], sep: Optional[str] = None, offset: float = 0) -> Transcript:
         sep = sep if sep is not None else self.asr.sep
         text = sep.join(token.text for token in tokens)
         probability = sum(token.probability for token in tokens if token.probability) / len(tokens) if tokens else None
@@ -374,11 +362,12 @@ class OnlineASRProcessor:
 class VACOnlineASRProcessor:
     """
     Wraps an OnlineASRProcessor with a Voice Activity Controller (VAC).
-    
+
     It receives small chunks of audio, applies VAD (e.g. with Silero),
     and when the system detects a pause in speech (or end of an utterance)
     it finalizes the utterance immediately.
     """
+
     SAMPLING_RATE = 16000
 
     def __init__(self, online_chunk_size: float, *args, **kwargs):
@@ -387,6 +376,7 @@ class VACOnlineASRProcessor:
 
         # Load a VAD model (e.g. Silero VAD)
         import torch
+
         model, _ = torch.hub.load(repo_or_dir="snakers4/silero-vad", model="silero_vad")
         from .silero_vad_iterator import FixedVADIterator
 
@@ -453,7 +443,7 @@ class VACOnlineASRProcessor:
                 # Keep 1 second worth of audio in case VAD later detects voice,
                 # but trim to avoid unbounded memory usage.
                 self.buffer_offset += max(0, len(self.audio_buffer) - self.SAMPLING_RATE)
-                self.audio_buffer = self.audio_buffer[-self.SAMPLING_RATE:]
+                self.audio_buffer = self.audio_buffer[-self.SAMPLING_RATE :]
 
     def process_iter(self) -> Transcript:
         """
@@ -475,7 +465,7 @@ class VACOnlineASRProcessor:
         self.current_online_chunk_buffer_size = 0
         self.is_currently_final = False
         return result
-    
+
     def get_buffer(self):
         """
         Get the unvalidated buffer in string format.
