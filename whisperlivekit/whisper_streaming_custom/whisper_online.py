@@ -7,7 +7,7 @@ from functools import lru_cache
 import librosa
 import numpy as np
 
-from .backends import FasterWhisperASR, MLXWhisper, OpenaiApiASR, WhisperTimestampedASR
+from .backends import FasterWhisperASR, MLXWhisper, OpenAIAPIASR, WhisperTimestampedASR
 from .online_asr import OnlineASRProcessor, VACOnlineASRProcessor
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ def backend_factory(args):
     backend = args.backend
     if backend == "openai-api":
         logger.debug("Using OpenAI API.")
-        asr = OpenaiApiASR(lang=args.lang)
+        asr = OpenAIAPIASR(lang=args.lang)
     else:
         if backend == "faster-whisper":
             asr_cls = FasterWhisperASR

@@ -38,7 +38,6 @@ WhisperLiveKit consists of three main components:
 - **Automatic Silence Chunking** – Automatically chunks when no audio is detected to limit buffer size
 - **Multi-User Support** – Handles multiple users simultaneously by decoupling backend and online ASR
 - **Confidence Validation** – Immediately validate high-confidence tokens for faster inference
-- **MLX Whisper Backend** – Optimized for Apple Silicon for faster local processing
 - **Buffering Preview** – Displays unvalidated transcription segments
 
 ## 📖 Quick Start
@@ -101,16 +100,13 @@ brew install ffmpeg
 pip install torch
 
 # Sentence-based buffer trimming
-pip install mosestokenizer wtpsplit
-pip install tokenize_uk  # If you work with Ukrainian text
+pip install mosestokenizer
 
 # Speaker diarization
 pip install diart
 
 # Alternative Whisper backends (default is faster-whisper)
 pip install whisperlivekit[whisper]              # Original Whisper
-pip install whisperlivekit[whisper-timestamped]  # Improved timestamps
-pip install whisperlivekit[mlx-whisper]          # Apple Silicon optimization
 pip install whisperlivekit[openai]               # OpenAI API
 ```
 
