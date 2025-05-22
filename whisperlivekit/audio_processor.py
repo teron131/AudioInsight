@@ -7,6 +7,7 @@ from time import sleep, time
 
 import ffmpeg
 import numpy as np
+import opencc
 
 from whisperlivekit.core import WhisperLiveKit
 from whisperlivekit.timed_objects import ASRToken
@@ -23,6 +24,11 @@ SENTINEL = object()  # unique sentinel object for end of stream marker
 def format_time(seconds: float) -> str:
     """Format seconds as HH:MM:SS."""
     return str(timedelta(seconds=int(seconds)))
+
+
+def s2hk(text: str) -> str:
+    """Convert Simplified Chinese to Traditional Chinese"""
+    return opencc.OpenCC("s2hk").convert(text)
 
 
 class AudioProcessor:
@@ -277,7 +283,7 @@ class AudioProcessor:
 
                 # Get buffer information
                 _buffer = self.online.get_buffer()
-                buffer = _buffer.text
+                buffer = s2hk(_buffer.text)
                 end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
                 # Avoid duplicating content
