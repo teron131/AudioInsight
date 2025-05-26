@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import re
 import traceback
 from datetime import timedelta
 from time import sleep, time
@@ -20,15 +21,44 @@ logger.setLevel(logging.DEBUG)
 
 SENTINEL = object()  # unique sentinel object for end of stream marker
 
+# Cache OpenCC converter instance to avoid recreation
+_s2hk_converter = None
+
+# Pre-compile regex for sentence splitting
+_sentence_split_regex = re.compile(r"[.!?]+")
+
+# Cache timedelta formatting for common values
+_cached_timedeltas = {}
+
 
 def format_time(seconds: float) -> str:
-    """Format seconds as HH:MM:SS."""
-    return str(timedelta(seconds=int(seconds)))
+    """Format seconds as HH:MM:SS with caching for performance."""
+    if seconds == 0:
+        return "0:00:00"
+
+    int_seconds = int(seconds)
+    if int_seconds in _cached_timedeltas:
+        return _cached_timedeltas[int_seconds]
+
+    result = str(timedelta(seconds=int_seconds))
+
+    # Cache up to 3600 entries (1 hour worth of seconds)
+    if len(_cached_timedeltas) < 3600:
+        _cached_timedeltas[int_seconds] = result
+
+    return result
 
 
 def s2hk(text: str) -> str:
-    """Convert Simplified Chinese to Traditional Chinese"""
-    return opencc.OpenCC("s2hk").convert(text)
+    """Convert Simplified Chinese to Traditional Chinese with cached converter."""
+    if not text:
+        return text
+
+    global _s2hk_converter
+    if _s2hk_converter is None:
+        _s2hk_converter = opencc.OpenCC("s2hk")
+
+    return _s2hk_converter.convert(text)
 
 
 class AudioProcessor:
@@ -42,14 +72,19 @@ class AudioProcessor:
 
         models = WhisperLiveKit()
 
-        # Audio processing settings
+        # Audio processing settings - cache computed values
         self.args = models.args
         self.sample_rate = 16000
         self.channels = 1
-        self.samples_per_sec = int(self.sample_rate * self.args.min_chunk_size)
         self.bytes_per_sample = 2
+
+        # Pre-compute commonly used values
+        self.samples_per_sec = int(self.sample_rate * self.args.min_chunk_size)
         self.bytes_per_sec = self.samples_per_sec * self.bytes_per_sample
         self.max_bytes_per_sec = 32000 * 5  # 5 seconds of audio at 32 kHz
+        self.sample_rate_str = str(self.sample_rate)  # Cache string conversion
+
+        # Timing settings
         self.last_ffmpeg_activity = time()
         self.ffmpeg_health_check_interval = 5
         self.ffmpeg_max_idle_time = 10
@@ -89,11 +124,13 @@ class AudioProcessor:
 
     def convert_pcm_to_float(self, pcm_buffer):
         """Convert PCM buffer in s16le format to normalized NumPy array."""
-        return np.frombuffer(pcm_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+        # Use in-place division for better memory efficiency
+        int16_array = np.frombuffer(pcm_buffer, dtype=np.int16)
+        return int16_array.astype(np.float32, copy=False) / 32768.0
 
     def start_ffmpeg_decoder(self):
         """Start FFmpeg process for WebM to PCM conversion."""
-        return ffmpeg.input("pipe:0", format="webm").output("pipe:1", format="s16le", acodec="pcm_s16le", ac=self.channels, ar=str(self.sample_rate)).run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+        return ffmpeg.input("pipe:0", format="webm").output("pipe:1", format="s16le", acodec="pcm_s16le", ac=self.channels, ar=self.sample_rate_str).run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
 
     async def restart_ffmpeg(self):
         """Restart the FFmpeg process after failure."""
@@ -376,21 +413,16 @@ class AudioProcessor:
                 if not lines:
                     lines = [{"speaker": 1, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
 
-                # Apply s2hk conversion to final output only (reduces latency)
-                final_lines = []
-                for line in lines:
-                    final_line = line.copy()
-                    if final_line["text"]:
-                        final_line["text"] = s2hk(final_line["text"])
-                    final_lines.append(final_line)
+                # Apply s2hk conversion to final output only (reduces latency) - optimize with list comprehension
+                final_lines = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in lines]
 
                 final_buffer_transcription = s2hk(buffer_transcription) if buffer_transcription else buffer_transcription
                 final_buffer_diarization = s2hk(buffer_diarization) if buffer_diarization else buffer_diarization
 
                 response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
 
-                # Only yield if content has changed (use final converted content for comparison)
-                response_content = " ".join([f"{line['speaker']} {line['text']}" for line in final_lines]) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
+                # Only yield if content has changed (use final converted content for comparison) - optimize string building
+                response_content = " ".join(f"{line['speaker']} {line['text']}" for line in final_lines) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
 
                 if response_content != self.last_response_content and (final_lines or final_buffer_transcription or final_buffer_diarization):
                     yield response
@@ -421,11 +453,12 @@ class AudioProcessor:
         if not tokens:
             return []
 
-        # Build full text from all tokens
-        full_text = sep.join(token.text for token in tokens if token.text.strip())
-
-        if not full_text.strip():
+        # Build full text from all tokens - optimize by filtering first
+        token_texts = [token.text for token in tokens if token.text and token.text.strip()]
+        if not token_texts:
             return []
+
+        full_text = sep.join(token_texts)
 
         try:
             # Use the sentence tokenizer to split into sentences
@@ -441,9 +474,7 @@ class AudioProcessor:
                         return await self._format_by_speaker(tokens, sep, end_attributed_speaker)
             else:
                 # No tokenizer, split by basic punctuation
-                import re
-
-                sentence_texts = re.split(r"[.!?]+", full_text)
+                sentence_texts = _sentence_split_regex.split(full_text)
                 sentence_texts = [s.strip() for s in sentence_texts if s.strip()]
 
             if not sentence_texts:
@@ -477,12 +508,13 @@ class AudioProcessor:
                     token_index = start_token_index + 1
 
                 if sent_tokens:
-                    # Determine speaker (use most common speaker in the sentence)
+                    # Determine speaker (use most common speaker in the sentence) - optimize speaker detection
                     if self.args.diarization:
-                        speakers = [t.speaker for t in sent_tokens if t.speaker not in [-1, 0]]
-                        if speakers:
-                            # Use most frequent speaker
-                            speaker = max(set(speakers), key=speakers.count)
+                        # Filter valid speakers once
+                        valid_speakers = [t.speaker for t in sent_tokens if t.speaker not in {-1, 0}]
+                        if valid_speakers:
+                            # Use most frequent speaker with optimized counting
+                            speaker = max(set(valid_speakers), key=valid_speakers.count)
                         else:
                             speaker = sent_tokens[0].speaker
                     else:
@@ -509,14 +541,15 @@ class AudioProcessor:
         for token in tokens:
             speaker = token.speaker
 
-            # Handle diarization
+            # Handle diarization - optimize with set membership checks
             if self.args.diarization:
-                if (speaker in [-1, 0]) and token.end >= end_attributed_speaker:
+                speaker_in_invalid_set = speaker in {-1, 0}
+                if speaker_in_invalid_set and token.end >= end_attributed_speaker:
                     undiarized_text.append(token.text)
                     continue
-                elif (speaker in [-1, 0]) and token.end < end_attributed_speaker:
+                elif speaker_in_invalid_set and token.end < end_attributed_speaker:
                     speaker = previous_speaker
-                if speaker not in [-1, 0]:
+                if not speaker_in_invalid_set:
                     last_end_diarized = max(token.end, last_end_diarized)
 
             # Group by speaker

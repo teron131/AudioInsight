@@ -16,7 +16,10 @@ class TimedText:
 class ASRToken(TimedText):
     def with_offset(self, offset: float) -> "ASRToken":
         """Return a new token with the time offset added."""
-        return ASRToken(self.start + offset, self.end + offset, self.text, self.speaker, self.probability)
+        # Handle None values efficiently without additional computation
+        start = self.start + offset if self.start is not None else None
+        end = self.end + offset if self.end is not None else None
+        return ASRToken(start, end, self.text, self.speaker, self.probability, self.is_dummy)
 
 
 @dataclass

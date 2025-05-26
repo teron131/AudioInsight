@@ -147,6 +147,7 @@ def parse_args():
 class WhisperLiveKit:
     _instance = None
     _initialized = False
+    _cached_html = None  # Cache for web interface HTML
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -179,9 +180,16 @@ class WhisperLiveKit:
         WhisperLiveKit._initialized = True
 
     def web_interface(self):
+        # Use cached HTML if available
+        if WhisperLiveKit._cached_html is not None:
+            return WhisperLiveKit._cached_html
+
         import pkg_resources
 
         html_path = pkg_resources.resource_filename("whisperlivekit", "web/live_transcription.html")
         with open(html_path, "r", encoding="utf-8") as f:
             html = f.read()
+
+        # Cache the HTML content
+        WhisperLiveKit._cached_html = html
         return html

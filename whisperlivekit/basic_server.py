@@ -28,6 +28,9 @@ logging.getLogger().setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+# Cache allowed audio types set for better performance
+ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}
+
 kit = None
 
 
@@ -96,13 +99,20 @@ async def process_file_through_websocket(file_path: str, duration: float, audio_
             break
         all_chunks.append(chunk)
 
+    # Calculate total bytes more efficiently and handle edge cases
     total_audio_bytes = sum(len(chunk) for chunk in all_chunks)
     if total_audio_bytes == 0:
         raise Exception("No audio data received from FFmpeg")
+    if duration <= 0:
+        raise Exception("Invalid duration for audio file")
 
     # Calculate bytes per second for real-time simulation
     bytes_per_second = total_audio_bytes / duration
     chunk_interval = chunk_size / bytes_per_second
+
+    # Pre-calculate number of chunks for progress reporting optimization
+    num_chunks = len(all_chunks)
+    progress_log_interval = max(1, int(2.0 / chunk_interval)) if chunk_interval > 0 else 1
 
     logger.info(f"Streaming {total_audio_bytes} bytes over {duration:.2f}s ({bytes_per_second:.0f} bytes/s, {chunk_interval:.3f}s per chunk)")
 
@@ -121,10 +131,10 @@ async def process_file_through_websocket(file_path: str, duration: float, audio_
         # Process the chunk through the same AudioProcessor pipeline
         await audio_processor.process_audio(chunk)
 
-        # Log progress periodically
-        if i % max(1, int(2.0 / chunk_interval)) == 0:
+        # Log progress periodically - use pre-calculated values
+        if i % progress_log_interval == 0:
             elapsed = time.time() - stream_start_time
-            audio_progress = (i / len(all_chunks)) * duration
+            audio_progress = (i / num_chunks) * duration
             logger.info(f"File streaming progress: {audio_progress:.1f}s/{duration:.1f}s ({elapsed:.1f}s elapsed)")
 
     # Send end of stream signal (same as live recording)
@@ -232,11 +242,9 @@ async def upload_file_for_websocket(file: UploadFile = File(...)):
     This endpoint prepares the file for unified WebSocket processing.
     """
     try:
-        # Validate file type
-        allowed_types = {"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}
-
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. Supported types: {', '.join(allowed_types)}")
+        # Validate file type - cache allowed types set at module level for better performance
+        if file.content_type not in ALLOWED_AUDIO_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. Supported types: {', '.join(ALLOWED_AUDIO_TYPES)}")
 
         logger.info(f"Uploading file for WebSocket processing: {file.filename} ({file.content_type})")
 
@@ -292,11 +300,9 @@ async def upload_file(file: UploadFile = File(...)):
         JSON response with transcription results
     """
     try:
-        # Validate file type
-        allowed_types = {"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}
-
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. Supported types: {', '.join(allowed_types)}")
+        # Validate file type - use cached allowed types
+        if file.content_type not in ALLOWED_AUDIO_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. Supported types: {', '.join(ALLOWED_AUDIO_TYPES)}")
 
         logger.info(f"Processing uploaded file: {file.filename} ({file.content_type})")
 
@@ -463,9 +469,7 @@ async def upload_file_stream(file: UploadFile = File(...)):
         temp_file_path = None
         try:
             # Validate file type
-            allowed_types = {"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}
-
-            if file.content_type not in allowed_types:
+            if file.content_type not in ALLOWED_AUDIO_TYPES:
                 yield f"event: error\ndata: {{'error': 'Unsupported file type: {file.content_type}'}}\n\n"
                 return
 
