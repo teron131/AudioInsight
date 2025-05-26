@@ -12,6 +12,171 @@
             text-align: center;
         }
 
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .mode-button {
+            padding: 10px 20px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mode-button.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .mode-button:hover {
+            background: #f0f0f0;
+        }
+
+        .mode-button.active:hover {
+            background: #0056b3;
+        }
+
+        .record-container,
+        .upload-container {
+            display: none;
+        }
+
+        .record-container.active,
+        .upload-container.active {
+            display: block;
+        }
+
+        /* Real-time toggle */
+        .realtime-toggle {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 24px;
+            background: #ddd;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.active {
+            background: #007bff;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        .toggle-switch.active .toggle-slider {
+            transform: translateX(26px);
+        }
+
+        /* File Upload Styles */
+        .upload-zone {
+            border: 3px dashed #ddd;
+            border-radius: 10px;
+            padding: 40px;
+            margin: 20px 0;
+            background: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            max-width: 500px;
+            margin: 20px auto;
+        }
+
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+
+        .upload-zone.processing {
+            border-color: #28a745;
+            background: #f0fff0;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .upload-subtext {
+            font-size: 14px;
+            color: #999;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-info {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .progress-container {
+            margin-top: 15px;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #28a745);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* Recording Styles */
         #recordButton {
             width: 50px;
             height: 50px;
@@ -65,7 +230,6 @@
             height: 25px;
         }
 
-        /* Recording elements */
         .recording-info {
             display: none;
             align-items: center;
@@ -197,7 +361,6 @@
 
         .textcontent {
             font-size: 16px;
-            /* margin-left: 10px; */
             padding-left: 10px;
             margin-bottom: 10px;
             margin-top: 1px;
@@ -214,7 +377,6 @@
             color: #7474748c;
             margin-left: 4px;
         }
-
 
         .spinner {
             display: inline-block;
@@ -255,44 +417,82 @@
 </head>
 
 <body>
+    <div class="main-container">
+        <!-- Mode selector -->
+        <div class="mode-selector">
+            <button class="mode-button active" id="recordMode">🎤 Live Recording</button>
+            <button class="mode-button" id="uploadMode">📁 Upload File</button>
+        </div>
 
-    <div class="settings-container">
-        <button id="recordButton">
-            <div class="shape-container">
-                <div class="shape"></div>
-            </div>
-            <div class="recording-info">
-                <div class="wave-container">
-                    <canvas id="waveCanvas"></canvas>
+        <!-- Recording container -->
+        <div class="record-container active">
+            <div class="settings-container">
+                <button id="recordButton">
+                    <div class="shape-container">
+                        <div class="shape"></div>
+                    </div>
+                    <div class="recording-info">
+                        <div class="wave-container">
+                            <canvas id="waveCanvas"></canvas>
+                        </div>
+                        <div class="timer">00:00</div>
+                    </div>
+                </button>
+                <div class="settings">
+                    <div>
+                        <label for="chunkSelector">Chunk size (ms):</label>
+                        <select id="chunkSelector">
+                            <option value="500">500 ms</option>
+                            <option value="1000" selected>1000 ms</option>
+                            <option value="2000">2000 ms</option>
+                            <option value="3000">3000 ms</option>
+                            <option value="4000">4000 ms</option>
+                            <option value="5000">5000 ms</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="websocketInput">WebSocket URL:</label>
+                        <input id="websocketInput" type="text" />
+                    </div>
                 </div>
-                <div class="timer">00:00</div>
-            </div>
-        </button>
-        <div class="settings">
-            <div>
-                <label for="chunkSelector">Chunk size (ms):</label>
-                <select id="chunkSelector">
-                    <option value="500">500 ms</option>
-                    <option value="1000" selected>1000 ms</option>
-                    <option value="2000">2000 ms</option>
-                    <option value="3000">3000 ms</option>
-                    <option value="4000">4000 ms</option>
-                    <option value="5000">5000 ms</option>
-                </select>
-            </div>
-            <div>
-                <label for="websocketInput">WebSocket URL:</label>
-                <input id="websocketInput" type="text" />
             </div>
         </div>
+
+        <!-- Upload container -->
+        <div class="upload-container">
+            <div class="realtime-toggle">
+                <span>Show results instantly</span>
+                <div class="toggle-switch" id="realtimeToggle">
+                    <div class="toggle-slider"></div>
+                </div>
+                <span>Show results in real-time</span>
+            </div>
+            
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">🎵</div>
+                <div class="upload-text">Drag & drop an audio file here</div>
+                <div class="upload-subtext">or click to browse files</div>
+                <div class="upload-subtext">Supports: MP3, MP4, WAV, M4A, FLAC, OGG</div>
+                <input type="file" id="fileInput" class="file-input" accept="audio/*">
+            </div>
+            
+            <div class="file-info" id="fileInfo" style="display: none;"></div>
+            
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Processing...</div>
+            </div>
+        </div>
+
+        <!-- Status and transcript -->
+        <p id="status"></p>
+        <div id="linesTranscript"></div>
     </div>
 
-    <p id="status"></p>
-
-    <!-- Speaker-labeled transcript -->
-    <div id="linesTranscript"></div>
-
     <script>
+        // Global variables
         let isRecording = false;
         let websocket = null;
         let recorder = null;
@@ -309,17 +509,42 @@
         let animationFrame = null;
         let waitingForStop = false;
         let lastReceivedData = null;
+        
+        // File upload variables
+        let isProcessingFile = false;
+        let currentMode = 'record'; // 'record' or 'upload'
+        let realtimeMode = true; // Real-time display mode
+        let uploadResults = []; // Store upload results for real-time display
+        
+        // Initialize canvas
         waveCanvas.width = 60 * (window.devicePixelRatio || 1);
         waveCanvas.height = 30 * (window.devicePixelRatio || 1);
         waveCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
 
+        // DOM elements
         const statusText = document.getElementById("status");
         const recordButton = document.getElementById("recordButton");
         const chunkSelector = document.getElementById("chunkSelector");
         const websocketInput = document.getElementById("websocketInput");
         const linesTranscriptDiv = document.getElementById("linesTranscript");
         const timerElement = document.querySelector(".timer");
+        
+        // Mode switching elements
+        const recordMode = document.getElementById("recordMode");
+        const uploadMode = document.getElementById("uploadMode");
+        const recordContainer = document.querySelector(".record-container");
+        const uploadContainer = document.querySelector(".upload-container");
+        
+        // File upload elements
+        const uploadZone = document.getElementById("uploadZone");
+        const fileInput = document.getElementById("fileInput");
+        const fileInfo = document.getElementById("fileInfo");
+        const progressContainer = document.getElementById("progressContainer");
+        const progressFill = document.getElementById("progressFill");
+        const progressText = document.getElementById("progressText");
+        const realtimeToggle = document.getElementById("realtimeToggle");
 
+        // WebSocket configuration
         const host = window.location.hostname || "localhost";
         const port = window.location.port || "8001";
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -327,6 +552,38 @@
         websocketInput.value = defaultWebSocketUrl;
         websocketUrl = defaultWebSocketUrl;
 
+        // Mode switching
+        recordMode.addEventListener("click", () => switchMode('record'));
+        uploadMode.addEventListener("click", () => switchMode('upload'));
+
+        function switchMode(mode) {
+            currentMode = mode;
+            
+            // Update button states
+            recordMode.classList.toggle('active', mode === 'record');
+            uploadMode.classList.toggle('active', mode === 'upload');
+            
+            // Update container visibility
+            recordContainer.classList.toggle('active', mode === 'record');
+            uploadContainer.classList.toggle('active', mode === 'upload');
+            
+            // Reset state when switching modes
+            if (isRecording) stopRecording();
+            if (isProcessingFile) {
+                // Reset file processing
+                isProcessingFile = false;
+                uploadZone.classList.remove('processing');
+                progressContainer.style.display = 'none';
+            }
+            
+            // Clear transcript and status
+            linesTranscriptDiv.innerHTML = '';
+            statusText.textContent = mode === 'record' ? 
+                "Click to start transcription" : 
+                "Select or drag an audio file to transcribe";
+        }
+
+        // Settings event listeners
         chunkSelector.addEventListener("change", () => {
             chunkDuration = parseInt(chunkSelector.value);
         });
@@ -341,6 +598,306 @@
             statusText.textContent = "WebSocket URL updated. Ready to connect.";
         });
 
+        // File upload event listeners
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', handleDragOver);
+        uploadZone.addEventListener('dragleave', handleDragLeave);
+        uploadZone.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+        realtimeToggle.addEventListener('click', toggleRealtimeMode);
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function toggleRealtimeMode() {
+            realtimeMode = !realtimeMode;
+            realtimeToggle.classList.toggle('active', realtimeMode);
+        }
+
+        // Initialize real-time mode as active
+        realtimeToggle.classList.add('active');
+
+        // Process uploaded file with real-time or instant display
+        async function processFile(file) {
+            if (isProcessingFile) return;
+            
+            isProcessingFile = true;
+            uploadZone.classList.add('processing');
+            progressContainer.style.display = 'block';
+            progressFill.style.width = '0%';
+            
+            // Clear previous transcription
+            linesTranscriptDiv.innerHTML = '';
+            uploadResults = [];
+            
+            // Show file info
+            fileInfo.style.display = 'block';
+            fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            
+            if (realtimeMode) {
+                // Use Server-Sent Events for true real-time streaming
+                await processFileRealtime(file);
+            } else {
+                // Use regular upload for instant results
+                await processFileInstant(file);
+            }
+        }
+
+        // Process file with real-time streaming using Server-Sent Events
+        async function processFileRealtime(file) {
+            try {
+                statusText.textContent = "Starting real-time transcription...";
+                progressText.textContent = "Connecting to streaming endpoint...";
+                
+                // Create FormData for file upload
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                // Use fetch to start the streaming upload
+                const response = await fetch('/upload-stream', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                // Create a reader for the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentLines = [];
+                
+                statusText.textContent = "Receiving real-time transcription...";
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) break;
+                    
+                    // Decode the chunk and add to buffer
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // Process complete SSE events
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop(); // Keep incomplete event in buffer
+                    
+                    for (const event of events) {
+                        if (event.trim()) {
+                            processSSEEvent(event, currentLines);
+                        }
+                    }
+                }
+                
+                // Process any remaining event in buffer
+                if (buffer.trim()) {
+                    processSSEEvent(buffer, currentLines);
+                }
+                
+            } catch (error) {
+                console.error("Error in real-time processing:", error);
+                handleUploadError(error.message);
+            }
+        }
+
+        // Process SSE events from the streaming endpoint
+        function processSSEEvent(eventText, currentLines) {
+            const lines = eventText.split('\n');
+            let eventType = '';
+            let eventData = '';
+            
+            for (const line of lines) {
+                if (line.startsWith('event: ')) {
+                    eventType = line.substring(7);
+                } else if (line.startsWith('data: ')) {
+                    eventData = line.substring(6);
+                }
+            }
+            
+            if (!eventType || !eventData) return;
+            
+            try {
+                const data = JSON.parse(eventData);
+                
+                switch (eventType) {
+                    case 'start':
+                        statusText.textContent = `Processing ${data.filename} (${data.duration.toFixed(1)}s)...`;
+                        progressText.textContent = "Real-time transcription starting...";
+                        break;
+                        
+                    case 'transcription':
+                        // Add new transcription segment in real-time
+                        if (data.text && data.text.trim()) {
+                            const newSegment = {
+                                text: data.text,
+                                speaker: data.lines && data.lines[0] ? data.lines[0].speaker : 1,
+                                beg: currentLines.length * 5, // Approximate timing
+                                end: (currentLines.length + 1) * 5
+                            };
+                            currentLines.push(newSegment);
+                            
+                            // Update display immediately with new segment
+                            renderLinesWithBuffer(
+                                currentLines.slice(), // Current completed lines
+                                "", // No diarization buffer for uploads
+                                data.buffer || "", // Current buffer
+                                0, 0, false // Not finalizing
+                            );
+                        }
+                        break;
+                        
+                    case 'progress':
+                        const progressPercent = (data.progress / data.total) * 100;
+                        progressFill.style.width = `${progressPercent}%`;
+                        progressText.textContent = `Processing: ${data.progress.toFixed(1)}s / ${data.total.toFixed(1)}s`;
+                        break;
+                        
+                    case 'complete':
+                        progressFill.style.width = '100%';
+                        progressText.textContent = "Real-time transcription complete!";
+                        statusText.textContent = "File processed successfully in real-time!";
+                        
+                        // Final render to clean up any remaining buffer content
+                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true);
+                        
+                        setTimeout(() => {
+                            isProcessingFile = false;
+                            uploadZone.classList.remove('processing');
+                            progressContainer.style.display = 'none';
+                        }, 2000);
+                        break;
+                        
+                    case 'error':
+                        handleUploadError(data.error || 'Unknown streaming error');
+                        break;
+                }
+                
+            } catch (e) {
+                console.warn('Failed to parse SSE event data:', eventData, e);
+            }
+        }
+
+        // Process file for instant results (original implementation)
+        async function processFileInstant(file) {
+            try {
+                statusText.textContent = "Uploading and processing file...";
+                progressText.textContent = "Uploading file...";
+                
+                // Create FormData for file upload
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                // Upload file to server with progress tracking
+                const xhr = new XMLHttpRequest();
+                
+                // Track upload progress
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressFill.style.width = `${percentComplete}%`;
+                        progressText.textContent = `Uploading: ${Math.round(percentComplete)}%`;
+                    }
+                });
+                
+                // Handle response
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        try {
+                            const result = JSON.parse(xhr.responseText);
+                            handleUploadSuccess(result);
+                        } catch (e) {
+                            console.error('Error parsing response:', e);
+                            handleUploadError('Invalid response from server');
+                        }
+                    } else {
+                        try {
+                            const error = JSON.parse(xhr.responseText);
+                            handleUploadError(error.detail || `Upload failed (${xhr.status})`);
+                        } catch (e) {
+                            handleUploadError(`Upload failed (${xhr.status})`);
+                        }
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    handleUploadError('Network error during upload');
+                };
+                
+                // Send the request
+                xhr.open('POST', '/upload');
+                xhr.send(formData);
+                
+            } catch (error) {
+                console.error("Error processing file:", error);
+                handleUploadError(error.message);
+            }
+        }
+        
+        function handleUploadSuccess(result) {
+            progressFill.style.width = '100%';
+            progressText.textContent = "Processing complete!";
+            statusText.textContent = "File processed successfully!";
+            
+            // Store results for processing
+            uploadResults = result.transcription || [];
+            
+            // Display all results immediately (instant mode)
+            displayAllResults();
+            
+            setTimeout(() => {
+                isProcessingFile = false;
+                uploadZone.classList.remove('processing');
+                progressContainer.style.display = 'none';
+            }, 2000);
+        }
+
+        function displayAllResults() {
+            if (uploadResults.length > 0) {
+                // Convert server response to the format expected by renderLinesWithBuffer
+                const lines = uploadResults.map((segment, index) => ({
+                    text: segment.text,
+                    speaker: segment.lines && segment.lines[0] ? segment.lines[0].speaker : 1,
+                    beg: index * 5, // Approximate timing - 5 second segments
+                    end: (index + 1) * 5
+                }));
+                
+                // Render all transcription at once
+                renderLinesWithBuffer(lines, "", "", 0, 0, true);
+            }
+        }
+        
+        function handleUploadError(errorMessage) {
+            statusText.textContent = `Error processing file: ${errorMessage}`;
+            isProcessingFile = false;
+            uploadZone.classList.remove('processing');
+            progressContainer.style.display = 'none';
+        }
+
+        // WebSocket setup function (same as original)
         function setupWebSocket() {
             return new Promise((resolve, reject) => {
                 try {
@@ -369,8 +926,6 @@
                                 );
                             }
                         }
-                        // If ready_to_stop was received, statusText is already "Finished processing..."
-                        // and waitingForStop is false.
                     } else {
                         statusText.textContent = "Disconnected from the WebSocket server. (Check logs if model is loading.)";
                         if (isRecording) {
@@ -414,7 +969,6 @@
                         
                         if (websocket) {
                             websocket.close(); // will trigger onclose
-                            // websocket = null; // onclose handle setting websocket to null
                         }
                         return;
                     }
@@ -442,6 +996,7 @@
             });
         }
 
+        // Render transcript function (same as original)
         function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false) {
             const linesHtml = lines.map((item, idx) => {
                 let timeInfo = "";
@@ -459,7 +1014,6 @@
                 } else if (item.speaker !== -1 && item.speaker !== 0) {
                     speakerLabel = `<span id="speaker">Speaker ${item.speaker}<span id='timeInfo'>${timeInfo}</span></span>`;
                 }
-
 
                 let currentLineText = item.text || "";
 
@@ -497,6 +1051,7 @@
             linesTranscriptDiv.innerHTML = linesHtml;
         }
 
+        // Timer and visualization functions (same as original)
         function updateTimer() {
             if (!startTime) return;
             
@@ -540,6 +1095,7 @@
             animationFrame = requestAnimationFrame(drawWaveform);
         }
 
+        // Recording functions (same as original)
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -616,7 +1172,6 @@
             timerElement.textContent = "00:00";
             startTime = null;
             
-            
             isRecording = false;
             updateUI();	
         }
@@ -625,15 +1180,13 @@
             if (!isRecording) {
                 if (waitingForStop) {
                     console.log("Waiting for stop, early return");
-                    return;  // Early return, UI is already updated
+                    return;
                 }
                 console.log("Connecting to WebSocket");
                 try {
-                    // If we have an active WebSocket that's still processing, just restart audio capture
                     if (websocket && websocket.readyState === WebSocket.OPEN) {
                         await startRecording();
                     } else {
-                        // If no active WebSocket or it's closed, create new one
                         await setupWebSocket();
                         await startRecording();
                     }
@@ -668,7 +1221,11 @@
             }
         }
 
+        // Event listeners
         recordButton.addEventListener("click", toggleRecording);
+        
+        // Initialize
+        statusText.textContent = "Click to start transcription";
     </script>
 </body>
 

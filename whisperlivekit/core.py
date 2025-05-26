@@ -1,10 +1,10 @@
 try:
-    from whisperlivekit.whisper_streaming_custom.whisper_online import (
+    from whisperlivekit.whisper_streaming.whisper_online import (
         backend_factory,
         warmup_asr,
     )
 except ImportError:
-    from .whisper_streaming_custom.whisper_online import backend_factory, warmup_asr
+    from .whisper_streaming.whisper_online import backend_factory, warmup_asr
 
 from argparse import ArgumentParser, Namespace
 

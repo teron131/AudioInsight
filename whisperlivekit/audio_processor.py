@@ -11,7 +11,7 @@ import opencc
 
 from whisperlivekit.core import WhisperLiveKit
 from whisperlivekit.timed_objects import ASRToken
-from whisperlivekit.whisper_streaming_custom.whisper_online import online_factory
+from whisperlivekit.whisper_streaming.whisper_online import online_factory
 
 # Set up logging once
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
