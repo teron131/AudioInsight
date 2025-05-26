@@ -1,1 +1,1 @@
-whisperlivekit-server --model large-v3-turbo
+whisperlivekit-server --model tiny --backend openai-api

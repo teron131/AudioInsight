@@ -75,8 +75,78 @@ async def handle_websocket_results(websocket, results_generator):
         logger.warning(f"Error in WebSocket results handler: {e}")
 
 
+async def process_file_through_websocket(file_path: str, duration: float, audio_processor: AudioProcessor):
+    """
+    Process an audio file through the same pipeline as live recording.
+    This function streams the file in real-time to maintain identical processing.
+    """
+    logger.info(f"Starting unified file processing: {file_path}")
+
+    # Use FFmpeg to convert file to WebM format (same as live recording)
+    ff = subprocess.Popen(["ffmpeg", "-i", file_path, "-f", "webm", "-c:a", "libopus", "-ar", "16000", "-ac", "1", "pipe:1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    # Read all data first to calculate proper streaming rate
+    logger.info("Buffering audio data for real-time streaming...")
+    all_chunks = []
+    chunk_size = 4096
+
+    while True:
+        chunk = ff.stdout.read(chunk_size)
+        if not chunk:
+            break
+        all_chunks.append(chunk)
+
+    total_audio_bytes = sum(len(chunk) for chunk in all_chunks)
+    if total_audio_bytes == 0:
+        raise Exception("No audio data received from FFmpeg")
+
+    # Calculate bytes per second for real-time simulation
+    bytes_per_second = total_audio_bytes / duration
+    chunk_interval = chunk_size / bytes_per_second
+
+    logger.info(f"Streaming {total_audio_bytes} bytes over {duration:.2f}s ({bytes_per_second:.0f} bytes/s, {chunk_interval:.3f}s per chunk)")
+
+    # Send chunks with real-time pacing (identical to live recording processing)
+    stream_start_time = time.time()
+    for i, chunk in enumerate(all_chunks):
+        # Calculate target time for this chunk
+        target_time = stream_start_time + (i * chunk_interval)
+        current_time = time.time()
+
+        # Sleep if we're ahead of schedule
+        sleep_time = target_time - current_time
+        if sleep_time > 0:
+            await asyncio.sleep(sleep_time)
+
+        # Process the chunk through the same AudioProcessor pipeline
+        await audio_processor.process_audio(chunk)
+
+        # Log progress periodically
+        if i % max(1, int(2.0 / chunk_interval)) == 0:
+            elapsed = time.time() - stream_start_time
+            audio_progress = (i / len(all_chunks)) * duration
+            logger.info(f"File streaming progress: {audio_progress:.1f}s/{duration:.1f}s ({elapsed:.1f}s elapsed)")
+
+    # Send end of stream signal (same as live recording)
+    await audio_processor.process_audio(b"")
+
+    total_elapsed = time.time() - stream_start_time
+    logger.info(f"Finished unified file processing: {total_elapsed:.2f}s (target: {duration:.2f}s)")
+
+    # Clean up temporary file automatically after processing
+    try:
+        if os.path.exists(file_path) and "/tmp/" in file_path:
+            os.unlink(file_path)
+            logger.info(f"Automatically cleaned up temporary file: {file_path}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-cleanup temporary file {file_path}: {e}")
+
+    return total_elapsed
+
+
 @app.websocket("/asr")
 async def websocket_endpoint(websocket: WebSocket):
+    """Unified WebSocket endpoint for both live recording and file upload."""
     audio_processor = AudioProcessor()
 
     await websocket.accept()
@@ -87,8 +157,32 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            message = await websocket.receive_bytes()
-            await audio_processor.process_audio(message)
+            message = await websocket.receive()
+
+            # Handle different message types
+            if "bytes" in message:
+                # Live recording: direct audio data
+                await audio_processor.process_audio(message["bytes"])
+            elif "text" in message:
+                # File upload: JSON message with file info
+                try:
+                    data = json.loads(message["text"])
+                    if data.get("type") == "file_upload":
+                        # Process uploaded file through unified pipeline
+                        file_path = data.get("file_path")
+                        duration = data.get("duration", 0)
+
+                        if file_path and os.path.exists(file_path):
+                            logger.info(f"Processing uploaded file via WebSocket: {file_path}")
+                            await process_file_through_websocket(file_path, duration, audio_processor)
+                        else:
+                            logger.warning(f"File not found for WebSocket processing: {file_path}")
+                            await websocket.send_json({"type": "error", "error": "File not found or invalid file path"})
+                except json.JSONDecodeError:
+                    logger.warning("Received invalid JSON in WebSocket message")
+                except Exception as e:
+                    logger.error(f"Error processing file upload message: {e}")
+                    await websocket.send_json({"type": "error", "error": f"Error processing file: {str(e)}"})
     except KeyError as e:
         if "bytes" in str(e):
             logger.warning(f"Client has closed the connection.")
@@ -111,6 +205,79 @@ async def websocket_endpoint(websocket: WebSocket):
 
         await audio_processor.cleanup()
         logger.info("WebSocket endpoint cleaned up successfully.")
+
+
+@app.post("/cleanup-file")
+async def cleanup_temp_file(file_path: str):
+    """
+    Clean up temporary file after processing.
+    This endpoint allows the client to request cleanup of temporary files.
+    """
+    try:
+        if os.path.exists(file_path) and "/tmp/" in file_path:  # Safety check
+            os.unlink(file_path)
+            logger.info(f"Cleaned up temporary file: {file_path}")
+            return {"status": "success", "message": "File cleaned up successfully"}
+        else:
+            return {"status": "not_found", "message": "File not found or invalid path"}
+    except Exception as e:
+        logger.error(f"Error cleaning up file {file_path}: {e}")
+        return {"status": "error", "message": f"Error cleaning up file: {str(e)}"}
+
+
+@app.post("/upload-file")
+async def upload_file_for_websocket(file: UploadFile = File(...)):
+    """
+    Upload file and return file info for WebSocket processing.
+    This endpoint prepares the file for unified WebSocket processing.
+    """
+    try:
+        # Validate file type
+        allowed_types = {"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}
+
+        if file.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. Supported types: {', '.join(allowed_types)}")
+
+        logger.info(f"Uploading file for WebSocket processing: {file.filename} ({file.content_type})")
+
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
+            # Write uploaded file to temporary location
+            content = await file.read()
+            temp_file.write(content)
+            temp_file.flush()
+            temp_file_path = temp_file.name
+
+        # Get audio duration using ffprobe
+        logger.info(f"Getting duration for audio file: {temp_file_path}")
+        duration_cmd = ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", temp_file_path]
+        duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
+
+        if duration_result.returncode != 0:
+            logger.error(f"ffprobe failed: {duration_result.stderr}")
+            os.unlink(temp_file_path)  # Clean up on error
+            raise HTTPException(status_code=500, detail=f"Failed to get audio duration: {duration_result.stderr}")
+
+        try:
+            duration_str = duration_result.stdout.strip()
+            if not duration_str:
+                raise Exception("Empty duration result from ffprobe")
+            duration = float(duration_str)
+            if duration <= 0:
+                raise Exception(f"Invalid duration: {duration}")
+            logger.info(f"Audio duration: {duration:.2f} seconds")
+        except (ValueError, IndexError) as e:
+            os.unlink(temp_file_path)  # Clean up on error
+            raise HTTPException(status_code=500, detail=f"Could not parse audio duration '{duration_result.stdout.strip()}': {e}")
+
+        return {"status": "success", "filename": file.filename, "file_path": temp_file_path, "duration": duration, "message": "File uploaded successfully. Use WebSocket to process."}
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file {file.filename}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
 
 
 @app.post("/upload")

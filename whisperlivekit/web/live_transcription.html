@@ -58,10 +58,10 @@
             display: block;
         }
 
-        /* Real-time toggle */
+        /* Real-time toggle - DEPRECATED: Now both modes use unified WebSocket processing */
         .realtime-toggle {
             margin: 15px 0;
-            display: flex;
+            display: none; /* Hidden since unified processing is always real-time */
             align-items: center;
             gap: 10px;
             justify-content: center;
@@ -639,7 +639,7 @@
         // Initialize real-time mode as active
         realtimeToggle.classList.add('active');
 
-        // Process uploaded file with real-time or instant display
+        // Process uploaded file using unified WebSocket approach
         async function processFile(file) {
             if (isProcessingFile) return;
             
@@ -656,16 +656,84 @@
             fileInfo.style.display = 'block';
             fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
             
-            if (realtimeMode) {
-                // Use Server-Sent Events for true real-time streaming
-                await processFileRealtime(file);
-            } else {
-                // Use regular upload for instant results
-                await processFileInstant(file);
+            // Always use unified WebSocket processing for consistency
+            await processFileUnified(file);
+        }
+
+        // Process file using unified WebSocket approach (same as live recording)
+        async function processFileUnified(file) {
+            try {
+                statusText.textContent = "Uploading file...";
+                progressText.textContent = "Preparing file for processing...";
+                
+                // Step 1: Upload file to server
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const uploadResponse = await fetch('/upload-file', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json();
+                    throw new Error(errorData.detail || `Upload failed (${uploadResponse.status})`);
+                }
+                
+                const uploadResult = await uploadResponse.json();
+                const { file_path, duration, filename } = uploadResult;
+                
+                statusText.textContent = `Processing ${filename} (${duration.toFixed(1)}s)...`;
+                progressText.textContent = "Connecting to WebSocket...";
+                
+                // Step 2: Connect to WebSocket (same as live recording)
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    // Already connected, proceed with file processing
+                    await processFileViaWebSocket(file_path, duration, filename);
+                } else {
+                    // Need to establish WebSocket connection first
+                    console.log("Connecting to WebSocket for file processing");
+                    await setupWebSocket();
+                    await processFileViaWebSocket(file_path, duration, filename);
+                }
+                
+            } catch (error) {
+                console.error("Error in unified file processing:", error);
+                handleUploadError(error.message);
             }
         }
 
-        // Process file with real-time streaming using Server-Sent Events
+        // Process file through WebSocket connection (identical to live recording pipeline)
+        async function processFileViaWebSocket(filePath, duration, filename) {
+            try {
+                progressText.textContent = "Processing via WebSocket...";
+                
+                // Send file processing request through WebSocket (same as live recording)
+                const fileMessage = {
+                    type: "file_upload",
+                    file_path: filePath,
+                    duration: duration,
+                    filename: filename
+                };
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify(fileMessage));
+                    statusText.textContent = `Processing file through unified pipeline...`;
+                    progressText.textContent = "Receiving real-time transcription...";
+                } else {
+                    throw new Error("WebSocket connection not available");
+                }
+                
+                // The transcription results will come through the same WebSocket message handler
+                // as live recording, ensuring identical processing behavior
+                
+            } catch (error) {
+                console.error("Error processing file via WebSocket:", error);
+                handleUploadError(error.message);
+            }
+        }
+
+        // Process file with real-time streaming using Server-Sent Events (DEPRECATED - keeping for backward compatibility)
         async function processFileRealtime(file) {
             try {
                 statusText.textContent = "Starting real-time transcription...";
@@ -963,8 +1031,24 @@
                                 true // isFinalizing = true
                             );
                         }
-                        statusText.textContent = "Finished processing audio! Ready to record again.";
-                        recordButton.disabled = false;
+                        
+                        // Handle completion for both live recording and file upload
+                        if (isProcessingFile) {
+                            // File upload completed
+                            progressFill.style.width = '100%';
+                            progressText.textContent = "File processing complete!";
+                            statusText.textContent = "File processed successfully through unified pipeline!";
+                            
+                            setTimeout(() => {
+                                isProcessingFile = false;
+                                uploadZone.classList.remove('processing');
+                                progressContainer.style.display = 'none';
+                            }, 2000);
+                        } else {
+                            // Live recording completed
+                            statusText.textContent = "Finished processing audio! Ready to record again.";
+                            recordButton.disabled = false;
+                        }
                         
                         if (websocket) {
                             websocket.close(); // will trigger onclose
@@ -972,9 +1056,20 @@
                         return;
                     }
                     
+                    // Check for error messages
+                    if (data.type === "error") {
+                        console.error("WebSocket error received:", data.error);
+                        if (isProcessingFile) {
+                            handleUploadError(data.error || 'Unknown error during file processing');
+                        } else {
+                            statusText.textContent = `Error: ${data.error}`;
+                        }
+                        return;
+                    }
+                    
                     lastReceivedData = data; 
                     
-                    // Handle normal transcription updates
+                    // Handle normal transcription updates (same for both live and file upload)
                     const { 
                         lines = [], 
                         buffer_transcription = "", 
