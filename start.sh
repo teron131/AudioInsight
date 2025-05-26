@@ -1,0 +1,1 @@
+whisperlivekit-server --model large-v3-turbo

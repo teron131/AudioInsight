@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     original_argv = sys.argv.copy()
     try:
         sys.argv = [sys.argv[0]]  # Keep only the script name
-        kit = WhisperLiveKit(model="large-v3-turbo", diarization=False)
+        kit = WhisperLiveKit(model="large-v3-turbo")
     finally:
         sys.argv = original_argv
     yield

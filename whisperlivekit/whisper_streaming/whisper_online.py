@@ -16,10 +16,10 @@ WHISPER_LANG_CODES = "af,am,ar,as,az,ba,be,bg,bn,bo,br,bs,ca,cs,cy,da,de,el,en,e
 def create_tokenizer(lang):
     """returns an object that has split function that works like the one of MosesTokenizer"""
 
-    assert lang in WHISPER_LANG_CODES, "language must be Whisper's supported lang code: " + " ".join(WHISPER_LANG_CODES)
+    assert lang in WHISPER_LANG_CODES or lang == "auto", "language must be Whisper's supported lang code: " + " ".join(WHISPER_LANG_CODES)
 
     # supported by fast-mosestokenizer
-    if lang in "as bn ca cs de el en es et fi fr ga gu hi hu is it kn lt lv ml mni mr nl or pa pl pt ro ru sk sl sv ta te yue zh".split():
+    if lang in "as bn ca cs de el en es et fi fr ga gu hi hu is it kn lt lv ml mni mr nl or pa pl pt ro ru sk sl sv ta te yue zh".split() or lang == "auto":
         from mosestokenizer import MosesSentenceSplitter
 
         return MosesSentenceSplitter(lang)
@@ -34,12 +34,7 @@ def backend_factory(args):
         logger.debug("Using OpenAI API.")
         asr = OpenAIAPIASR(lang=args.lang)
     else:
-        if backend == "faster-whisper":
-            asr_cls = FasterWhisperASR
-        elif backend == "mlx-whisper":
-            asr_cls = MLXWhisper
-        else:
-            asr_cls = WhisperTimestampedASR
+        asr_cls = FasterWhisperASR
 
         # Only for FasterWhisperASR and WhisperTimestampedASR
         size = args.model

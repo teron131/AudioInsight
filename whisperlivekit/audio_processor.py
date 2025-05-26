@@ -283,7 +283,7 @@ class AudioProcessor:
 
                 # Get buffer information
                 _buffer = self.online.get_buffer()
-                buffer = s2hk(_buffer.text)
+                buffer = _buffer.text
                 end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
                 # Avoid duplicating content
@@ -348,36 +348,23 @@ class AudioProcessor:
                     state = await self.get_current_state()
                     tokens = state["tokens"]
 
-                # Format output
-                previous_speaker = -1
-                lines = []
-                last_end_diarized = 0
-                undiarized_text = []
+                # Check if we have a sentence tokenizer available
+                has_sentence_tokenizer = hasattr(self, "online") and hasattr(self.online, "tokenize") and self.online.tokenize is not None
 
-                # Process each token
-                for token in tokens:
-                    speaker = token.speaker
-
-                    # Handle diarization
-                    if self.args.diarization:
-                        if (speaker in [-1, 0]) and token.end >= end_attributed_speaker:
-                            undiarized_text.append(token.text)
-                            continue
-                        elif (speaker in [-1, 0]) and token.end < end_attributed_speaker:
-                            speaker = previous_speaker
-                        if speaker not in [-1, 0]:
-                            last_end_diarized = max(token.end, last_end_diarized)
-
-                    # Group by speaker
-                    if speaker != previous_speaker or not lines:
-                        lines.append({"speaker": speaker, "text": token.text, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
-                        previous_speaker = speaker
-                    elif token.text:  # Only append if text isn't empty
-                        lines[-1]["text"] += sep + token.text
-                        lines[-1]["end"] = format_time(token.end)
-                        lines[-1]["diff"] = round(token.end - last_end_diarized, 2)
+                # Format output - segment by sentences if tokenizer available, otherwise by speaker
+                if has_sentence_tokenizer and tokens:
+                    lines = await self._format_by_sentences(tokens, sep, end_attributed_speaker)
+                else:
+                    lines = await self._format_by_speaker(tokens, sep, end_attributed_speaker)
 
                 # Handle undiarized text
+                undiarized_text = []
+                if self.args.diarization:
+                    # Collect any undiarized tokens
+                    for token in tokens:
+                        if (token.speaker in [-1, 0]) and token.end >= end_attributed_speaker:
+                            undiarized_text.append(token.text)
+
                 if undiarized_text:
                     combined = sep.join(undiarized_text)
                     if buffer_transcription:
@@ -385,16 +372,27 @@ class AudioProcessor:
                     await self.update_diarization(end_attributed_speaker, combined)
                     buffer_diarization = combined
 
-                # Create response object
+                # Create response object with s2hk conversion applied to final output
                 if not lines:
                     lines = [{"speaker": 1, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
 
-                response = {"lines": lines, "buffer_transcription": buffer_transcription, "buffer_diarization": buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
+                # Apply s2hk conversion to final output only (reduces latency)
+                final_lines = []
+                for line in lines:
+                    final_line = line.copy()
+                    if final_line["text"]:
+                        final_line["text"] = s2hk(final_line["text"])
+                    final_lines.append(final_line)
 
-                # Only yield if content has changed
-                response_content = " ".join([f"{line['speaker']} {line['text']}" for line in lines]) + f" | {buffer_transcription} | {buffer_diarization}"
+                final_buffer_transcription = s2hk(buffer_transcription) if buffer_transcription else buffer_transcription
+                final_buffer_diarization = s2hk(buffer_diarization) if buffer_diarization else buffer_diarization
 
-                if response_content != self.last_response_content and (lines or buffer_transcription or buffer_diarization):
+                response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
+
+                # Only yield if content has changed (use final converted content for comparison)
+                response_content = " ".join([f"{line['speaker']} {line['text']}" for line in final_lines]) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
+
+                if response_content != self.last_response_content and (final_lines or final_buffer_transcription or final_buffer_diarization):
                     yield response
                     self.last_response_content = response_content
 
@@ -417,6 +415,120 @@ class AudioProcessor:
                 logger.warning(f"Exception in results_formatter: {e}")
                 logger.warning(f"Traceback: {traceback.format_exc()}")
                 await asyncio.sleep(0.5)  # Back off on error
+
+    async def _format_by_sentences(self, tokens, sep, end_attributed_speaker):
+        """Format tokens by sentence boundaries using the sentence tokenizer."""
+        if not tokens:
+            return []
+
+        # Build full text from all tokens
+        full_text = sep.join(token.text for token in tokens if token.text.strip())
+
+        if not full_text.strip():
+            return []
+
+        try:
+            # Use the sentence tokenizer to split into sentences
+            if hasattr(self.online, "tokenize") and self.online.tokenize:
+                try:
+                    sentence_texts = self.online.tokenize(full_text)
+                except Exception as e:
+                    # Some tokenizers expect a list input
+                    try:
+                        sentence_texts = self.online.tokenize([full_text])
+                    except Exception as e2:
+                        logger.warning(f"Sentence tokenization failed: {e2}. Falling back to speaker-based segmentation.")
+                        return await self._format_by_speaker(tokens, sep, end_attributed_speaker)
+            else:
+                # No tokenizer, split by basic punctuation
+                import re
+
+                sentence_texts = re.split(r"[.!?]+", full_text)
+                sentence_texts = [s.strip() for s in sentence_texts if s.strip()]
+
+            if not sentence_texts:
+                sentence_texts = [full_text]
+
+            # Map sentences back to tokens and create lines
+            lines = []
+            token_index = 0
+
+            for sent_text in sentence_texts:
+                sent_text = sent_text.strip()
+                if not sent_text:
+                    continue
+
+                # Find tokens that make up this sentence
+                sent_tokens = []
+                accumulated = ""
+                start_token_index = token_index
+
+                # Accumulate tokens until we roughly match the sentence text
+                while token_index < len(tokens) and len(accumulated) < len(sent_text):
+                    token = tokens[token_index]
+                    if token.text.strip():  # Only consider non-empty tokens
+                        accumulated = (accumulated + " " + token.text).strip() if accumulated else token.text
+                        sent_tokens.append(token)
+                    token_index += 1
+
+                # If we didn't get any tokens, try to get at least one
+                if not sent_tokens and start_token_index < len(tokens):
+                    sent_tokens = [tokens[start_token_index]]
+                    token_index = start_token_index + 1
+
+                if sent_tokens:
+                    # Determine speaker (use most common speaker in the sentence)
+                    if self.args.diarization:
+                        speakers = [t.speaker for t in sent_tokens if t.speaker not in [-1, 0]]
+                        if speakers:
+                            # Use most frequent speaker
+                            speaker = max(set(speakers), key=speakers.count)
+                        else:
+                            speaker = sent_tokens[0].speaker
+                    else:
+                        speaker = 1  # Default speaker when no diarization
+
+                    # Create line for this sentence
+                    line = {"speaker": speaker, "text": sent_text, "beg": format_time(sent_tokens[0].start), "end": format_time(sent_tokens[-1].end), "diff": 0}  # Not used in sentence mode
+                    lines.append(line)
+
+            return lines
+
+        except Exception as e:
+            logger.warning(f"Error in sentence-based formatting: {e}. Falling back to speaker-based segmentation.")
+            return await self._format_by_speaker(tokens, sep, end_attributed_speaker)
+
+    async def _format_by_speaker(self, tokens, sep, end_attributed_speaker):
+        """Format tokens by speaker changes (original behavior)."""
+        previous_speaker = -1
+        lines = []
+        last_end_diarized = 0
+        undiarized_text = []
+
+        # Process each token
+        for token in tokens:
+            speaker = token.speaker
+
+            # Handle diarization
+            if self.args.diarization:
+                if (speaker in [-1, 0]) and token.end >= end_attributed_speaker:
+                    undiarized_text.append(token.text)
+                    continue
+                elif (speaker in [-1, 0]) and token.end < end_attributed_speaker:
+                    speaker = previous_speaker
+                if speaker not in [-1, 0]:
+                    last_end_diarized = max(token.end, last_end_diarized)
+
+            # Group by speaker
+            if speaker != previous_speaker or not lines:
+                lines.append({"speaker": speaker, "text": token.text, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
+                previous_speaker = speaker
+            elif token.text:  # Only append if text isn't empty
+                lines[-1]["text"] += sep + token.text
+                lines[-1]["end"] = format_time(token.end)
+                lines[-1]["diff"] = round(token.end - last_end_diarized, 2)
+
+        return lines
 
     async def create_tasks(self):
         """Create and start processing tasks."""

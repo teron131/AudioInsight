@@ -426,48 +426,47 @@
 
         <!-- Recording container -->
         <div class="record-container active">
-            <div class="settings-container">
-                <button id="recordButton">
-                    <div class="shape-container">
-                        <div class="shape"></div>
-                    </div>
-                    <div class="recording-info">
-                        <div class="wave-container">
-                            <canvas id="waveCanvas"></canvas>
-                        </div>
-                        <div class="timer">00:00</div>
-                    </div>
-                </button>
-                <div class="settings">
-                    <div>
-                        <label for="chunkSelector">Chunk size (ms):</label>
-                        <select id="chunkSelector">
-                            <option value="500">500 ms</option>
-                            <option value="1000" selected>1000 ms</option>
-                            <option value="2000">2000 ms</option>
-                            <option value="3000">3000 ms</option>
-                            <option value="4000">4000 ms</option>
-                            <option value="5000">5000 ms</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="websocketInput">WebSocket URL:</label>
-                        <input id="websocketInput" type="text" />
-                    </div>
+    <div class="settings-container">
+        <button id="recordButton">
+            <div class="shape-container">
+                <div class="shape"></div>
+            </div>
+            <div class="recording-info">
+                <div class="wave-container">
+                    <canvas id="waveCanvas"></canvas>
                 </div>
+                <div class="timer">00:00</div>
+            </div>
+        </button>
+        <div class="settings">
+            <div>
+                <label for="chunkSelector">Chunk size (ms):</label>
+                <select id="chunkSelector">
+                    <option value="500">500 ms</option>
+                    <option value="1000" selected>1000 ms</option>
+                    <option value="2000">2000 ms</option>
+                    <option value="3000">3000 ms</option>
+                    <option value="4000">4000 ms</option>
+                    <option value="5000">5000 ms</option>
+                </select>
+            </div>
+            <div>
+                <label for="websocketInput">WebSocket URL:</label>
+                <input id="websocketInput" type="text" />
+                    </div>
             </div>
         </div>
+    </div>
 
         <!-- Upload container -->
         <div class="upload-container">
             <div class="realtime-toggle">
-                <span>Show results instantly</span>
+                <span>Show results in real-time</span>
                 <div class="toggle-switch" id="realtimeToggle">
                     <div class="toggle-slider"></div>
                 </div>
-                <span>Show results in real-time</span>
             </div>
-            
+
             <div class="upload-zone" id="uploadZone">
                 <div class="upload-icon">🎵</div>
                 <div class="upload-text">Drag & drop an audio file here</div>
@@ -488,7 +487,7 @@
 
         <!-- Status and transcript -->
         <p id="status"></p>
-        <div id="linesTranscript"></div>
+    <div id="linesTranscript"></div>
     </div>
 
     <script>
@@ -528,7 +527,7 @@
         const websocketInput = document.getElementById("websocketInput");
         const linesTranscriptDiv = document.getElementById("linesTranscript");
         const timerElement = document.querySelector(".timer");
-        
+
         // Mode switching elements
         const recordMode = document.getElementById("recordMode");
         const uploadMode = document.getElementById("uploadMode");
