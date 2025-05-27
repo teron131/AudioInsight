@@ -1117,9 +1117,7 @@
                                 <div class="summary-header">📝 AI Summary ${index + 1} (${summaryTime})</div>
                                 <p><strong>Summary:</strong> ${s.summary}</p>
                                 <p><strong>Key Points:</strong> ${s.key_points.join(" • ")}</p>
-                                <p><strong>Speakers Detected:</strong> ${s.speakers_mentioned}</p>
                                 <p><strong>Text Length:</strong> ${s.text_length} characters</p>
-                                <p><strong>Confidence:</strong> ${(s.confidence * 100).toFixed(1)}%</p>
                             </div>
                         `).join("");
                         

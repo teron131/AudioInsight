@@ -20,8 +20,8 @@ class SummaryTrigger:
     """Configuration for when to trigger summarization."""
 
     idle_time_seconds: float = 5.0
-    max_text_length: int = 100000  # Just for sanity
-    speakers_trigger_count: int = 2  # Trigger after this many speakers have spoken
+    max_text_length: int = 100000
+    conversation_trigger_count: int = 2  # Trigger after this many conversations (speaker turns)
 
 
 class SummaryResponse(BaseModel):
@@ -34,7 +34,7 @@ class SummaryResponse(BaseModel):
 class LLM:
     """
     LLM-based transcription summarizer that monitors transcription activity
-    and generates summaries after periods of inactivity.
+    and generates summaries after periods of inactivity or after a certain number of conversations.
     """
 
     def __init__(
@@ -115,11 +115,18 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.consecutive_idle_checks = 0  # Track consecutive idle periods
         self.min_idle_checks = 5  # Require 5 consecutive idle checks (5 seconds)
 
+        # Conversation tracking
+        self.conversation_count = 0  # Count conversations since last summary
+        self.last_speaker = None  # Track the last speaker to detect conversation changes
+        self.conversation_count_since_last_summary = 0  # Reset after each summary
+
         # Statistics
         self.stats = {
             "summaries_generated": 0,
             "total_text_summarized": 0,
             "average_summary_time": 0.0,
+            "summaries_by_idle": 0,
+            "summaries_by_conversation_count": 0,
         }
 
     def add_summary_callback(self, callback):
@@ -143,6 +150,15 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.last_activity_time = time.time()
         self.consecutive_idle_checks = 0  # Reset idle counter on new activity
 
+        # Track conversations (speaker turns)
+        current_speaker = speaker_info.get("speaker") if speaker_info and "speaker" in speaker_info else None
+
+        # If speaker changes or this is the first message, it's a new conversation
+        if self.last_speaker != current_speaker:
+            self.conversation_count_since_last_summary += 1
+            self.last_speaker = current_speaker
+            logger.debug(f"New conversation detected: {self.conversation_count_since_last_summary} conversations since last summary")
+
         # Add to accumulated text with speaker info if available
         if speaker_info and "speaker" in speaker_info:
             formatted_text = f"[Speaker {speaker_info['speaker']}]: {new_text}"
@@ -154,7 +170,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         else:
             self.accumulated_text = formatted_text
 
-        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total, " f"idle_checks reset to 0")
+        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total, " f"conversations: {self.conversation_count_since_last_summary}, idle_checks reset to 0")
 
     async def start_monitoring(self):
         """Start monitoring for summarization triggers."""
@@ -191,24 +207,37 @@ Provide a structured summary with key points. Remember to respond in the same la
             self.consecutive_idle_checks += 1
         else:
             self.consecutive_idle_checks = 0
+            # Even if not idle, check for conversation count trigger
+            if self.conversation_count_since_last_summary >= self.trigger_config.conversation_trigger_count:
+                logger.info(f"🔄 Triggering summary: {self.conversation_count_since_last_summary} conversations reached (target: {self.trigger_config.conversation_trigger_count})")
+                await self._generate_summary(trigger_reason="conversation_count")
             return
 
-        # Only summarize if we have sufficient idle time
+        # Check both idle time and conversation count triggers
         new_text_length = len(self.accumulated_text) - len(self.last_summarized_text)
         is_truly_idle = self.consecutive_idle_checks >= self.min_idle_checks
+        has_enough_conversations = self.conversation_count_since_last_summary >= self.trigger_config.conversation_trigger_count
 
-        logger.debug(f"Idle check: consecutive={self.consecutive_idle_checks}, " f"new_text={new_text_length} chars, truly_idle={is_truly_idle}")
+        logger.debug(f"Trigger check: idle={self.consecutive_idle_checks}s, " f"conversations={self.conversation_count_since_last_summary}, " f"new_text={new_text_length} chars, truly_idle={is_truly_idle}, " f"enough_conversations={has_enough_conversations}")
 
-        if is_truly_idle:
-            logger.info(f"🔄 Triggering summary: {self.consecutive_idle_checks}s idle, " f"{new_text_length} new chars")
-            await self._generate_summary()
+        # Trigger summary if either condition is met
+        if is_truly_idle or has_enough_conversations:
+            trigger_reason = "idle" if is_truly_idle else "conversation_count"
+            if is_truly_idle and has_enough_conversations:
+                trigger_reason = "both"
+            logger.info(f"🔄 Triggering summary: {trigger_reason} trigger - " f"idle={self.consecutive_idle_checks}s, conversations={self.conversation_count_since_last_summary}")
+            await self._generate_summary(trigger_reason=trigger_reason)
             self.consecutive_idle_checks = 0  # Reset after summarizing
         elif self.consecutive_idle_checks > 0 and self.consecutive_idle_checks % 5 == 0:
             # Log every 5 seconds when we're in idle mode
-            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, new_text={new_text_length} chars")
+            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, conversations={self.conversation_count_since_last_summary}, new_text={new_text_length} chars")
 
-    async def _generate_summary(self):
-        """Generate summary using the LLM."""
+    async def _generate_summary(self, trigger_reason: str = "idle"):
+        """Generate summary using the LLM.
+
+        Args:
+            trigger_reason: Reason for triggering the summary ('idle', 'conversation_count', or 'both')
+        """
         if not self.accumulated_text.strip():
             return
 
@@ -262,6 +291,15 @@ Provide a structured summary with key points. Remember to respond in the same la
             self.stats["summaries_generated"] += 1
             self.stats["total_text_summarized"] += len(text_to_summarize)
 
+            # Track trigger reason statistics
+            if trigger_reason == "idle":
+                self.stats["summaries_by_idle"] += 1
+            elif trigger_reason == "conversation_count":
+                self.stats["summaries_by_conversation_count"] += 1
+            else:  # "both"
+                self.stats["summaries_by_idle"] += 1
+                self.stats["summaries_by_conversation_count"] += 1
+
             # Update average time
             prev_avg = self.stats["average_summary_time"]
             count = self.stats["summaries_generated"]
@@ -278,6 +316,10 @@ Provide a structured summary with key points. Remember to respond in the same la
                     await callback(response, text_to_summarize)
                 except Exception as e:
                     logger.error(f"Error in summary callback: {e}")
+
+            # Reset conversation count after generating summary
+            self.conversation_count_since_last_summary = 0
+            logger.debug(f"Reset conversation count to 0 after generating summary")
 
             # Update the last summarized text to include what we just summarized
             # Keep a rolling buffer to allow for new summaries of additional content
@@ -304,5 +346,5 @@ Provide a structured summary with key points. Remember to respond in the same la
         if not self.accumulated_text.strip():
             return None
 
-        await self._generate_summary()
+        await self._generate_summary(trigger_reason="forced")
         return self.last_summary

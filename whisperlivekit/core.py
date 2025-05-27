@@ -153,6 +153,12 @@ def parse_args():
         default=5.0,
         help="Time in seconds after which to trigger summarization when no new transcription is received (default: 5.0).",
     )
+    parser.add_argument(
+        "--llm-conversation-trigger",
+        type=int,
+        default=2,
+        help="Number of conversations (speaker turns) after which to trigger summarization (default: 2).",
+    )
 
     args = parser.parse_args()
 
