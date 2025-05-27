@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="whisperlivekit",
-    version="0.1.6",
+    version="0.2",
     description="Real-time, Fully Local Whisper's Speech-to-Text and Speaker Diarization",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -24,13 +24,14 @@ setup(
         "sentence": ["mosestokenizer"],
         "whisper": ["whisper"],
         "openai": ["openai"],
+        "llm": ["langchain", "langchain-openai", "python-dotenv"],
     },
     package_data={
         "whisperlivekit": ["web/*.html"],
     },
     entry_points={
         "console_scripts": [
-            "whisperlivekit-server=whisperlivekit.basic_server:main",
+            "whisperlivekit-server=whisperlivekit.server:main",
         ],
     },
     classifiers=[

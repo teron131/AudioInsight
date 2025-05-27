@@ -134,6 +134,26 @@ def parse_args():
     parser.add_argument("--ssl-certfile", type=str, help="Path to the SSL certificate file.", default=None)
     parser.add_argument("--ssl-keyfile", type=str, help="Path to the SSL private key file.", default=None)
 
+    # LLM Summarization arguments
+    parser.add_argument(
+        "--llm-summarization",
+        action="store_true",
+        default=True,
+        help="Enable LLM-based transcription summarization after periods of inactivity.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default="gpt-4o-mini",
+        help="LLM model to use for summarization (default: gpt-4o-mini).",
+    )
+    parser.add_argument(
+        "--llm-trigger-time",
+        type=float,
+        default=5.0,
+        help="Time in seconds after which to trigger summarization when no new transcription is received (default: 5.0).",
+    )
+
     args = parser.parse_args()
 
     args.transcription = not args.no_transcription

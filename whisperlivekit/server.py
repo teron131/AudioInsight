@@ -37,15 +37,9 @@ kit = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global kit
-    # Clear sys.argv to prevent argument parsing conflicts when used as a module
-    import sys
-
-    original_argv = sys.argv.copy()
-    try:
-        sys.argv = [sys.argv[0]]  # Keep only the script name
-        kit = WhisperLiveKit(model="large-v3-turbo")
-    finally:
-        sys.argv = original_argv
+    # Instantiate WhisperLiveKit with the same CLI arguments as the server entrypoint
+    args = parse_args()
+    kit = WhisperLiveKit(**vars(args))
     yield
 
 
@@ -200,6 +194,12 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.error(f"Unexpected KeyError in websocket_endpoint: {e}", exc_info=True)
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected by client during message receiving loop.")
+    except RuntimeError as e:
+        # Handle receive after disconnect gracefully
+        if 'Cannot call "receive"' in str(e):
+            logger.info("WebSocket disconnected; exiting receive loop.")
+        else:
+            logger.error(f"Unexpected RuntimeError in websocket_endpoint main loop: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Unexpected error in websocket_endpoint main loop: {e}", exc_info=True)
     finally:
@@ -654,7 +654,7 @@ def main():
     args = parse_args()
 
     uvicorn_kwargs = {
-        "app": "whisperlivekit.basic_server:app",
+        "app": "whisperlivekit.server:app",
         "host": args.host,
         "port": args.port,
         "reload": False,

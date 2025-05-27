@@ -1,1 +1,1 @@
-whisperlivekit-server --model tiny --backend openai-api
+whisperlivekit-server --model large-v3-turbo --backend faster-whisper --llm-model "gpt-4o-mini" --llm-trigger-time 5.0

@@ -11,6 +11,7 @@ import numpy as np
 import opencc
 
 from whisperlivekit.core import WhisperLiveKit
+from whisperlivekit.llm import LLM, SummaryTrigger
 from whisperlivekit.timed_objects import ASRToken
 from whisperlivekit.whisper_streaming.whisper_online import online_factory
 
@@ -101,6 +102,7 @@ class AudioProcessor:
         self.beg_loop = time()
         self.sep = " "  # Default separator
         self.last_response_content = ""
+        self.summaries = []  # Initialize summaries list
 
         # Models and processing
         self.asr = models.asr
@@ -121,6 +123,26 @@ class AudioProcessor:
         # Initialize transcription engine if enabled
         if self.args.transcription:
             self.online = online_factory(self.args, models.asr, models.tokenizer)
+
+        # Initialize LLM summarizer if enabled
+        self.llm = None
+        self.llm_task = None
+        if getattr(self.args, "llm_summarization", False):
+            try:
+                trigger_config = SummaryTrigger(
+                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
+                    min_text_length=1,  # Always enable summarization regardless of text length
+                )
+                self.llm = LLM(
+                    model_id=getattr(self.args, "llm_model", "gpt-4o-mini"),
+                    trigger_config=trigger_config,
+                )
+                # Add callback to handle summary results
+                self.llm.add_summary_callback(self._handle_summary_callback)
+                logger.info(f"LLM summarization enabled with model: {self.args.llm_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM summarizer: {e}")
+                self.llm = None
 
     def convert_pcm_to_float(self, pcm_buffer):
         """Convert PCM buffer in s16le format to normalized NumPy array."""
@@ -197,6 +219,37 @@ class AudioProcessor:
         async with self.lock:
             current_time = time() - self.beg_loop
             self.tokens.append(ASRToken(start=current_time, end=current_time + 1, text=".", speaker=-1, is_dummy=True))
+
+    async def _handle_summary_callback(self, summary_response, transcription_text):
+        """Handle callback when a summary is generated."""
+        logger.info(f"📝 Summary generated: {summary_response.summary[:50]}...")
+        logger.info(f"🔑 Key points: {', '.join(summary_response.key_points[:2])}...")
+        logger.info(f"👥 Speakers: {summary_response.speakers_mentioned}")
+        logger.info(f"🎯 Confidence: {summary_response.confidence:.2f}")
+
+        # Store summary in the response for client access
+        async with self.lock:
+            if not hasattr(self, "summaries"):
+                self.summaries = []
+
+            # Check for duplicate summaries (same summary text)
+            new_summary = {
+                "timestamp": time(),
+                "summary": summary_response.summary,
+                "key_points": summary_response.key_points,
+                "speakers_mentioned": summary_response.speakers_mentioned,
+                "confidence": summary_response.confidence,
+                "text_length": len(transcription_text),
+            }
+
+            # Only add if it's not a duplicate
+            is_duplicate = any(existing["summary"] == new_summary["summary"] for existing in self.summaries)
+
+            if not is_duplicate:
+                self.summaries.append(new_summary)
+                logger.info(f"✅ Added new summary (total: {len(self.summaries)})")
+            else:
+                logger.info("⚠️ Duplicate summary detected, not adding")
 
     async def get_current_state(self):
         """Get current state."""
@@ -328,6 +381,18 @@ class AudioProcessor:
                     buffer = ""
 
                 await self.update_transcription(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
+
+                # Update LLM summarizer with new transcription text
+                if self.llm and new_tokens:
+                    new_text = self.sep.join([t.text for t in new_tokens])
+                    # Convert to Traditional Chinese for consistency
+                    new_text_converted = s2hk(new_text) if new_text else new_text
+                    # Get speaker info if available
+                    speaker_info = None
+                    if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
+                        speaker_info = {"speaker": new_tokens[0].speaker}
+                    self.llm.update_transcription(new_text_converted, speaker_info)
+
                 self.transcription_queue.task_done()
 
             except Exception as e:
@@ -421,6 +486,18 @@ class AudioProcessor:
 
                 response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
 
+                # Add summaries if available
+                async with self.lock:
+                    if hasattr(self, "summaries") and self.summaries:
+                        response["summaries"] = self.summaries.copy()
+                        logger.info(f"🔄 Including {len(self.summaries)} summaries in response")
+                    else:
+                        logger.debug(f"No summaries to include (has_attr: {hasattr(self, 'summaries')}, summaries: {getattr(self, 'summaries', [])})")
+
+                # Add LLM summarizer stats if available
+                if self.llm:
+                    response["llm_stats"] = self.llm.get_stats()
+
                 # Only yield if content has changed (use final converted content for comparison) - optimize string building
                 response_content = " ".join(f"{line['speaker']} {line['text']}" for line in final_lines) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
 
@@ -438,7 +515,39 @@ class AudioProcessor:
 
                     if all_processors_done:
                         logger.info("Results formatter: All upstream processors are done and in stopping state. Terminating.")
+
+                        # Get final state and create final response
                         final_state = await self.get_current_state()
+
+                        # Generate final summary if no summaries were created during processing
+                        async with self.lock:
+                            summaries_count = len(getattr(self, "summaries", []))
+
+                        if self.llm and self.llm.accumulated_text.strip() and summaries_count == 0:
+                            logger.info("🔄 Generating final summary (no summaries created during processing)...")
+                            await self.llm.force_summary()
+                            # Wait a moment for the callback to be processed
+                            await asyncio.sleep(0.1)
+                            final_state = await self.get_current_state()
+
+                        # Format final lines and apply s2hk conversion
+                        final_lines_raw = await self._format_by_speaker(final_state["tokens"], final_state["sep"], final_state["end_attributed_speaker"])
+                        final_lines_converted = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in final_lines_raw]
+
+                        # Create final response with existing summaries (don't generate new ones)
+                        final_response = {"lines": final_lines_converted, "buffer_transcription": "", "buffer_diarization": "", "remaining_time_transcription": 0, "remaining_time_diarization": 0}
+
+                        # Add existing summaries
+                        async with self.lock:
+                            if hasattr(self, "summaries") and self.summaries:
+                                final_response["summaries"] = self.summaries.copy()
+                                logger.info(f"🔄 Including {len(self.summaries)} final summaries in response")
+
+                        # Add LLM stats
+                        if self.llm:
+                            final_response["llm_stats"] = self.llm.get_stats()
+
+                        yield final_response
                         return
 
                 await asyncio.sleep(0.1)  # Avoid overwhelming the client
@@ -582,6 +691,12 @@ class AudioProcessor:
         self.all_tasks_for_cleanup.append(self.ffmpeg_reader_task)
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
 
+        # Start LLM summarizer monitoring if enabled
+        if self.llm:
+            self.llm_task = asyncio.create_task(self.llm.start_monitoring())
+            self.all_tasks_for_cleanup.append(self.llm_task)
+            logger.info("LLM summarizer monitoring task started")
+
         # Monitor overall system health
         self.watchdog_task = asyncio.create_task(self.watchdog(processing_tasks_for_watchdog))
         self.all_tasks_for_cleanup.append(self.watchdog_task)
@@ -619,6 +734,12 @@ class AudioProcessor:
     async def cleanup(self):
         """Clean up resources when processing is complete."""
         logger.info("Starting cleanup of AudioProcessor resources.")
+
+        # Stop LLM summarizer first to generate final summary
+        if self.llm:
+            await self.llm.stop_monitoring()
+            logger.info("LLM summarizer stopped")
+
         for task in self.all_tasks_for_cleanup:
             if task and not task.done():
                 task.cancel()
