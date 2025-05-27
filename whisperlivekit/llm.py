@@ -20,7 +20,8 @@ class SummaryTrigger:
     """Configuration for when to trigger summarization."""
 
     idle_time_seconds: float = 5.0
-    max_text_length: int = 10000
+    max_text_length: int = 100000  # Just for sanity
+    speakers_trigger_count: int = 2  # Trigger after this many speakers have spoken
 
 
 class SummaryResponse(BaseModel):
@@ -28,8 +29,6 @@ class SummaryResponse(BaseModel):
 
     summary: str = Field(description="Concise summary of the transcription")
     key_points: list[str] = Field(default_factory=list, description="Main points discussed")
-    speakers_mentioned: int = Field(description="Number of speakers identified", ge=0)
-    confidence: float = Field(description="Confidence in the summary quality", ge=0.0, le=1.0)
 
 
 class LLM:
@@ -77,8 +76,6 @@ class LLM:
 Your task is to analyze the transcription and provide:
 1. A concise summary of what was discussed
 2. Key points or topics mentioned
-3. Number of speakers you can identify
-4. Your confidence in the summary quality
 
 Focus on:
 - Main topics and themes
@@ -86,7 +83,9 @@ Focus on:
 - Action items if any
 - Overall context and purpose of the conversation
 
-Keep summaries clear and concise while capturing the essential information.""",
+Keep summaries clear and concise while capturing the essential information.
+
+IMPORTANT: Always respond in the same language as the transcription. If the transcription is in French, respond in French. If it's in English, respond in English. Match the language of the input content.""",
                 ),
                 (
                     "human",
@@ -100,7 +99,7 @@ Additional context:
 - Has speaker diarization: {has_speakers}
 - Number of lines: {num_lines}
 
-Provide a structured summary with key points.""",
+Provide a structured summary with key points. Remember to respond in the same language as the transcription above.""",
                 ),
             ]
         )

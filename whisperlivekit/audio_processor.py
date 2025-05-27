@@ -224,8 +224,6 @@ class AudioProcessor:
         """Handle callback when a summary is generated."""
         logger.info(f"📝 Summary generated: {summary_response.summary[:50]}...")
         logger.info(f"🔑 Key points: {', '.join(summary_response.key_points[:2])}...")
-        logger.info(f"👥 Speakers: {summary_response.speakers_mentioned}")
-        logger.info(f"🎯 Confidence: {summary_response.confidence:.2f}")
 
         # Store summary in the response for client access
         async with self.lock:
@@ -237,8 +235,6 @@ class AudioProcessor:
                 "timestamp": time(),
                 "summary": summary_response.summary,
                 "key_points": summary_response.key_points,
-                "speakers_mentioned": summary_response.speakers_mentioned,
-                "confidence": summary_response.confidence,
                 "text_length": len(transcription_text),
             }
 
