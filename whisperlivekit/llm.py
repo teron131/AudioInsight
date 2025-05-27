@@ -20,7 +20,6 @@ class SummaryTrigger:
     """Configuration for when to trigger summarization."""
 
     idle_time_seconds: float = 5.0
-    min_text_length: int = 50
     max_text_length: int = 10000
 
 
@@ -109,10 +108,13 @@ Provide a structured summary with key points.""",
         # State tracking
         self.last_activity_time = time.time()
         self.accumulated_text = ""
+        self.last_summarized_text = ""  # Keep track of what was already summarized
         self.last_summary = None
         self.summary_task = None
         self.is_running = False
         self.summary_callbacks = []
+        self.consecutive_idle_checks = 0  # Track consecutive idle periods
+        self.min_idle_checks = 5  # Require 5 consecutive idle checks (5 seconds)
 
         # Statistics
         self.stats = {
@@ -140,6 +142,7 @@ Provide a structured summary with key points.""",
             return
 
         self.last_activity_time = time.time()
+        self.consecutive_idle_checks = 0  # Reset idle counter on new activity
 
         # Add to accumulated text with speaker info if available
         if speaker_info and "speaker" in speaker_info:
@@ -152,7 +155,7 @@ Provide a structured summary with key points.""",
         else:
             self.accumulated_text = formatted_text
 
-        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total")
+        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total, " f"idle_checks reset to 0")
 
     async def start_monitoring(self):
         """Start monitoring for summarization triggers."""
@@ -178,23 +181,53 @@ Provide a structured summary with key points.""",
     async def _check_and_summarize(self):
         """Check if conditions are met for summarization."""
         if not self.accumulated_text.strip():
+            self.consecutive_idle_checks = 0
             return
 
         time_since_activity = time.time() - self.last_activity_time
         text_length = len(self.accumulated_text)
 
-        # Check if we should trigger summarization
-        should_summarize = time_since_activity >= self.trigger_config.idle_time_seconds and text_length >= self.trigger_config.min_text_length
+        # Check if we're truly idle (no new activity for required time)
+        if time_since_activity >= 1.0:  # At least 1 second since last activity
+            self.consecutive_idle_checks += 1
+        else:
+            self.consecutive_idle_checks = 0
+            return
 
-        if should_summarize:
+        # Only summarize if we have sufficient idle time
+        new_text_length = len(self.accumulated_text) - len(self.last_summarized_text)
+        is_truly_idle = self.consecutive_idle_checks >= self.min_idle_checks
+
+        logger.debug(f"Idle check: consecutive={self.consecutive_idle_checks}, " f"new_text={new_text_length} chars, truly_idle={is_truly_idle}")
+
+        if is_truly_idle:
+            logger.info(f"🔄 Triggering summary: {self.consecutive_idle_checks}s idle, " f"{new_text_length} new chars")
             await self._generate_summary()
+            self.consecutive_idle_checks = 0  # Reset after summarizing
+        elif self.consecutive_idle_checks > 0 and self.consecutive_idle_checks % 5 == 0:
+            # Log every 5 seconds when we're in idle mode
+            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, new_text={new_text_length} chars")
 
     async def _generate_summary(self):
         """Generate summary using the LLM."""
         if not self.accumulated_text.strip():
             return
 
-        text_to_summarize = self.accumulated_text
+        # Get only the new text since last summary
+        if self.last_summarized_text:
+            # Find where the last summarized text ends in the current accumulated text
+            last_summary_end = self.accumulated_text.find(self.last_summarized_text)
+            if last_summary_end != -1:
+                last_summary_end += len(self.last_summarized_text)
+                text_to_summarize = self.accumulated_text[last_summary_end:].strip()
+                if not text_to_summarize:
+                    logger.debug("No new text to summarize")
+                    return
+            else:
+                # If we can't find the overlap, summarize the recent portion
+                text_to_summarize = self.accumulated_text[-self.trigger_config.max_text_length :].strip()
+        else:
+            text_to_summarize = self.accumulated_text
 
         # Truncate if too long
         if len(text_to_summarize) > self.trigger_config.max_text_length:
@@ -203,7 +236,7 @@ Provide a structured summary with key points.""",
 
         try:
             start_time = time.time()
-            logger.info("Generating summary with LLM...")
+            logger.info(f"Generating summary for {len(text_to_summarize)} chars of new content...")
 
             # Prepare context information
             lines = text_to_summarize.split("\n")
@@ -247,8 +280,14 @@ Provide a structured summary with key points.""",
                 except Exception as e:
                     logger.error(f"Error in summary callback: {e}")
 
-            # Clear accumulated text after successful summarization
-            self.accumulated_text = ""
+            # Update the last summarized text to include what we just summarized
+            # Keep a rolling buffer to allow for new summaries of additional content
+            self.last_summarized_text = self.accumulated_text
+
+            # Keep the most recent text in buffer (last 5000 chars) to maintain context
+            if len(self.accumulated_text) > 5000:
+                self.accumulated_text = self.accumulated_text[-5000:]
+                self.last_summarized_text = self.accumulated_text
 
         except Exception as e:
             logger.error(f"Failed to generate summary: {e}")

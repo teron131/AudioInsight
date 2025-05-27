@@ -131,7 +131,7 @@ class AudioProcessor:
             try:
                 trigger_config = SummaryTrigger(
                     idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
-                    min_text_length=1,  # Always enable summarization regardless of text length
+                    min_text_length=1,  # No minimum text length requirement - trigger on idle time only
                 )
                 self.llm = LLM(
                     model_id=getattr(self.args, "llm_model", "gpt-4o-mini"),
