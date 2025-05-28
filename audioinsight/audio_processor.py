@@ -10,10 +10,10 @@ import ffmpeg
 import numpy as np
 import opencc
 
-from whisperlivekit.core import WhisperLiveKit
-from whisperlivekit.llm import LLM, LLMTrigger
-from whisperlivekit.timed_objects import ASRToken
-from whisperlivekit.whisper_streaming.whisper_online import online_factory
+from audioinsight.core import AudioInsight
+from audioinsight.llm import LLM, LLMTrigger
+from audioinsight.timed_objects import ASRToken
+from audioinsight.whisper_streaming.whisper_online import online_factory
 
 # Set up logging once
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -71,7 +71,7 @@ class AudioProcessor:
     def __init__(self):
         """Initialize the audio processor with configuration, models, and state."""
 
-        models = WhisperLiveKit()
+        models = AudioInsight()
 
         # Audio processing settings - cache computed values
         self.args = models.args

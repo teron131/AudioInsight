@@ -2,7 +2,7 @@
 
 ## Overview
 
-WhisperLiveKit implements a sophisticated real-time streaming speech recognition system that transforms OpenAI's Whisper from a batch-processing model into a low-latency streaming ASR system. The codebase is organized into several key modules that work together to enable real-time processing while maintaining accuracy and coherence.
+AudioInsight implements a sophisticated real-time streaming speech recognition system that transforms OpenAI's Whisper from a batch-processing model into a low-latency streaming ASR system. The codebase is organized into several key modules that work together to enable real-time processing while maintaining accuracy and coherence.
 
 ## Codebase Architecture Overview
 
@@ -12,7 +12,7 @@ The system is organized into the following core modules:
 **Purpose**: Central coordinator and singleton that manages system-wide configuration, model initialization, and component orchestration.
 
 **Key Components**:
-- `WhisperLiveKit` class: Singleton pattern implementation that serves as the main entry point and configuration manager
+- `AudioInsight` class: Singleton pattern implementation that serves as the main entry point and configuration manager
 - `parse_args()` function: Comprehensive command-line argument parsing with support for model selection, language settings, VAD configuration, buffer trimming options, and LLM summarization parameters
 - Configuration propagation system that distributes settings across all system components
 - Model loading orchestration through integration with `whisper_streaming/whisper_online.py`
@@ -84,7 +84,7 @@ The system is organized into the following core modules:
 - Multiple response formats: JSON, Server-Sent Events, and WebSocket for different client needs
 - Automatic temporary file cleanup and resource management
 
-**Integration Points**: Initializes `WhisperLiveKit` from `core.py`, creates `AudioProcessor` instances per connection, serves web interface from `web/` directory.
+**Integration Points**: Initializes `AudioInsight` from `core.py`, creates `AudioProcessor` instances per connection, serves web interface from `web/` directory.
 
 ### **`whisper_streaming/`** - Core Streaming Algorithms and Hypothesis Buffer Management
 **Purpose**: Contains the core streaming algorithms that enable real-time Whisper processing, including the LocalAgreement policy implementation and backend abstraction layer.
@@ -325,7 +325,7 @@ The foundation of the streaming system is built on carefully designed data struc
 
 ### 2. System Initialization and Configuration (`core.py`)
 
-The `WhisperLiveKit` class in `core.py` serves as the central coordinator and singleton that manages:
+The `AudioInsight` class in `core.py` serves as the central coordinator and singleton that manages:
 
 **Model Loading and Backend Selection**: Coordinates with `whisper_streaming/whisper_online.py` to initialize the appropriate Whisper backend (faster-whisper, OpenAI API, etc.) through the `backend_factory()` function.
 
@@ -573,7 +573,7 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ## Conclusion
 
-WhisperLiveKit's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The modular architecture enables independent development and optimization of components while maintaining system coherence through well-defined interfaces and coordination mechanisms.
+AudioInsight's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The modular architecture enables independent development and optimization of components while maintaining system coherence through well-defined interfaces and coordination mechanisms.
 
 The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while `audio_processor.py` orchestrates the complex real-time pipeline, `server.py` handles multi-user coordination, and supporting modules provide specialized functionality. 
 

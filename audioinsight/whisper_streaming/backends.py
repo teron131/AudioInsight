@@ -13,7 +13,7 @@ from typing import List
 
 import numpy as np
 
-from whisperlivekit.timed_objects import ASRToken
+from audioinsight.timed_objects import ASRToken
 
 logger = logging.getLogger(__name__)
 

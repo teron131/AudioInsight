@@ -1,5 +1,5 @@
 try:
-    from whisperlivekit.whisper_streaming.whisper_online import (
+    from audioinsight.whisper_streaming.whisper_online import (
         backend_factory,
         warmup_asr,
     )
@@ -222,7 +222,7 @@ def parse_args_safe(argv=None) -> Namespace:
         return _optimize_args(args)
 
 
-class WhisperLiveKit:
+class AudioInsight:
     _instance = None
     _initialized = False
     _cached_html = None  # Cache for web interface HTML
@@ -234,12 +234,12 @@ class WhisperLiveKit:
         return cls._instance
 
     def __init__(self, **kwargs):
-        if WhisperLiveKit._initialized:
+        if AudioInsight._initialized:
             return
 
         # Use cached config if available and no overrides provided
-        if not kwargs and WhisperLiveKit._cached_config is not None:
-            self.args = WhisperLiveKit._cached_config
+        if not kwargs and AudioInsight._cached_config is not None:
+            self.args = AudioInsight._cached_config
         else:
             if kwargs:
                 # If custom kwargs provided, start with defaults and override
@@ -275,7 +275,7 @@ class WhisperLiveKit:
                 self.args = Namespace(**default_args)
 
                 # Cache the configuration for future use
-                WhisperLiveKit._cached_config = self.args
+                AudioInsight._cached_config = self.args
 
         # Initialize components lazily
         self.asr = None
@@ -296,7 +296,7 @@ class WhisperLiveKit:
             self._load_diarization()
             self._diarization_loaded = True
 
-        WhisperLiveKit._initialized = True
+        AudioInsight._initialized = True
 
     def _load_asr_models(self):
         """Lazy loading of ASR models."""
@@ -310,7 +310,7 @@ class WhisperLiveKit:
     def _load_diarization(self):
         """Lazy loading of diarization models."""
         try:
-            from whisperlivekit.diarization.diarization_online import DiartDiarization
+            from audioinsight.diarization.diarization_online import DiartDiarization
 
             self.diarization = DiartDiarization()
         except Exception as e:
@@ -353,26 +353,25 @@ class WhisperLiveKit:
     def web_interface(self):
         """Get cached web interface HTML."""
         # Use cached HTML if available
-        if WhisperLiveKit._cached_html is not None:
-            return WhisperLiveKit._cached_html
+        if AudioInsight._cached_html is not None:
+            return AudioInsight._cached_html
 
         try:
             import pkg_resources
 
-            html_path = pkg_resources.resource_filename("whisperlivekit", "web/live_transcription.html")
+            html_path = pkg_resources.resource_filename("audioinsight", "web/live_transcription.html")
             with open(html_path, "r", encoding="utf-8") as f:
                 html = f.read()
 
             # Cache the HTML content
-            WhisperLiveKit._cached_html = html
+            AudioInsight._cached_html = html
             return html
         except Exception as e:
             logging.error(f"Failed to load web interface: {e}")
             # Return a minimal fallback HTML
             return """
-            <!DOCTYPE html>
-            <html><head><title>WhisperLiveKit</title></head>
-            <body><h1>WhisperLiveKit - Web Interface Error</h1>
+            <html><head><title>AudioInsight</title></head>
+            <body><h1>AudioInsight - Web Interface Error</h1>
             <p>Failed to load the web interface. Please check the installation.</p></body></html>
             """
 

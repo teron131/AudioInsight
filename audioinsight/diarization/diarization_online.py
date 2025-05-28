@@ -11,7 +11,7 @@ from diart.sources import AudioSource, MicrophoneAudioSource
 from pyannote.core import Annotation
 from rx.core import Observer
 
-from whisperlivekit.timed_objects import SpeakerSegment
+from audioinsight.timed_objects import SpeakerSegment
 
 logger = logging.getLogger(__name__)
 

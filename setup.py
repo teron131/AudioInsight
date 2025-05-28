@@ -1,13 +1,13 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="whisperlivekit",
-    version="0.2",
-    description="Real-time, Fully Local Whisper's Speech-to-Text and Speaker Diarization",
+    name="audioinsight",
+    version="0.1",
+    description="Real-time, Fully Local Speech-to-Text and Speaker Diarization with AudioInsight",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    author="Quentin Fuxa",
-    url="https://github.com/QuentinFuxa/WhisperLiveKit",
+    author="Teron",
+    url="https://github.com/teron131/Whisper-Realtime",
     packages=find_packages(),
     install_requires=[
         "fastapi",
@@ -27,11 +27,11 @@ setup(
         "llm": ["langchain", "langchain-openai", "python-dotenv"],
     },
     package_data={
-        "whisperlivekit": ["web/*.html"],
+        "audioinsight": ["web/*.html"],
     },
     entry_points={
         "console_scripts": [
-            "whisperlivekit-server=whisperlivekit.server:main",
+            "audioinsight-server=audioinsight.server:main",
         ],
     },
     classifiers=[

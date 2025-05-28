@@ -30,7 +30,7 @@ The system uses OpenAI-compatible models to analyze transcription content and ex
 Enable LLM analysis when starting the server:
 
 ```bash
-python -m whisperlivekit.server \
+python -m audioinsight.server \
     --llm-analysis \
     --llm-model "gpt-4.1-mini" \
     --llm-trigger-time 5.0 \
@@ -111,7 +111,7 @@ The system tracks comprehensive statistics:
 
 ```python
 import asyncio
-from whisperlivekit.llm import LLM, LLMTrigger
+from audioinsight.llm import LLM, LLMTrigger
 
 async def test_analysis():
     # Create analyzer with short trigger time for testing

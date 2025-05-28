@@ -28,7 +28,7 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
 
 COPY . .
 
-# Install WhisperLiveKit directly, allowing for optional dependencies
+# Install AudioInsight directly, allowing for optional dependencies
 #   Note: For gates modedls, need to add your HF toke. See README.md
 #         for more details.
 RUN if [ -n "$EXTRAS" ]; then \
@@ -76,7 +76,7 @@ RUN if [ -n "$HF_TKN_FILE" ]; then \
 # Expose port for the transcription server
 EXPOSE 8001
 
-ENTRYPOINT ["whisperlivekit-server", "--host", "0.0.0.0"]
+ENTRYPOINT ["audioinsight-server", "--host", "0.0.0.0"]
 
 # Default args
 CMD ["--model", "large-v3-turbo"]

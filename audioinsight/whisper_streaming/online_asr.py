@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from whisperlivekit.timed_objects import ASRToken, Sentence, Transcript
+from audioinsight.timed_objects import ASRToken, Sentence, Transcript
 
 logger = logging.getLogger(__name__)
 

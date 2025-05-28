@@ -20,8 +20,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from whisperlivekit import WhisperLiveKit, parse_args
-from whisperlivekit.audio_processor import AudioProcessor
+from audioinsight import AudioInsight, parse_args
+from audioinsight.audio_processor import AudioProcessor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logging.getLogger().setLevel(logging.WARNING)
@@ -37,9 +37,9 @@ kit = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global kit
-    # Instantiate WhisperLiveKit with the same CLI arguments as the server entrypoint
+    # Instantiate AudioInsight with the same CLI arguments as the server entrypoint
     args = parse_args()
-    kit = WhisperLiveKit(**vars(args))
+    kit = AudioInsight(**vars(args))
     yield
 
 
@@ -654,7 +654,7 @@ def main():
     args = parse_args()
 
     uvicorn_kwargs = {
-        "app": "whisperlivekit.server:app",
+        "app": "audioinsight.server:app",
         "host": args.host,
         "port": args.port,
         "reload": False,
