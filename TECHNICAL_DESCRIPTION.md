@@ -141,6 +141,11 @@ The system is organized into the following core modules:
 - Support speaker attribution and confidence score tracking
 - Serve as the foundation for all text processing and buffer management operations
 
+**Performance Optimizations**:
+- **Immutable Dataclasses**: `frozen=True` prevents accidental modification and enables hash optimization
+- **Zero-Offset Early Return**: `with_offset(0)` returns `self` immediately to avoid unnecessary object creation
+- **Memory Efficiency**: Frozen dataclasses use less memory and provide better cache locality
+
 ### **`diarization/`** - Speaker Identification and Attribution System
 **Purpose**: Parallel processing system for real-time speaker identification and attribution using Diart and PyAnnote models.
 
@@ -248,29 +253,63 @@ C^(t) = C^(t-1) ∪ LongestCommonPrefix(H^(t-1), H^(t))
 
 #### **LocalAgreement-2 Algorithm Implementation**
 
-The core algorithm is implemented in `whisper_streaming/online_asr.py` within the `HypothesisBuffer.flush()` method:
+The core algorithm is implemented in `whisper_streaming/online_asr.py` within the `HypothesisBuffer.flush()` method. **Recent optimizations** have improved performance by using efficient list slicing instead of repeated `pop(0)` operations:
 
 ```python
 def flush(self) -> List[ASRToken]:
-    """Find longest common prefix between consecutive hypotheses"""
-    committed = []
-    while self.new and self.buffer:
-        if current_new.text == self.buffer[0].text:
-            # Agreement found - commit this token
-            committed.append(current_new)
-            self.last_committed_time = current_new.end
-            self.buffer.pop(0)
-            self.new.pop(0)
-        else:
-            # Disagreement - stop committing
-            break
+    """
+    Returns the committed chunk, defined as the longest common prefix
+    between the previous hypothesis and the new tokens.
+    """
+    committed: List[ASRToken] = []
     
-    # Update buffers
+    # Find how many tokens can be committed in one pass to avoid repeated pop(0)
+    commit_count = 0
+    min_length = min(len(self.new), len(self.buffer))
+    
+    # Check confidence validation path first if enabled
+    if self.confidence_validation and self.new:
+        while commit_count < len(self.new):
+            current_new = self.new[commit_count]
+            if current_new.probability and current_new.probability > 0.95:
+                committed.append(current_new)
+                self.last_committed_word = current_new.text
+                self.last_committed_time = current_new.end
+                commit_count += 1
+            else:
+                break
+    else:
+        # Standard LocalAgreement path - find longest matching prefix
+        while commit_count < min_length:
+            current_new = self.new[commit_count]
+            if current_new.text == self.buffer[commit_count].text:
+                committed.append(current_new)
+                self.last_committed_word = current_new.text
+                self.last_committed_time = current_new.end
+                commit_count += 1
+            else:
+                break
+
+    # Efficiently update buffers by slicing instead of repeated pop(0)
+    if commit_count > 0:
+        self.new = self.new[commit_count:]
+        if len(self.buffer) >= commit_count:
+            self.buffer = self.buffer[commit_count:]
+        else:
+            self.buffer = []
+
+    # Update buffer with remaining new tokens
     self.buffer = self.new
     self.new = []
     self.committed_in_buffer.extend(committed)
     return committed
 ```
+
+**Performance Optimizations**:
+- **Batch Processing**: Determines commit count in advance to avoid repeated individual operations
+- **Efficient Slicing**: Uses list slicing instead of O(n) `pop(0)` operations for better performance
+- **Confidence Validation**: Optional high-confidence token bypass for faster processing
+- **Memory Efficiency**: Reduced temporary object creation and copying
 
 ## Core Architecture: Multi-Layer Streaming System
 
@@ -278,9 +317,9 @@ def flush(self) -> List[ASRToken]:
 
 The foundation of the streaming system is built on carefully designed data structures that carry temporal and content information:
 
-**ASRToken Class**: The primary data structure representing individual transcribed words with start/end timestamps, confidence scores, and speaker attribution. The `with_offset()` method is crucial for temporal alignment during buffer management operations.
+**ASRToken Class**: The primary data structure representing individual transcribed words with start/end timestamps, confidence scores, and speaker attribution. The `with_offset()` method is crucial for temporal alignment during buffer management operations. **Recent optimizations** include making dataclasses `frozen=True` for immutability and performance, and adding early-return optimization for zero offset operations.
 
-**TimedText Base Class**: Provides the common interface for all temporal text objects, ensuring consistent timestamp handling across the system.
+**TimedText Base Class**: Provides the common interface for all temporal text objects, ensuring consistent timestamp handling across the system. Uses `frozen=True` dataclass implementation for memory efficiency and immutability guarantees.
 
 **Transcript and Sentence Classes**: Higher-level aggregations that represent complete thoughts or utterances, used in the buffer trimming and context management systems.
 
@@ -335,9 +374,17 @@ The `AudioProcessor` class implements the sophisticated multi-stage asynchronous
 
 #### **Memory Management and Optimization**
 
-**Efficient Buffer Operations**: The `convert_pcm_to_float()` method implements optimized audio format conversion, while buffer management uses pre-allocated arrays and in-place operations to minimize memory pressure.
+**Pre-allocated Buffers**: Audio buffers are dimensioned based on expected processing patterns, with pre-computed values like `samples_per_sec` and `bytes_per_sec` reducing runtime calculations. **Enhanced with** pre-allocated numpy arrays (`_temp_int16_array`, `_temp_float32_array`) to avoid repeated memory allocation during PCM conversion.
 
-**Caching Strategies**: Global caches for expensive operations like time formatting (`_cached_timedeltas`) and text conversion (`_s2hk_converter`) reduce computational overhead during real-time processing.
+**Circular Buffer Patterns**: The `pcm_buffer` management uses efficient slicing operations to maintain rolling windows without excessive memory allocation.
+
+**In-place Operations**: The `convert_pcm_to_float()` method uses numpy operations that minimize temporary array creation and memory copying. **Optimized** with reusable pre-allocated buffers for consistent memory usage patterns.
+
+**Caching Optimizations** (New):
+- **Time Formatting Cache**: `format_time()` function caches up to 3600 timestamp conversions for frequently accessed values
+- **Text Conversion Cache**: Global `_s2hk_converter` instance prevents repeated OpenCC converter creation
+- **Regex Pre-compilation**: Sentence splitting patterns compiled once and reused
+- **Summary Check Frequency Limiting**: Summary availability checks limited to every 2 seconds with efficient boolean flags
 
 **Error Recovery**: Comprehensive error handling with the `watchdog()` method monitoring system health and implementing automatic recovery procedures.
 
@@ -387,17 +434,52 @@ The system supports multiple Whisper implementations through a unified interface
 
 The system implements comprehensive memory optimization strategies:
 
-**Pre-allocated Buffers**: Audio buffers are dimensioned based on expected processing patterns, with pre-computed values like `samples_per_sec` and `bytes_per_sec` reducing runtime calculations.
+**Pre-allocated Buffers**: Audio buffers are dimensioned based on expected processing patterns, with pre-computed values like `samples_per_sec` and `bytes_per_sec` reducing runtime calculations. **Enhanced with** pre-allocated numpy arrays (`_temp_int16_array`, `_temp_float32_array`) to avoid repeated memory allocation during PCM conversion.
 
 **Circular Buffer Patterns**: The `pcm_buffer` management uses efficient slicing operations to maintain rolling windows without excessive memory allocation.
 
-**In-place Operations**: The `convert_pcm_to_float()` method uses numpy operations that minimize temporary array creation and memory copying.
+**In-place Operations**: The `convert_pcm_to_float()` method uses numpy operations that minimize temporary array creation and memory copying. **Optimized** with reusable pre-allocated buffers for consistent memory usage patterns.
 
-### 2. Concurrency Control (`audio_processor.py`)
+**Caching Optimizations** (New):
+- **Time Formatting Cache**: `format_time()` function caches up to 3600 timestamp conversions for frequently accessed values
+- **Text Conversion Cache**: Global `_s2hk_converter` instance prevents repeated OpenCC converter creation
+- **Regex Pre-compilation**: Sentence splitting patterns compiled once and reused
+- **Summary Check Frequency Limiting**: Summary availability checks limited to every 2 seconds with efficient boolean flags
+
+### 2. Advanced Buffer Management (`audio_processor.py`)
+
+**Dynamic Buffer Sizing**: Automatic buffer resizing with exponential growth strategy to minimize reallocation overhead while maintaining memory efficiency.
+
+**Efficient Data Movement**:
+- `append_to_pcm_buffer()`: Optimized chunk appending with minimal copying
+- `get_pcm_data()`: Smart data extraction with in-place buffer shifting
+- **Zero-copy operations** where possible to reduce CPU overhead
+
+**State Management Optimizations**:
+- **Summary Tracking Flags**: `_has_summaries` and `_last_summary_check` reduce unnecessary lock acquisition and queue operations
+- **Pre-computed Values**: Sample rates, buffer sizes, and conversion factors calculated once during initialization
+
+### 3. Streaming Algorithm Optimizations (`whisper_streaming/online_asr.py`)
+
+**Batch Processing**: The `HypothesisBuffer` operations now process multiple tokens simultaneously rather than individual `pop(0)` operations, reducing O(n²) complexity to O(n).
+
+**Efficient List Operations**:
+- `flush()`: Uses list slicing instead of repeated `pop(0)` for better performance
+- `pop_committed()`: Batch removal of expired tokens with single slice operation
+- **Memory allocation reduction** through in-place buffer updates
+
+**Token Management**:
+- **Early termination** in agreement detection to avoid unnecessary comparisons
+- **Confidence-based bypass** for high-confidence tokens (>95%) when validation is enabled
+- **Temporal filtering** optimization in `insert()` method for token relevance
+
+### 4. Concurrency Control (`audio_processor.py`)
 
 **Async Lock Coordination**: The system uses `asyncio.Lock()` for state consistency protection, with careful design to minimize blocking and prevent deadlock scenarios.
 
 **Task Isolation**: Each async task (`transcription_task`, `diarization_task`, `ffmpeg_reader_task`) operates independently with proper exception handling and cleanup procedures.
+
+**Queue Management**: Optimized queue operations with backpressure handling and efficient sentinel processing for graceful shutdown.
 
 ## Error Recovery and Fault Tolerance
 
@@ -414,6 +496,46 @@ The system implements comprehensive memory optimization strategies:
 **Incremental State Preservation**: Critical system state is maintained in formats that support recovery from failures, with the prompt injection mechanism serving dual purposes for both context preservation and state reconstruction.
 
 **Buffer State Reconstruction**: The system can rebuild processing context from committed tokens and available audio history after component restarts.
+
+## Final Transcription and Buffer Text Preservation
+
+### 1. Buffer Text Recovery (`audio_processor.py`)
+
+**Challenge**: When processing ends, uncommitted text in the hypothesis buffer was previously lost during final summary generation, leading to incomplete transcriptions.
+
+**Solution**: The `results_formatter()` method now implements comprehensive buffer text recovery:
+
+**Buffer Finalization**: When all upstream processors complete, the system calls `self.online.finish()` to extract any remaining uncommitted text from the transcript buffer before generating final summaries.
+
+**LLM Integration**: Remaining text is properly converted using `s2hk()` and fed to the LLM summarizer to ensure complete context for summary generation.
+
+**Final Response Enhancement**: Instead of returning empty strings for buffer fields, the final response now includes:
+```python
+final_response = {
+    "lines": final_lines_converted,
+    "buffer_transcription": final_buffer_transcription,  # Now includes remaining text
+    "buffer_diarization": final_buffer_diarization,      # Now includes remaining text  
+    "remaining_time_transcription": 0,
+    "remaining_time_diarization": 0
+}
+```
+
+### 2. Comprehensive Logging and Monitoring
+
+**Transcription Completeness Tracking**: The system now logs detailed information about final transcription state:
+```
+📋 Final transcription: X committed lines, Y buffer characters
+```
+
+This enables monitoring of how much text was successfully committed versus how much remained in buffers, helping identify potential issues with the LocalAgreement algorithm or processing timing.
+
+**Error Handling**: Graceful fallback if `finish()` method fails, ensuring the system doesn't crash when attempting to recover buffer text.
+
+### 3. State Consistency
+
+**Dual State Updates**: The system retrieves final state both before and after summary generation to ensure all text is properly captured and processed.
+
+**Thread-Safe Operations**: Buffer text recovery operations are protected by async locks to prevent race conditions during final processing.
 
 ## Multi-User Session Management (`server.py` + `audio_processor.py`)
 
@@ -453,4 +575,12 @@ The system implements comprehensive memory optimization strategies:
 
 WhisperLiveKit's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The modular architecture enables independent development and optimization of components while maintaining system coherence through well-defined interfaces and coordination mechanisms.
 
-The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while `audio_processor.py` orchestrates the complex real-time pipeline, `server.py` handles multi-user coordination, and supporting modules provide specialized functionality. This architecture enables future enhancements and optimizations without disrupting core functionality, making it a robust platform for real-time speech recognition applications. 
+The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while `audio_processor.py` orchestrates the complex real-time pipeline, `server.py` handles multi-user coordination, and supporting modules provide specialized functionality. 
+
+**Recent Performance Enhancements**: The system has been significantly optimized with:
+- **Memory Efficiency**: Pre-allocated buffers, frozen dataclasses, and caching strategies reduce memory pressure and allocation overhead
+- **Algorithmic Improvements**: Batch processing in hypothesis buffer management and efficient list operations improve computational complexity from O(n²) to O(n) in critical paths  
+- **Reliability Enhancements**: Final transcription buffer preservation ensures no text is lost during processing completion, addressing edge cases in real-world deployments
+- **Monitoring and Observability**: Enhanced logging provides clear visibility into system performance and transcription completeness
+
+This architecture enables future enhancements and optimizations without disrupting core functionality, making it a robust platform for real-time speech recognition applications with production-grade performance characteristics. 

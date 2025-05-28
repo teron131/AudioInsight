@@ -85,6 +85,15 @@ class AudioProcessor:
         self.max_bytes_per_sec = 32000 * 5  # 5 seconds of audio at 32 kHz
         self.sample_rate_str = str(self.sample_rate)  # Cache string conversion
 
+        # Pre-allocate buffers for better memory efficiency
+        self.max_buffer_size = self.max_bytes_per_sec * 2  # Double buffer size for safety
+        self.pcm_buffer = bytearray(self.max_buffer_size)
+        self.pcm_buffer_length = 0  # Track actual data length
+
+        # Pre-allocate numpy arrays to avoid repeated allocation
+        self._temp_int16_array = np.empty(self.max_buffer_size // 2, dtype=np.int16)
+        self._temp_float32_array = np.empty(self.max_buffer_size // 2, dtype=np.float32)
+
         # Timing settings
         self.last_ffmpeg_activity = time()
         self.ffmpeg_health_check_interval = 5
@@ -103,6 +112,8 @@ class AudioProcessor:
         self.sep = " "  # Default separator
         self.last_response_content = ""
         self.summaries = []  # Initialize summaries list
+        self._has_summaries = False  # Efficient flag to track summary availability
+        self._last_summary_check = 0  # Timestamp of last summary check
 
         # Models and processing
         self.asr = models.asr
@@ -111,7 +122,6 @@ class AudioProcessor:
         self.ffmpeg_process = self.start_ffmpeg_decoder()
         self.transcription_queue = asyncio.Queue() if self.args.transcription else None
         self.diarization_queue = asyncio.Queue() if self.args.diarization else None
-        self.pcm_buffer = bytearray()
 
         # Task references
         self.transcription_task = None
@@ -144,11 +154,59 @@ class AudioProcessor:
                 logger.warning(f"Failed to initialize LLM summarizer: {e}")
                 self.llm = None
 
-    def convert_pcm_to_float(self, pcm_buffer):
-        """Convert PCM buffer in s16le format to normalized NumPy array."""
-        # Use in-place division for better memory efficiency
-        int16_array = np.frombuffer(pcm_buffer, dtype=np.int16)
-        return int16_array.astype(np.float32, copy=False) / 32768.0
+    def convert_pcm_to_float(self, pcm_data, length=None):
+        """Convert PCM buffer in s16le format to normalized NumPy array with pre-allocated buffers."""
+        if length is None:
+            length = len(pcm_data)
+
+        # Use pre-allocated arrays for better performance
+        num_samples = length // 2
+        if num_samples > len(self._temp_int16_array):
+            # Resize if needed (rare case)
+            self._temp_int16_array = np.empty(num_samples, dtype=np.int16)
+            self._temp_float32_array = np.empty(num_samples, dtype=np.float32)
+
+        # Copy data into pre-allocated buffer
+        self._temp_int16_array[:num_samples] = np.frombuffer(pcm_data[:length], dtype=np.int16)
+
+        # Convert to float32 in-place
+        np.divide(self._temp_int16_array[:num_samples], 32768.0, out=self._temp_float32_array[:num_samples])
+
+        # Return a copy of the needed portion
+        return self._temp_float32_array[:num_samples].copy()
+
+    def append_to_pcm_buffer(self, chunk):
+        """Efficiently append audio chunk to PCM buffer."""
+        chunk_len = len(chunk)
+        new_length = self.pcm_buffer_length + chunk_len
+
+        # Resize buffer if needed
+        if new_length > len(self.pcm_buffer):
+            new_size = max(new_length, len(self.pcm_buffer) * 2)
+            new_buffer = bytearray(new_size)
+            new_buffer[: self.pcm_buffer_length] = self.pcm_buffer[: self.pcm_buffer_length]
+            self.pcm_buffer = new_buffer
+
+        # Append new data
+        self.pcm_buffer[self.pcm_buffer_length : new_length] = chunk
+        self.pcm_buffer_length = new_length
+
+    def get_pcm_data(self, max_bytes):
+        """Get PCM data up to max_bytes and remove it from buffer."""
+        actual_bytes = min(self.pcm_buffer_length, max_bytes)
+
+        # Get data
+        data = bytes(self.pcm_buffer[:actual_bytes])
+
+        # Shift remaining data to front
+        if actual_bytes < self.pcm_buffer_length:
+            remaining = self.pcm_buffer_length - actual_bytes
+            self.pcm_buffer[:remaining] = self.pcm_buffer[actual_bytes : self.pcm_buffer_length]
+            self.pcm_buffer_length = remaining
+        else:
+            self.pcm_buffer_length = 0
+
+        return data
 
     def start_ffmpeg_decoder(self):
         """Start FFmpeg process for WebM to PCM conversion."""
@@ -181,7 +239,7 @@ class AudioProcessor:
         try:
             logger.info("Starting new FFmpeg process")
             self.ffmpeg_process = self.start_ffmpeg_decoder()
-            self.pcm_buffer = bytearray()
+            self.pcm_buffer_length = 0  # Reset buffer length for new process
             self.last_ffmpeg_activity = time()
             logger.info("FFmpeg process restarted successfully")
         except Exception as e:
@@ -191,7 +249,7 @@ class AudioProcessor:
             await asyncio.sleep(5)
             try:
                 self.ffmpeg_process = self.start_ffmpeg_decoder()
-                self.pcm_buffer = bytearray()
+                self.pcm_buffer_length = 0  # Reset buffer length for new process
                 self.last_ffmpeg_activity = time()
                 logger.info("FFmpeg process restarted successfully on second attempt")
             except Exception as e2:
@@ -243,6 +301,7 @@ class AudioProcessor:
 
             if not is_duplicate:
                 self.summaries.append(new_summary)
+                self._has_summaries = True  # Set efficient flag
                 logger.info(f"✅ Added new summary (total: {len(self.summaries)})")
             else:
                 logger.info("⚠️ Duplicate summary detected, not adding")
@@ -301,20 +360,19 @@ class AudioProcessor:
                     logger.info("FFmpeg stdout closed, no more data to read.")
                     break
 
-                self.pcm_buffer.extend(chunk)
+                self.append_to_pcm_buffer(chunk)
 
                 # Send to diarization if enabled
                 if self.args.diarization and self.diarization_queue:
-                    await self.diarization_queue.put(self.convert_pcm_to_float(self.pcm_buffer).copy())
+                    await self.diarization_queue.put(self.convert_pcm_to_float(self.get_pcm_data(buffer_size)).copy())
 
                 # Process when enough data
-                if len(self.pcm_buffer) >= self.bytes_per_sec:
-                    if len(self.pcm_buffer) > self.max_bytes_per_sec:
-                        logger.warning(f"Audio buffer too large: {len(self.pcm_buffer) / self.bytes_per_sec:.2f}s. " f"Consider using a smaller model.")
+                if self.pcm_buffer_length >= self.bytes_per_sec:
+                    if self.pcm_buffer_length > self.max_bytes_per_sec:
+                        logger.warning(f"Audio buffer too large: {self.pcm_buffer_length / self.bytes_per_sec:.2f}s. " f"Consider using a smaller model.")
 
                     # Process audio chunk
-                    pcm_array = self.convert_pcm_to_float(self.pcm_buffer[: self.max_bytes_per_sec])
-                    self.pcm_buffer = self.pcm_buffer[self.max_bytes_per_sec :]
+                    pcm_array = self.convert_pcm_to_float(self.get_pcm_data(self.max_bytes_per_sec))
 
                     # Send to transcription if enabled
                     if self.args.transcription and self.transcription_queue:
@@ -482,13 +540,17 @@ class AudioProcessor:
 
                 response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
 
-                # Add summaries if available
-                async with self.lock:
-                    if hasattr(self, "summaries") and self.summaries:
-                        response["summaries"] = self.summaries.copy()
-                        logger.info(f"🔄 Including {len(self.summaries)} summaries in response")
-                    else:
-                        logger.debug(f"No summaries to include (has_attr: {hasattr(self, 'summaries')}, summaries: {getattr(self, 'summaries', [])})")
+                # Add summaries if available - optimize by checking flag first and limiting frequency
+                current_time = time()
+                if self._has_summaries or (current_time - self._last_summary_check > 2.0):  # Check every 2 seconds if no summaries
+                    self._last_summary_check = current_time
+                    async with self.lock:
+                        if self.summaries:
+                            response["summaries"] = self.summaries.copy()
+                            logger.info(f"🔄 Including {len(self.summaries)} summaries in response")
+                            self._has_summaries = True
+                        else:
+                            self._has_summaries = False
 
                 # Add LLM summarizer stats if available
                 if self.llm:
@@ -515,6 +577,23 @@ class AudioProcessor:
                         # Get final state and create final response
                         final_state = await self.get_current_state()
 
+                        # Force commit any remaining buffer text for final processing
+                        final_buffer_text = final_state["buffer_transcription"]
+                        if final_buffer_text and hasattr(self, "online") and self.online:
+                            # Try to finish the transcription to get any remaining tokens
+                            try:
+                                remaining_transcript = self.online.finish()
+                                if remaining_transcript and remaining_transcript.text:
+                                    logger.info(f"Retrieved remaining transcript: '{remaining_transcript.text[:50]}...'")
+                                    # Update LLM with any remaining text
+                                    if self.llm:
+                                        remaining_text_converted = s2hk(remaining_transcript.text) if remaining_transcript.text else ""
+                                        if remaining_text_converted.strip():
+                                            self.llm.update_transcription(remaining_text_converted, None)
+                                            logger.info(f"Updated LLM with remaining text: '{remaining_text_converted[:50]}...'")
+                            except Exception as e:
+                                logger.warning(f"Failed to retrieve remaining transcript: {e}")
+
                         # Generate final summary if no summaries were created during processing
                         async with self.lock:
                             summaries_count = len(getattr(self, "summaries", []))
@@ -524,14 +603,20 @@ class AudioProcessor:
                             await self.llm.force_summary()
                             # Wait a moment for the callback to be processed
                             await asyncio.sleep(0.1)
-                            final_state = await self.get_current_state()
+
+                        # Get updated final state after summary processing
+                        final_state = await self.get_current_state()
 
                         # Format final lines and apply s2hk conversion
                         final_lines_raw = await self._format_by_speaker(final_state["tokens"], final_state["sep"], final_state["end_attributed_speaker"])
                         final_lines_converted = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in final_lines_raw]
 
-                        # Create final response with existing summaries (don't generate new ones)
-                        final_response = {"lines": final_lines_converted, "buffer_transcription": "", "buffer_diarization": "", "remaining_time_transcription": 0, "remaining_time_diarization": 0}
+                        # Include any remaining buffer text in the final response
+                        final_buffer_transcription = s2hk(final_state["buffer_transcription"]) if final_state["buffer_transcription"] else ""
+                        final_buffer_diarization = s2hk(final_state["buffer_diarization"]) if final_state["buffer_diarization"] else ""
+
+                        # Create final response with remaining buffer text included
+                        final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0}
 
                         # Add existing summaries
                         async with self.lock:
@@ -542,6 +627,11 @@ class AudioProcessor:
                         # Add LLM stats
                         if self.llm:
                             final_response["llm_stats"] = self.llm.get_stats()
+
+                        # Log final summary of transcription
+                        total_lines = len(final_lines_converted)
+                        buffer_chars = len(final_buffer_transcription) + len(final_buffer_diarization)
+                        logger.info(f"📋 Final transcription: {total_lines} committed lines, {buffer_chars} buffer characters")
 
                         yield final_response
                         return

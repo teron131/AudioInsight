@@ -36,7 +36,7 @@ class HypothesisBuffer:
         """
         # Apply the offset to each token.
         new_tokens = [token.with_offset(offset) for token in new_tokens]
-        # Only keep tokens that are roughly “new”
+        # Only keep tokens that are roughly "new"
         self.new = [token for token in new_tokens if token.start > self.last_committed_time - 0.1]
 
         if self.new:
@@ -64,24 +64,43 @@ class HypothesisBuffer:
         between the previous hypothesis and the new tokens.
         """
         committed: List[ASRToken] = []
-        while self.new:
-            current_new = self.new[0]
-            if self.confidence_validation and current_new.probability and current_new.probability > 0.95:
-                committed.append(current_new)
-                self.last_committed_word = current_new.text
-                self.last_committed_time = current_new.end
-                self.new.pop(0)
-                self.buffer.pop(0) if self.buffer else None
-            elif not self.buffer:
-                break
-            elif current_new.text == self.buffer[0].text:
-                committed.append(current_new)
-                self.last_committed_word = current_new.text
-                self.last_committed_time = current_new.end
-                self.buffer.pop(0)
-                self.new.pop(0)
+
+        # Find how many tokens can be committed in one pass to avoid repeated pop(0)
+        commit_count = 0
+        min_length = min(len(self.new), len(self.buffer))
+
+        # Check confidence validation path first if enabled
+        if self.confidence_validation and self.new:
+            while commit_count < len(self.new):
+                current_new = self.new[commit_count]
+                if current_new.probability and current_new.probability > 0.95:
+                    committed.append(current_new)
+                    self.last_committed_word = current_new.text
+                    self.last_committed_time = current_new.end
+                    commit_count += 1
+                else:
+                    break
+        else:
+            # Standard LocalAgreement path - find longest matching prefix
+            while commit_count < min_length:
+                current_new = self.new[commit_count]
+                if current_new.text == self.buffer[commit_count].text:
+                    committed.append(current_new)
+                    self.last_committed_word = current_new.text
+                    self.last_committed_time = current_new.end
+                    commit_count += 1
+                else:
+                    break
+
+        # Efficiently update buffers by slicing instead of repeated pop(0)
+        if commit_count > 0:
+            self.new = self.new[commit_count:]
+            if len(self.buffer) >= commit_count:
+                self.buffer = self.buffer[commit_count:]
             else:
-                break
+                self.buffer = []
+
+        # Update buffer with remaining new tokens
         self.buffer = self.new
         self.new = []
         self.committed_in_buffer.extend(committed)
@@ -91,8 +110,17 @@ class HypothesisBuffer:
         """
         Remove tokens (from the beginning) that have ended before `time`.
         """
-        while self.committed_in_buffer and self.committed_in_buffer[0].end <= time:
-            self.committed_in_buffer.pop(0)
+        # Find how many tokens to remove in one pass
+        remove_count = 0
+        for token in self.committed_in_buffer:
+            if token.end <= time:
+                remove_count += 1
+            else:
+                break
+
+        # Remove all at once using slicing (more efficient than repeated pop(0))
+        if remove_count > 0:
+            self.committed_in_buffer = self.committed_in_buffer[remove_count:]
 
 
 class OnlineASRProcessor:
