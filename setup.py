@@ -7,7 +7,7 @@ setup(
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Teron",
-    url="https://github.com/teron131/Whisper-Realtime",
+    url="https://github.com/teron131/AudioInsight",
     packages=find_packages(),
     install_requires=[
         "fastapi",
@@ -27,7 +27,7 @@ setup(
         "llm": ["langchain", "langchain-openai", "python-dotenv"],
     },
     package_data={
-        "audioinsight": ["web/*.html"],
+        "audioinsight": ["frontend/*.html"],
     },
     entry_points={
         "console_scripts": [

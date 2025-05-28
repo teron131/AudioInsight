@@ -359,7 +359,7 @@ class AudioInsight:
         try:
             import pkg_resources
 
-            html_path = pkg_resources.resource_filename("audioinsight", "web/live_transcription.html")
+            html_path = pkg_resources.resource_filename("audioinsight", "frontend/ui.html")
             with open(html_path, "r", encoding="utf-8") as f:
                 html = f.read()
 
