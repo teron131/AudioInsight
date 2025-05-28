@@ -18,8 +18,13 @@ def create_tokenizer(lang):
 
     assert lang in WHISPER_LANG_CODES or lang == "auto", "language must be Whisper's supported lang code: " + " ".join(WHISPER_LANG_CODES)
 
+    # Chinese tokenizer doesn't work properly with Chinese punctuation (。！？),
+    # so skip sentence tokenization for Chinese languages
+    if lang in ["zh", "zh-cn", "zh-tw"]:
+        return None
+
     # supported by fast-mosestokenizer
-    if lang in "as bn ca cs de el en es et fi fr ga gu hi hu is it kn lt lv ml mni mr nl or pa pl pt ro ru sk sl sv ta te yue zh".split() or lang == "auto":
+    if lang in "as bn ca cs de el en es et fi fr ga gu hi hu is it kn lt lv ml mni mr nl or pa pl pt ro ru sk sl sv ta te yue".split() or lang == "auto":
         from mosestokenizer import MosesSentenceSplitter
 
         return MosesSentenceSplitter(lang)

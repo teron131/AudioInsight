@@ -27,7 +27,7 @@ _DEFAULT_CONFIG = {
     },
     "processing": {
         "min_chunk_size": 0.5,
-        "buffer_trimming": "segment",
+        "buffer_trimming": "sentence",
         "buffer_trimming_sec": 15.0,
         "vac_chunk_size": 0.04,
     },
@@ -37,7 +37,7 @@ _DEFAULT_CONFIG = {
         "vad": True,
         "vac": False,
         "confidence_validation": False,
-        "llm_summarization": True,
+        "llm_inference": True,
     },
     "llm": {
         "llm_model": "gpt-4.1-mini",
@@ -89,11 +89,11 @@ def _get_argument_parser() -> ArgumentParser:
     feature_group.add_argument("--no-vad", action="store_true", help="Disable VAD (voice activity detection).")
 
     # LLM configuration
-    llm_group = parser.add_argument_group("LLM Summarization Configuration")
-    llm_group.add_argument("--llm-summarization", action="store_true", default=_DEFAULT_CONFIG["features"]["llm_summarization"], help="Enable LLM-based transcription summarization after periods of inactivity.")
-    llm_group.add_argument("--llm-model", type=str, default=_DEFAULT_CONFIG["llm"]["llm_model"], help="LLM model to use for summarization (default: gpt-4.1-mini).")
-    llm_group.add_argument("--llm-trigger-time", type=float, default=_DEFAULT_CONFIG["llm"]["llm_trigger_time"], help="Time in seconds after which to trigger summarization when no new transcription is received (default: 5.0).")
-    llm_group.add_argument("--llm-conversation-trigger", type=int, default=_DEFAULT_CONFIG["llm"]["llm_conversation_trigger"], help="Number of conversations (speaker turns) after which to trigger summarization (default: 2).")
+    llm_group = parser.add_argument_group("LLM Inference Configuration")
+    llm_group.add_argument("--llm-inference", action="store_true", default=_DEFAULT_CONFIG["features"]["llm_inference"], help="Enable LLM-based transcription inference after periods of inactivity.")
+    llm_group.add_argument("--llm-model", type=str, default=_DEFAULT_CONFIG["llm"]["llm_model"], help="LLM model to use for inference (default: gpt-4.1-mini).")
+    llm_group.add_argument("--llm-trigger-time", type=float, default=_DEFAULT_CONFIG["llm"]["llm_trigger_time"], help="Time in seconds after which to trigger inference when no new transcription is received (default: 5.0).")
+    llm_group.add_argument("--llm-conversation-trigger", type=int, default=_DEFAULT_CONFIG["llm"]["llm_conversation_trigger"], help="Number of conversations (speaker turns) after which to trigger inference (default: 2).")
 
     # Logging configuration
     logging_group = parser.add_argument_group("Logging Configuration")
@@ -163,7 +163,7 @@ def _optimize_args(args: Namespace) -> Namespace:
         "vad": getattr(args, "vad", True),
         "vac": getattr(args, "vac", False),
         "confidence_validation": getattr(args, "confidence_validation", False),
-        "llm_summarization": getattr(args, "llm_summarization", True),
+        "llm_inference": getattr(args, "llm_inference", True),
     }
 
     return args

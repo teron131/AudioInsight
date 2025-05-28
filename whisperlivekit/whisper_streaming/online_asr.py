@@ -331,11 +331,12 @@ class OnlineASRProcessor:
 
         if self.tokenize:
             try:
-                sentence_texts = self.tokenize(full_text)
+                # MosesSentenceSplitter expects a list input
+                sentence_texts = self.tokenize([full_text])
             except Exception as e:
-                # Some tokenizers (e.g., MosesSentenceSplitter) expect a list input.
+                # Fallback for other tokenizers that might expect string input
                 try:
-                    sentence_texts = self.tokenize([full_text])
+                    sentence_texts = self.tokenize(full_text)
                 except Exception as e2:
                     raise ValueError("Tokenization failed") from e2
         else:
