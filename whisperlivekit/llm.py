@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import opencc
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -13,6 +14,21 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Cache OpenCC converter instance to avoid recreation
+_s2hk_converter = None
+
+
+def s2hk(text: str) -> str:
+    """Convert Simplified Chinese to Traditional Chinese with cached converter."""
+    if not text:
+        return text
+
+    global _s2hk_converter
+    if _s2hk_converter is None:
+        _s2hk_converter = opencc.OpenCC("s2hk")
+
+    return _s2hk_converter.convert(text)
 
 
 @dataclass
@@ -39,14 +55,14 @@ class LLM:
 
     def __init__(
         self,
-        model_id: str = "gpt-4o-mini",
+        model_id: str = "gpt-4.1-mini",
         api_key: Optional[str] = None,
         trigger_config: Optional[SummaryTrigger] = None,
     ):
         """Initialize the LLM summarizer.
 
         Args:
-            model_id: The model ID to use (defaults to gpt-4o-mini)
+            model_id: The model ID to use (defaults to gpt-4.1-mini)
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger summarization
         """
@@ -85,7 +101,11 @@ Focus on:
 
 Keep summaries clear and concise while capturing the essential information.
 
-IMPORTANT: Always respond in the same language as the transcription. If the transcription is in French, respond in French. If it's in English, respond in English. Match the language of the input content.""",
+IMPORTANT: Always respond in the same language and script as the transcription. 
+- If the transcription is in Chinese (繁體中文), respond in Traditional Chinese using Hong Kong style conventions.
+- If the transcription is in French, respond in French. 
+- If it's in English, respond in English. 
+- Match the exact language, script, and regional conventions of the input content.""",
                 ),
                 (
                     "human",
@@ -99,7 +119,7 @@ Additional context:
 - Has speaker diarization: {has_speakers}
 - Number of lines: {num_lines}
 
-Provide a structured summary with key points. Remember to respond in the same language as the transcription above.""",
+Provide a structured summary with key points. Remember to respond in the same language, script, and regional conventions as the transcription above.""",
                 ),
             ]
         )
@@ -273,7 +293,7 @@ Provide a structured summary with key points. Remember to respond in the same la
 
             # Create chain and invoke
             chain = self.prompt | self.structured_llm
-            response = await asyncio.get_event_loop().run_in_executor(
+            response: SummaryResponse = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: chain.invoke(
                     {
@@ -286,6 +306,10 @@ Provide a structured summary with key points. Remember to respond in the same la
             )
 
             generation_time = time.time() - start_time
+
+            # Apply s2hk conversion to ensure Traditional Chinese output
+            response.summary = s2hk(response.summary)
+            response.key_points = [s2hk(point) for point in response.key_points]
 
             # Update statistics
             self.stats["summaries_generated"] += 1

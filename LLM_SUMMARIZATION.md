@@ -55,14 +55,14 @@ whisperlivekit-server
 
 # Custom configuration
 whisperlivekit-server \
-    --llm-model "gpt-4o-mini" \
+    --llm-model "gpt-4.1-mini" \
     --llm-trigger-time 5.0
 ```
 
 ### Available Arguments
 
 - `--llm-summarization`: Enable LLM-based summarization (default: True)
-- `--llm-model`: LLM model to use (default: "gpt-4o-mini")
+- `--llm-model`: LLM model to use (default: "gpt-4.1-mini")
 - `--llm-trigger-time`: Idle time in seconds before triggering summarization (default: 5.0)
 
 ## Usage
@@ -76,7 +76,7 @@ from whisperlivekit.audio_processor import AudioProcessor
 # Initialize with LLM summarization enabled
 kit = WhisperLiveKit(
     llm_summarization=True,
-    llm_model="gpt-4o-mini",
+    llm_model="gpt-4.1-mini",
     llm_trigger_time=5.0,
 )
 

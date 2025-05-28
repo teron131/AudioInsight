@@ -210,9 +210,6 @@ WhisperLiveKit offers extensive configuration options:
 
 ## 🔧 How It Works
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/QuentinFuxa/WhisperLiveKit/refs/heads/main/demo.png" alt="WhisperLiveKit in Action" width="500">
-</p>
 
 1. **Audio Capture**: Browser's MediaRecorder API captures audio in webm/opus format
 2. **Streaming**: Audio chunks are sent to the server via WebSocket

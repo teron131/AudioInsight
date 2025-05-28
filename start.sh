@@ -1,1 +1,1 @@
-whisperlivekit-server --model large-v3-turbo --backend faster-whisper --llm-model "gpt-4o-mini" --llm-trigger-time 5.0
+whisperlivekit-server --model large-v3-turbo --backend faster-whisper --llm-model "gpt-4.1-mini" --llm-trigger-time 5.0

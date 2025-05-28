@@ -144,8 +144,8 @@ def parse_args():
     parser.add_argument(
         "--llm-model",
         type=str,
-        default="gpt-4o-mini",
-        help="LLM model to use for summarization (default: gpt-4o-mini).",
+        default="gpt-4.1-mini",
+        help="LLM model to use for summarization (default: gpt-4.1-mini).",
     )
     parser.add_argument(
         "--llm-trigger-time",
