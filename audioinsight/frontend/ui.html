@@ -1,1521 +1,1114 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AudioInsight</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-            margin: 20px;
-            text-align: center;
+        :root {
+            /* Geist Color System - Light Theme */
+            --geist-background: #ffffff;
+            --geist-background-2: #fafafa;
+            --geist-foreground: #000000;
+            --geist-muted: #666666;
+            --geist-muted-foreground: #888888;
+            --geist-border: #e5e5e5;
+            --geist-input: #ffffff;
+            --geist-primary: #000000;
+            --geist-primary-foreground: #ffffff;
+            --geist-secondary: #f4f4f4;
+            --geist-secondary-foreground: #0a0a0a;
+            --geist-accent: #f4f4f4;
+            --geist-accent-foreground: #0a0a0a;
+            --geist-destructive: #ef4444;
+            --geist-destructive-foreground: #ffffff;
+            --geist-success: #22c55e;
+            --geist-warning: #f59e0b;
+            --geist-blue: #0070f3;
+            --geist-cyan: #79ffe1;
+            --geist-pink: #ff0080;
+            --geist-purple: #7928ca;
+            
+            /* Shadows */
+            --geist-shadow-small: 0 1px 3px rgba(0, 0, 0, 0.12);
+            --geist-shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.15);
+            --geist-shadow-large: 0 8px 30px rgba(0, 0, 0, 0.12);
+            
+            /* Border radius */
+            --geist-radius: 6px;
+            --geist-radius-large: 12px;
         }
 
+        [data-theme="dark"] {
+            /* Geist Color System - Dark Theme */
+            --geist-background: #000000;
+            --geist-background-2: #111111;
+            --geist-foreground: #ffffff;
+            --geist-muted: #888888;
+            --geist-muted-foreground: #666666;
+            --geist-border: #333333;
+            --geist-input: #111111;
+            --geist-primary: #ffffff;
+            --geist-primary-foreground: #000000;
+            --geist-secondary: #1a1a1a;
+            --geist-secondary-foreground: #fafafa;
+            --geist-accent: #1a1a1a;
+            --geist-accent-foreground: #fafafa;
+            --geist-destructive: #ef4444;
+            --geist-destructive-foreground: #ffffff;
+            --geist-success: #22c55e;
+            --geist-warning: #f59e0b;
+            --geist-blue: #0070f3;
+            --geist-cyan: #79ffe1;
+            --geist-pink: #ff0080;
+            --geist-purple: #7928ca;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--geist-background);
+            color: var(--geist-foreground);
+            line-height: 1.5;
+            font-size: 14px;
+            min-height: 100vh;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--geist-border);
+            background: var(--geist-background);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--geist-foreground);
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: var(--geist-foreground);
+            color: var(--geist-background);
+            border-radius: var(--geist-radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .theme-toggle {
+            background: var(--geist-secondary);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            width: 32px;
+            height: 32px;
+            color: var(--geist-foreground);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .theme-toggle:hover {
+            background: var(--geist-accent);
+        }
+
+        /* Main Container */
         .main-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            padding: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+            min-height: calc(100vh - 73px);
+        }
+
+        /* Panel Styles */
+        .panel {
+            background: var(--geist-background);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius-large);
+            padding: 24px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            gap: 20px;
+            transition: border-color 0.2s ease;
         }
 
-        .mode-selector {
+        .panel:hover {
+            border-color: var(--geist-muted);
+        }
+
+        .panel-header {
             display: flex;
-            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--geist-border);
         }
 
-        .mode-button {
-            padding: 10px 20px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            background: white;
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--geist-foreground);
+        }
+
+        .panel-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .control-btn {
+            background: var(--geist-secondary);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            width: 32px;
+            height: 32px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--geist-foreground);
         }
 
-        .mode-button.active {
-            background: #007bff;
+        .control-btn:hover {
+            background: var(--geist-accent);
+            border-color: var(--geist-muted);
+        }
+
+        .control-btn.active {
+            background: var(--geist-primary);
+            color: var(--geist-primary-foreground);
+            border-color: var(--geist-primary);
+        }
+
+        .control-btn.processing {
+            background: var(--geist-warning);
             color: white;
-            border-color: #007bff;
+            border-color: var(--geist-warning);
+            position: relative;
+            overflow: hidden;
         }
 
-        .mode-button:hover {
-            background: #f0f0f0;
+        .control-btn.processing::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shimmer 1.5s infinite;
         }
 
-        .mode-button.active:hover {
-            background: #0056b3;
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
         }
 
-        .record-container,
-        .upload-container {
+        /* Waveform Visualization */
+        .waveform-container {
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 32px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 120px;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .waveform-container:hover {
+            border-color: var(--geist-muted);
+        }
+
+        .waveform {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            height: 40px;
+        }
+
+        .waveform-bar {
+            width: 3px;
+            background: var(--geist-blue);
+            border-radius: 2px;
+            transition: height 0.1s ease;
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { height: 8px; opacity: 0.4; }
+            100% { height: 40px; opacity: 1; }
+        }
+
+        .waveform-bar:nth-child(2n) { animation-delay: 0.1s; }
+        .waveform-bar:nth-child(3n) { animation-delay: 0.2s; }
+        .waveform-bar:nth-child(4n) { animation-delay: 0.3s; }
+        .waveform-bar:nth-child(5n) { animation-delay: 0.4s; }
+
+        /* Recording Indicator */
+        .recording-indicator {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: var(--geist-destructive);
+            color: var(--geist-destructive-foreground);
+            padding: 4px 8px;
+            border-radius: var(--geist-radius);
+            font-size: 12px;
+            font-weight: 500;
             display: none;
+            animation: blink 1s infinite;
         }
 
-        .record-container.active,
-        .upload-container.active {
+        .recording-indicator.active {
             display: block;
         }
 
-        /* Real-time toggle - DEPRECATED: Now both modes use unified WebSocket processing */
-        .realtime-toggle {
-            margin: 15px 0;
-            display: none; /* Hidden since unified processing is always real-time */
-            align-items: center;
-            gap: 10px;
-            justify-content: center;
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.6; }
         }
 
-        .toggle-switch {
-            position: relative;
-            width: 50px;
-            height: 24px;
-            background: #ddd;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .toggle-switch.active {
-            background: #007bff;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.3s;
-        }
-
-        .toggle-switch.active .toggle-slider {
-            transform: translateX(26px);
-        }
-
-        /* File Upload Styles */
-        .upload-zone {
-            border: 3px dashed #ddd;
-            border-radius: 10px;
-            padding: 40px;
-            margin: 20px 0;
-            background: #fafafa;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            max-width: 500px;
-            margin: 20px auto;
-        }
-
-        .upload-zone:hover,
-        .upload-zone.dragover {
-            border-color: #007bff;
-            background: #f0f8ff;
-        }
-
-        .upload-zone.processing {
-            border-color: #28a745;
-            background: #f0fff0;
-        }
-
-        .upload-icon {
-            font-size: 48px;
-            color: #999;
-            margin-bottom: 10px;
-        }
-
-        .upload-text {
-            font-size: 16px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-
-        .upload-subtext {
+        /* Transcript Area */
+        .transcript-area {
+            flex: 1;
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 16px;
+            color: var(--geist-muted-foreground);
             font-size: 14px;
-            color: #999;
+            line-height: 1.6;
+            overflow-y: auto;
+            min-height: 200px;
+            font-family: 'Inter', monospace;
+            transition: all 0.2s ease;
         }
 
+        .transcript-area:hover {
+            border-color: var(--geist-muted);
+        }
+
+        .transcript-area.has-content {
+            color: var(--geist-foreground);
+            white-space: pre-line; /* Preserve line breaks for speaker formatting */
+        }
+
+        /* Analysis Panel */
+        .analysis-section {
+            margin-bottom: 24px;
+        }
+
+        .analysis-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--geist-foreground);
+            margin-bottom: 12px;
+        }
+
+        .status-indicator {
+            font-size: 12px;
+            color: var(--geist-success);
+            transition: color 0.2s ease;
+        }
+
+        .status-indicator.disabled {
+            color: var(--geist-muted);
+        }
+
+        .status-indicator.error {
+            color: var(--geist-destructive);
+        }
+
+        .status-indicator.processing {
+            color: var(--geist-warning);
+            animation: pulse-dot 1s infinite;
+        }
+
+        .analysis-content {
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 16px;
+            color: var(--geist-muted-foreground);
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 80px;
+            transition: all 0.2s ease;
+        }
+
+        .analysis-content:hover {
+            border-color: var(--geist-muted);
+        }
+
+        .analysis-content.has-content {
+            color: var(--geist-foreground);
+        }
+
+        .analysis-content ul {
+            padding-left: 16px;
+            margin: 0;
+        }
+
+        .analysis-content li {
+            margin-bottom: 4px;
+        }
+
+        /* LLM Stats */
+        .llm-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+        }
+
+        .stat-label {
+            font-weight: 500;
+            color: var(--geist-muted-foreground);
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: var(--geist-foreground);
+            font-family: 'Inter', monospace;
+        }
+
+        .stat-value.enabled {
+            color: var(--geist-success);
+        }
+
+        .stat-value.disabled {
+            color: var(--geist-muted);
+        }
+
+        .stat-value.processing {
+            color: var(--geist-warning);
+        }
+
+        /* Keywords */
+        .keywords-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .keyword-tag {
+            background: var(--geist-secondary);
+            color: var(--geist-foreground);
+            padding: 4px 8px;
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .keyword-tag:hover {
+            background: var(--geist-accent);
+            border-color: var(--geist-muted);
+        }
+
+        .keyword-tag.highlighted {
+            background: var(--geist-blue);
+            color: white;
+            border-color: var(--geist-blue);
+        }
+
+        /* Status Messages */
+        .status-message {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--geist-muted-foreground);
+            padding: 8px 12px;
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            margin-top: 12px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--geist-success);
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Loading States */
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--geist-muted-foreground);
+        }
+
+        .spinner {
+            width: 12px;
+            height: 12px;
+            border: 1px solid var(--geist-border);
+            border-top: 1px solid var(--geist-foreground);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 16px;
+                padding: 16px;
+            }
+            
+            .header {
+                padding: 12px 16px;
+            }
+            
+            .panel {
+                padding: 16px;
+            }
+
+            .panel-header {
+                flex-direction: column;
+                gap: 12px;
+                align-items: stretch;
+            }
+            
+            .panel-controls {
+                justify-content: center;
+            }
+        }
+
+        /* Focus States */
+        .control-btn:focus,
+        .theme-toggle:focus {
+            outline: 2px solid var(--geist-blue);
+            outline-offset: 2px;
+        }
+
+        /* File Input */
         .file-input {
             display: none;
         }
 
-        .file-info {
-            margin-top: 15px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            font-size: 14px;
-            color: #666;
+        /* Drag and Drop States */
+        .panel.dragover {
+            border-color: var(--geist-blue);
+            background: var(--geist-background-2);
         }
 
-        .progress-container {
-            margin-top: 15px;
-            display: none;
+        /* Success States */
+        .success {
+            color: var(--geist-success);
         }
 
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #e9ecef;
-            border-radius: 10px;
-            overflow: hidden;
+        .error {
+            color: var(--geist-destructive);
         }
 
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #007bff, #28a745);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
-        .progress-text {
-            margin-top: 5px;
-            font-size: 12px;
-            color: #666;
-        }
-
-        /* Recording Styles */
-        #recordButton {
-            width: 50px;
-            height: 50px;
-            border: none;
-            border-radius: 50%;
-            background-color: white;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 1px solid rgb(233, 233, 233);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-        }
-
-        #recordButton.recording {
-            width: 180px;
-            border-radius: 40px;
-            justify-content: flex-start;
-            padding-left: 20px;
-        }
-
-        #recordButton:active {
-            transform: scale(0.95);
-        }
-
-        .shape-container {
-            width: 25px;
-            height: 25px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .shape {
-            width: 25px;
-            height: 25px;
-            background-color: rgb(209, 61, 53);
-            border-radius: 50%;
-            transition: all 0.3s ease;
-        }
-
-        #recordButton:disabled .shape {
-            background-color: #6e6d6d;
-        }
-
-        #recordButton.recording .shape {
-            border-radius: 5px;
-            width: 25px;
-            height: 25px;
-        }
-
-        .recording-info {
-            display: none;
-            align-items: center;
-            margin-left: 15px;
-            flex-grow: 1;
-        }
-
-        #recordButton.recording .recording-info {
-            display: flex;
-        }
-
-        .wave-container {
-            width: 60px;
-            height: 30px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        #waveCanvas {
-            width: 100%;
-            height: 100%;
-        }
-
-        .timer {
-            font-size: 14px;
-            font-weight: 500;
-            color: #333;
-            margin-left: 10px;
-        }
-
-        #status {
-            margin-top: 20px;
-            font-size: 16px;
-            color: #333;
-        }
-
-        .settings-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 15px;
-            margin-top: 20px;
-        }
-
-        .settings {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 5px;
-        }
-
-        #chunkSelector,
-        #websocketInput {
-            font-size: 16px;
-            padding: 5px;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-            background-color: #ffffff;
-            max-height: 30px;
-        }
-
-        #websocketInput {
-            width: 200px;
-        }
-
-        #chunkSelector:focus,
-        #websocketInput:focus {
-            outline: none;
-            border-color: #007bff;
-        }
-
-        label {
-            font-size: 14px;
-        }
-
-        /* Speaker-labeled transcript area */
-        #linesTranscript {
-            margin: 20px auto;
-            max-width: 700px;
-            text-align: left;
-            font-size: 16px;
-        }
-
-        #linesTranscript p {
-            margin: 0px 0;
-        }
-
-        #linesTranscript strong {
-            color: #333;
-        }
-
-        #speaker {
-            border: 1px solid rgb(229, 229, 229);
-            border-radius: 100px;
-            padding: 2px 10px;
-            font-size: 14px;
-            margin-bottom: 0px;
-        }
-        .label_diarization {
-            background-color: #ffffff66;
-            border-radius: 8px 8px 8px 8px;
-            padding: 2px 10px;
-            margin-left: 10px;
-            display: inline-block;
-            white-space: nowrap;
-            font-size: 14px;
-            margin-bottom: 0px;
-            color: rgb(134, 134, 134)
-        }
-
-        .label_transcription {
-            background-color: #ffffff66;
-            border-radius: 8px 8px 8px 8px;
-            padding: 2px 10px;
-            display: inline-block;
-            white-space: nowrap;
-            margin-left: 10px;
-            font-size: 14px;
-            margin-bottom: 0px;
-            color: #000000
-        }
-
-        #timeInfo {
-            color: #666;
-            margin-left: 10px;
-        }
-
-        .textcontent {
-            font-size: 16px;
-            padding-left: 10px;
-            margin-bottom: 10px;
-            margin-top: 1px;
-            padding-top: 5px;
-            border-radius: 0px 0px 0px 10px;
-        }
-
-        .buffer_diarization {
-            color: rgb(134, 134, 134);
-            margin-left: 4px;
-        }
-
-        .buffer_transcription {
-            color: #7474748c;
-            margin-left: 4px;
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border: 2px solid #8d8d8d5c;
-            border-top: 2px solid #6c6c6ce5;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-            vertical-align: middle;
-            margin-bottom: 2px;
-            margin-right: 5px;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .silence {
-            color: #666;
-            background-color: #f3f3f3;
-            font-size: 13px;
-            border-radius: 30px;
-            padding: 2px 10px;
-        }
-
-        .loading {
-            color: #666;
-            background-color: #ff4d4d0f;
-            border-radius: 8px 8px 8px 0px;
-            padding: 2px 10px;
-            font-size: 14px;
-            margin-bottom: 0px;
-        }
-
-        /* Summaries styling */
-        .summaries-container {
-            margin: 20px auto;
-            max-width: 700px;
-            text-align: left;
-        }
-
-        .summary {
-            background-color: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-
-        .summary p {
-            margin: 8px 0;
-            line-height: 1.4;
-        }
-
-        .summary strong {
-            color: #495057;
-            font-weight: 600;
-        }
-
-        .summary-header {
-            font-size: 16px;
-            font-weight: bold;
-            color: #007bff;
-            margin-bottom: 10px;
-            border-bottom: 1px solid #e9ecef;
-            padding-bottom: 5px;
+        .warning {
+            color: var(--geist-warning);
         }
     </style>
 </head>
-
 <body>
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">🎵</div>
+            <span>Audio Insight AI</span>
+        </div>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">🌙</button>
+    </header>
+
+    <!-- Main Container -->
     <div class="main-container">
-        <!-- Mode selector -->
-        <div class="mode-selector">
-            <button class="mode-button active" id="recordMode">🎤 Live Recording</button>
-            <button class="mode-button" id="uploadMode">📁 Upload File</button>
-            <button class="mode-button" id="cleanupButton" style="background-color: #ff6b6b; color: white;">🧹 Clean Session</button>
-        </div>
-
-        <!-- Recording container -->
-        <div class="record-container active">
-    <div class="settings-container">
-        <button id="recordButton">
-            <div class="shape-container">
-                <div class="shape"></div>
-            </div>
-            <div class="recording-info">
-                <div class="wave-container">
-                    <canvas id="waveCanvas"></canvas>
-                </div>
-                <div class="timer">00:00</div>
-            </div>
-        </button>
-        <div class="settings">
-            <div>
-                <label for="chunkSelector">Chunk size (ms):</label>
-                <select id="chunkSelector">
-                    <option value="500">500 ms</option>
-                    <option value="1000" selected>1000 ms</option>
-                    <option value="2000">2000 ms</option>
-                    <option value="3000">3000 ms</option>
-                    <option value="4000">4000 ms</option>
-                    <option value="5000">5000 ms</option>
-                </select>
-            </div>
-            <div>
-                <label for="websocketInput">WebSocket URL:</label>
-                <input id="websocketInput" type="text" />
-                    </div>
-            </div>
-        </div>
-    </div>
-
-        <!-- Upload container -->
-        <div class="upload-container">
-            <div class="realtime-toggle">
-                <span>Show results in real-time</span>
-                <div class="toggle-switch" id="realtimeToggle">
-                    <div class="toggle-slider"></div>
+        <!-- Live Transcript Panel -->
+        <div class="panel" id="transcriptPanel">
+            <div class="panel-header">
+                <h2 class="panel-title">Live Transcript</h2>
+                <div class="panel-controls">
+                    <button class="control-btn" id="micBtn" title="Start Recording" aria-label="Record audio">🎤</button>
+                    <button class="control-btn" id="uploadBtn" title="Upload Audio" aria-label="Upload audio file">📁</button>
                 </div>
             </div>
 
-            <div class="upload-zone" id="uploadZone">
-                <div class="upload-icon">🎵</div>
-                <div class="upload-text">Drag & drop an audio file here</div>
-                <div class="upload-subtext">or click to browse files</div>
-                <div class="upload-subtext">Supports: MP3, MP4, WAV, M4A, FLAC, OGG</div>
-                <input type="file" id="fileInput" class="file-input" accept="audio/*">
-            </div>
-            
-            <div class="file-info" id="fileInfo" style="display: none;"></div>
-            
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+            <!-- Waveform Visualization -->
+            <div class="waveform-container">
+                <div class="recording-indicator" id="recordingIndicator">● REC</div>
+                <div class="waveform" id="waveform">
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
+                    <div class="waveform-bar"></div>
                 </div>
-                <div class="progress-text" id="progressText">Processing...</div>
             </div>
+
+            <!-- Transcript Area -->
+            <div class="transcript-area" id="transcriptArea">
+                Your audio transcript will appear here...
+            </div>
+
+            <!-- Status -->
+            <div class="status-message" id="statusMessage" style="display: none;">
+                <div class="status-dot"></div>
+                <span>Ready to transcribe</span>
+            </div>
+
+            <!-- Hidden file input -->
+            <input type="file" id="fileInput" class="file-input" accept="audio/*">
         </div>
 
-        <!-- Status and transcript -->
-        <p id="status"></p>
-        <!-- Summaries will be displayed here -->
-        <div id="summaries" class="summaries-container"></div>
-    <div id="linesTranscript"></div>
+        <!-- LLM Analysis Panel -->
+        <div class="panel" id="analysisPanel">
+            <div class="panel-header">
+                <h2 class="panel-title">LLM Analysis</h2>
+            </div>
+
+            <!-- Summary Section -->
+            <div class="analysis-section">
+                <h3 class="section-title">Summary</h3>
+                <div class="analysis-content" id="summaryContent">
+                    The AI-generated summary will appear here...
+                </div>
+            </div>
+
+            <!-- Key Points Section -->
+            <div class="analysis-section">
+                <h3 class="section-title">Key Points</h3>
+                <div class="analysis-content" id="keyPointsContent">
+                    <ul>
+                        <li>Analysis points will appear here</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Keywords Section -->
+            <div class="analysis-section">
+                <h3 class="section-title">Keywords</h3>
+                <div class="keywords-container" id="keywordsContainer">
+                    <span class="keyword-tag">relevant</span>
+                    <span class="keyword-tag highlighted">keywords</span>
+                    <span class="keyword-tag">here</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Global variables
+        // Theme management
+        const themeToggle = document.getElementById('themeToggle');
+        const body = document.body;
+        
+        // Check for saved theme preference or default to 'light'
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        themeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+
+        themeToggle.addEventListener('click', () => {
+            const theme = document.documentElement.getAttribute('data-theme');
+            const newTheme = theme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        });
+
+        // Audio recording functionality
+        const micBtn = document.getElementById('micBtn');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const transcriptArea = document.getElementById('transcriptArea');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+        const statusMessage = document.getElementById('statusMessage');
+        const transcriptPanel = document.getElementById('transcriptPanel');
+        
         let isRecording = false;
+        let mediaRecorder = null;
+        let audioStream = null;
         let websocket = null;
-        let recorder = null;
-        let chunkDuration = 1000;
-        let websocketUrl = "ws://localhost:8001/asr";
-        let userClosing = false;
-        let startTime = null;
-        let timerInterval = null;
-        let audioContext = null;
-        let analyser = null;
-        let microphone = null;
-        let waveCanvas = document.getElementById("waveCanvas");
-        let waveCtx = waveCanvas.getContext("2d");
-        let animationFrame = null;
-        let waitingForStop = false;
-        let lastReceivedData = null;
-        let lastTranscriptData = null; // NEW: Preserve last transcript data separately
-        
-        // File upload variables
         let isProcessingFile = false;
-        let currentMode = 'record'; // 'record' or 'upload'
-        let realtimeMode = true; // Real-time display mode
-        let uploadResults = []; // Store upload results for real-time display
-        
-        // Session management
-        let sessionActive = false;
-        let cleanupInProgress = false;
-        
-        // Initialize canvas
-        waveCanvas.width = 60 * (window.devicePixelRatio || 1);
-        waveCanvas.height = 30 * (window.devicePixelRatio || 1);
-        waveCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
 
-        // DOM elements
-        const statusText = document.getElementById("status");
-        const recordButton = document.getElementById("recordButton");
-        const chunkSelector = document.getElementById("chunkSelector");
-        const websocketInput = document.getElementById("websocketInput");
-        const linesTranscriptDiv = document.getElementById("linesTranscript");
-        const summariesDiv = document.getElementById("summaries");
-        const timerElement = document.querySelector(".timer");
+        // Get server URL
+        const getServerUrl = () => {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${window.location.host}`;
+        };
 
-        // Mode switching elements
-        const recordMode = document.getElementById("recordMode");
-        const uploadMode = document.getElementById("uploadMode");
-        const cleanupButton = document.getElementById("cleanupButton");
-        const recordContainer = document.querySelector(".record-container");
-        const uploadContainer = document.querySelector(".upload-container");
-        
-        // File upload elements
-        const uploadZone = document.getElementById("uploadZone");
-        const fileInput = document.getElementById("fileInput");
-        const fileInfo = document.getElementById("fileInfo");
-        const progressContainer = document.getElementById("progressContainer");
-        const progressFill = document.getElementById("progressFill");
-        const progressText = document.getElementById("progressText");
-        const realtimeToggle = document.getElementById("realtimeToggle");
+        const getApiUrl = () => {
+            return `${window.location.protocol}//${window.location.host}`;
+        };
 
-        // WebSocket configuration
-        const host = window.location.hostname || "localhost";
-        const port = window.location.port || "8001";
-        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        const defaultWebSocketUrl = `${protocol}://${host}:${port}/asr`;
-        websocketInput.value = defaultWebSocketUrl;
-        websocketUrl = defaultWebSocketUrl;
-
-        // Mode switching
-        recordMode.addEventListener("click", () => switchMode('record'));
-        uploadMode.addEventListener("click", () => switchMode('upload'));
-        
-        // Cleanup button
-        cleanupButton.addEventListener("click", async () => {
-            if (cleanupInProgress) return;
+        // Show status message
+        function showStatus(message, type = 'info') {
+            const statusSpan = statusMessage.querySelector('span');
+            statusSpan.textContent = message;
+            statusMessage.style.display = 'flex';
             
-            const originalText = cleanupButton.textContent;
-            cleanupButton.textContent = "🧹 Cleaning...";
-            cleanupButton.disabled = true;
-            
-            await cleanupSession(false); // Full cleanup - don't preserve summaries
-            
-            cleanupButton.textContent = originalText;
-            cleanupButton.disabled = false;
-        });
-
-        function switchMode(mode) {
-            currentMode = mode;
-            
-            // Update button states
-            recordMode.classList.toggle('active', mode === 'record');
-            uploadMode.classList.toggle('active', mode === 'upload');
-            
-            // Update container visibility
-            recordContainer.classList.toggle('active', mode === 'record');
-            uploadContainer.classList.toggle('active', mode === 'upload');
-            
-            // Reset state when switching modes
-            if (isRecording) stopRecording();
-            if (isProcessingFile) {
-                // Reset file processing
-                isProcessingFile = false;
-                uploadZone.classList.remove('processing');
-                progressContainer.style.display = 'none';
-            }
-            
-            // Clear transcript but preserve summaries when switching modes
-            linesTranscriptDiv.innerHTML = '';
-            statusText.textContent = mode === 'record' ? 
-                "Click to start transcription" : 
-                "Select or drag an audio file to transcribe";
-        }
-
-        // Settings event listeners
-        chunkSelector.addEventListener("change", () => {
-            chunkDuration = parseInt(chunkSelector.value);
-        });
-
-        websocketInput.addEventListener("change", () => {
-            const urlValue = websocketInput.value.trim();
-            if (!urlValue.startsWith("ws://") && !urlValue.startsWith("wss://")) {
-                statusText.textContent = "Invalid WebSocket URL (must start with ws:// or wss://)";
-                return;
-            }
-            websocketUrl = urlValue;
-            statusText.textContent = "WebSocket URL updated. Ready to connect.";
-        });
-
-        // File upload event listeners
-        uploadZone.addEventListener('click', () => fileInput.click());
-        uploadZone.addEventListener('dragover', handleDragOver);
-        uploadZone.addEventListener('dragleave', handleDragLeave);
-        uploadZone.addEventListener('drop', handleDrop);
-        fileInput.addEventListener('change', handleFileSelect);
-        realtimeToggle.addEventListener('click', toggleRealtimeMode);
-
-        function handleDragOver(e) {
-            e.preventDefault();
-            uploadZone.classList.add('dragover');
-        }
-
-        function handleDragLeave(e) {
-            e.preventDefault();
-            uploadZone.classList.remove('dragover');
-        }
-
-        function handleDrop(e) {
-            e.preventDefault();
-            uploadZone.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                processFile(files[0]);
+            // Auto-hide after 5 seconds for non-error messages
+            if (type !== 'error') {
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
             }
         }
 
-        function handleFileSelect(e) {
-            const files = e.target.files;
-            if (files.length > 0) {
-                processFile(files[0]);
-            }
+        // Clear analysis panels
+        function clearAnalysis() {
+            const summaryContent = document.getElementById('summaryContent');
+            const keyPointsContent = document.getElementById('keyPointsContent');
+            const keywordsContainer = document.getElementById('keywordsContainer');
+            
+            summaryContent.textContent = 'The AI-generated summary will appear here...';
+            summaryContent.classList.remove('has-content');
+            
+            keyPointsContent.innerHTML = '<ul><li>Analysis points will appear here</li></ul>';
+            keyPointsContent.classList.remove('has-content');
+            
+            keywordsContainer.innerHTML = '<span class="keyword-tag">relevant</span><span class="keyword-tag highlighted">keywords</span><span class="keyword-tag">here</span>';
         }
 
-        function toggleRealtimeMode() {
-            realtimeMode = !realtimeMode;
-            realtimeToggle.classList.toggle('active', realtimeMode);
-        }
+        // Update analysis from transcript data
+        function updateAnalysisFromData(data) {
+            const summaryContent = document.getElementById('summaryContent');
+            const keyPointsContent = document.getElementById('keyPointsContent');
+            const keywordsContainer = document.getElementById('keywordsContainer');
 
-        // Initialize real-time mode as active
-        realtimeToggle.classList.add('active');
-
-        // Process uploaded file using unified WebSocket approach
-        async function processFile(file) {
-            if (isProcessingFile) return;
-            
-            // Clean up any previous session before starting new one
-            if (sessionActive) {
-                await cleanupSession(true); // Preserve summaries when starting new file upload
-                // Wait a moment for cleanup to complete
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            
-            isProcessingFile = true;
-            sessionActive = true;
-            uploadZone.classList.add('processing');
-            progressContainer.style.display = 'block';
-            progressFill.style.width = '0%';
-            
-            // Clear previous transcription (but summaries are preserved by cleanup)
-            linesTranscriptDiv.innerHTML = '';
-            uploadResults = [];
-            
-            // Show file info
-            fileInfo.style.display = 'block';
-            fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-            
-            // Always use unified WebSocket processing for consistency
-            await processFileUnified(file);
-        }
-
-        // Process file using unified WebSocket approach (same as live recording)
-        async function processFileUnified(file) {
-            try {
-                statusText.textContent = "Uploading file...";
-                progressText.textContent = "Preparing file for processing...";
+            // Handle summaries array from LLM
+            if (data.summaries && data.summaries.length > 0) {
+                const latestSummary = data.summaries[data.summaries.length - 1];
+                summaryContent.textContent = latestSummary.summary;
+                summaryContent.classList.add('has-content');
                 
-                // Step 1: Upload file to server
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                const uploadResponse = await fetch('/upload-file', {
-                    method: 'POST',
-                    body: formData
+                if (latestSummary.key_points && latestSummary.key_points.length > 0) {
+                    const pointsList = latestSummary.key_points.map(point => `<li>${point}</li>`).join('');
+                    keyPointsContent.innerHTML = `<ul>${pointsList}</ul>`;
+                    keyPointsContent.classList.add('has-content');
+                }
+            }
+
+            // Update summary if available (direct format)
+            if (data.summary) {
+                summaryContent.textContent = data.summary;
+                summaryContent.classList.add('has-content');
+            }
+
+            // Update key points if available (direct format)
+            if (data.key_points && data.key_points.length > 0) {
+                const pointsList = data.key_points.map(point => `<li>${point}</li>`).join('');
+                keyPointsContent.innerHTML = `<ul>${pointsList}</ul>`;
+                keyPointsContent.classList.add('has-content');
+            }
+
+            // Update keywords if available
+            if (data.keywords && data.keywords.length > 0) {
+                keywordsContainer.innerHTML = '';
+                data.keywords.forEach((keyword, index) => {
+                    const tag = document.createElement('span');
+                    tag.className = 'keyword-tag';
+                    tag.textContent = keyword;
+                    if (index % 3 === 0) tag.classList.add('highlighted');
+                    keywordsContainer.appendChild(tag);
+                    
+                    tag.addEventListener('click', () => {
+                        tag.classList.toggle('highlighted');
+                    });
                 });
-                
-                if (!uploadResponse.ok) {
-                    const errorData = await uploadResponse.json();
-                    throw new Error(errorData.detail || `Upload failed (${uploadResponse.status})`);
-                }
-                
-                const uploadResult = await uploadResponse.json();
-                const { file_path, duration, filename } = uploadResult;
-                
-                statusText.textContent = `Processing ${filename} (${duration.toFixed(1)}s)...`;
-                progressText.textContent = "Connecting to WebSocket...";
-                
-                // Step 2: Connect to WebSocket (same as live recording)
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    // Already connected, proceed with file processing
-                    await processFileViaWebSocket(file_path, duration, filename);
-                } else {
-                    // Need to establish WebSocket connection first
-                    await setupWebSocket();
-                    await processFileViaWebSocket(file_path, duration, filename);
-                }
-                
-            } catch (error) {
-                handleUploadError(error.message);
             }
         }
 
-        // Process file through WebSocket connection (identical to live recording pipeline)
-        async function processFileViaWebSocket(filePath, duration, filename) {
+        // Handle WebSocket messages
+        function handleWebSocketMessage(data) {
             try {
-                progressText.textContent = "Processing via WebSocket...";
-                
-                // Send file processing request through WebSocket (same as live recording)
-                const fileMessage = {
-                    type: "file_upload",
-                    file_path: filePath,
-                    duration: duration,
-                    filename: filename
-                };
-                
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    websocket.send(JSON.stringify(fileMessage));
-                    statusText.textContent = `Processing file through unified pipeline...`;
-                    progressText.textContent = "Receiving real-time transcription...";
-                } else {
-                    throw new Error("WebSocket connection not available");
-                }
-                
-                // The transcription results will come through the same WebSocket message handler
-                // as live recording, ensuring identical processing behavior
-                
-            } catch (error) {
-                handleUploadError(error.message);
-            }
-        }
-
-        // Process file with real-time streaming using Server-Sent Events (DEPRECATED - keeping for backward compatibility)
-        async function processFileRealtime(file) {
-            try {
-                statusText.textContent = "Starting real-time transcription...";
-                progressText.textContent = "Connecting to streaming endpoint...";
-                
-                // Create FormData for file upload
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                // Use fetch to start the streaming upload
-                const response = await fetch('/upload-stream', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                // Create a reader for the stream
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let currentLines = [];
-                
-                statusText.textContent = "Receiving real-time transcription...";
-                
-                while (true) {
-                    const { done, value } = await reader.read();
+                if (data.type === 'transcription' || data.lines) {
+                    // Update transcript with live results including speaker information
+                    let transcriptText = '';
                     
-                    if (done) break;
-                    
-                    // Decode the chunk and add to buffer
-                    buffer += decoder.decode(value, { stream: true });
-                    
-                    // Process complete SSE events
-                    const events = buffer.split('\n\n');
-                    buffer = events.pop(); // Keep incomplete event in buffer
-                    
-                    for (const event of events) {
-                        if (event.trim()) {
-                            processSSEEvent(event, currentLines);
-                        }
-                    }
-                }
-                
-                // Process any remaining event in buffer
-                if (buffer.trim()) {
-                    processSSEEvent(buffer, currentLines);
-                }
-                
-            } catch (error) {
-                handleUploadError(error.message);
-            }
-        }
-
-        // Process SSE events from the streaming endpoint
-        function processSSEEvent(eventText, currentLines) {
-            const lines = eventText.split('\n');
-            let eventType = '';
-            let eventData = '';
-            
-            for (const line of lines) {
-                if (line.startsWith('event: ')) {
-                    eventType = line.substring(7);
-                } else if (line.startsWith('data: ')) {
-                    eventData = line.substring(6);
-                }
-            }
-            
-            if (!eventType || !eventData) return;
-            
-            try {
-                const data = JSON.parse(eventData);
-                
-                switch (eventType) {
-                    case 'start':
-                        statusText.textContent = `Processing ${data.filename} (${data.duration.toFixed(1)}s)...`;
-                        progressText.textContent = "Real-time transcription starting...";
-                        break;
-                        
-                    case 'transcription':
-                        // Add new transcription segment in real-time
-                        if (data.text && data.text.trim()) {
-                            const newSegment = {
-                                text: data.text,
-                                speaker: data.lines && data.lines[0] ? data.lines[0].speaker : 1,
-                                beg: currentLines.length * 5, // Approximate timing
-                                end: (currentLines.length + 1) * 5
-                            };
-                            currentLines.push(newSegment);
-                            
-                            // Update display immediately with new segment
-                            renderLinesWithBuffer(
-                                currentLines.slice(), // Current completed lines
-                                "", // No diarization buffer for uploads
-                                data.buffer || "", // Current buffer
-                                0, 0, false, // Not finalizing
-                                data.diarization_enabled || false // Diarization enabled flag
-                            );
-                        }
-                        break;
-                        
-                    case 'progress':
-                        const progressPercent = (data.progress / data.total) * 100;
-                        progressFill.style.width = `${progressPercent}%`;
-                        progressText.textContent = `Processing: ${data.progress.toFixed(1)}s / ${data.total.toFixed(1)}s`;
-                        break;
-                        
-                    case 'complete':
-                        progressFill.style.width = '100%';
-                        progressText.textContent = "Real-time transcription complete!";
-                        statusText.textContent = "File processed successfully in real-time!";
-                        
-                        // Final render to clean up any remaining buffer content
-                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true, false);
-                        
-                        setTimeout(() => {
-                            isProcessingFile = false;
-                            uploadZone.classList.remove('processing');
-                            progressContainer.style.display = 'none';
-                        }, 2000);
-                        break;
-                        
-                    case 'error':
-                        handleUploadError(data.error || 'Unknown streaming error');
-                        break;
-                }
-                
-            } catch (e) {
-                // Silent error handling for SSE parsing issues
-            }
-        }
-
-        // Process file for instant results (original implementation)
-        async function processFileInstant(file) {
-            try {
-                statusText.textContent = "Uploading and processing file...";
-                progressText.textContent = "Uploading file...";
-                
-                // Create FormData for file upload
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                // Upload file to server with progress tracking
-                const xhr = new XMLHttpRequest();
-                
-                // Track upload progress
-                xhr.upload.addEventListener('progress', (e) => {
-                    if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        progressFill.style.width = `${percentComplete}%`;
-                        progressText.textContent = `Uploading: ${Math.round(percentComplete)}%`;
-                    }
-                });
-                
-                // Handle response
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        try {
-                            const result = JSON.parse(xhr.responseText);
-                            handleUploadSuccess(result);
-                        } catch (e) {
-                            handleUploadError('Invalid response from server');
-                        }
-                    } else {
-                        try {
-                            const error = JSON.parse(xhr.responseText);
-                            handleUploadError(error.detail || `Upload failed (${xhr.status})`);
-                        } catch (e) {
-                            handleUploadError(`Upload failed (${xhr.status})`);
-                        }
-                    }
-                };
-                
-                xhr.onerror = function() {
-                    handleUploadError('Network error during upload');
-                };
-                
-                // Send the request
-                xhr.open('POST', '/upload');
-                xhr.send(formData);
-                
-            } catch (error) {
-                handleUploadError(error.message);
-            }
-        }
-        
-        function handleUploadSuccess(result) {
-            progressFill.style.width = '100%';
-            progressText.textContent = "Processing complete!";
-            statusText.textContent = "File processed successfully!";
-            
-            // Store results for processing
-            uploadResults = result.transcription || [];
-            
-            // Display all results immediately (instant mode)
-            displayAllResults();
-            
-            setTimeout(() => {
-                isProcessingFile = false;
-                uploadZone.classList.remove('processing');
-                progressContainer.style.display = 'none';
-            }, 2000);
-        }
-
-        function displayAllResults() {
-            if (uploadResults.length > 0) {
-                // Convert server response to the format expected by renderLinesWithBuffer
-                const lines = uploadResults.map((segment, index) => ({
-                    text: segment.text,
-                    speaker: segment.lines && segment.lines[0] ? segment.lines[0].speaker : 1,
-                    beg: index * 5, // Approximate timing - 5 second segments
-                    end: (index + 1) * 5
-                }));
-                
-                // Render all transcription at once
-                renderLinesWithBuffer(lines, "", "", 0, 0, true, false);
-            }
-        }
-        
-        function handleUploadError(errorMessage) {
-            statusText.textContent = `Error processing file: ${errorMessage}`;
-            isProcessingFile = false;
-            uploadZone.classList.remove('processing');
-            progressContainer.style.display = 'none';
-        }
-
-        // WebSocket setup function (same as original)
-        function setupWebSocket() {
-            return new Promise((resolve, reject) => {
-                // Clean up any existing WebSocket first
-                if (websocket && websocket.readyState !== WebSocket.CLOSED) {
-                    websocket.close();
-                    websocket = null;
-                }
-                
-                try {
-                    websocket = new WebSocket(websocketUrl);
-                } catch (error) {
-                    statusText.textContent = "Invalid WebSocket URL. Please check and try again.";
-                    reject(error);
-                    return;
-                }
-
-                websocket.onopen = () => {
-                    statusText.textContent = "Connected to server.";
-                    resolve();
-                };
-
-                websocket.onclose = (event) => {
-                    if (userClosing) {
-                        statusText.textContent = "Processing finalized or connection closed.";
-                        
-                        // Use lastTranscriptData for final rendering instead of lastReceivedData
-                        if (lastTranscriptData) {
-                            renderLinesWithBuffer(
-                                lastTranscriptData.lines || [],
-                                lastTranscriptData.buffer_diarization || "",
-                                lastTranscriptData.buffer_transcription || "",
-                                0, 
-                                0, 
-                                true, 
-                                lastTranscriptData.diarization_enabled || false 
-                            );
-                        }
-                        lastReceivedData = null; 
-                        lastTranscriptData = null;
-                    } else {
-                        if (event.code !== 1000) {
-                            statusText.textContent = "Disconnected from the WebSocket server. (Check logs if model is loading.)";
-                        }
-                        if (isRecording) {
-                            stopRecording(); 
-                        }
-                        lastReceivedData = null; 
-                        lastTranscriptData = null;
-                    }
-                    
-                    isRecording = false;  
-                    waitingForStop = false; 
-                    userClosing = false;  
-                    websocket = null;    
-                    updateUI();  
-                };
-
-                websocket.onerror = (error) => {
-                    statusText.textContent = "Error connecting to WebSocket. Please try again.";
-                    reject(new Error("Error connecting to WebSocket"));
-                };
-
-                websocket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    
-                    lastReceivedData = data; 
-                    
-                    // NEW: Preserve transcript data separately if this message contains lines
                     if (data.lines && data.lines.length > 0) {
-                        lastTranscriptData = {
-                            lines: data.lines,
-                            buffer_diarization: data.buffer_diarization || "",
-                            buffer_transcription: data.buffer_transcription || "",
-                            remaining_time_diarization: data.remaining_time_diarization || 0,
-                            remaining_time_transcription: data.remaining_time_transcription || 0,
-                            diarization_enabled: data.diarization_enabled || false
-                        };
+                        // Format transcript with speaker labels
+                        transcriptText = data.lines.map(line => {
+                            const speaker = line.speaker ? `Speaker ${line.speaker}: ` : '';
+                            return speaker + (line.text || '');
+                        }).join('\n');
+                    } else if (data.text) {
+                        transcriptText = data.text;
                     }
                     
-                    if (data.summaries && data.summaries.length > 0) {
-                        const latestSummary = data.summaries[data.summaries.length - 1];
-                        summariesDiv.innerHTML = `
-                            <div class="summary">
-                                <div class="summary-header">📝 AI Summary</div>
-                                <p><strong>Summary:</strong> ${latestSummary.summary}</p>
-                                <p><strong>Key Points:</strong> ${latestSummary.key_points.join(" • ")}</p>
-                                <p><strong>Text Length:</strong> ${latestSummary.text_length} characters</p>
-                            </div>
-                        `;
-                        summariesDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    // Add buffer transcription if available
+                    if (data.buffer_transcription) {
+                        if (transcriptText) transcriptText += '\n';
+                        transcriptText += data.buffer_transcription;
                     }
                     
-                    if (data.type === "ready_to_stop") {
-                        // Use lastTranscriptData for final rendering instead of lastReceivedData
-                        if (lastTranscriptData) {
-                            renderLinesWithBuffer(
-                                lastTranscriptData.lines || [],
-                                lastTranscriptData.buffer_diarization || "",
-                                lastTranscriptData.buffer_transcription || "",
-                                0, 
-                                0, 
-                                true, // isFinalizing = true
-                                lastTranscriptData.diarization_enabled || false 
-                            );
-                        }
-                        
-                        if (isProcessingFile) {
-                            progressFill.style.width = '100%';
-                            progressText.textContent = "File processing complete!";
-                            statusText.textContent = "File processed successfully! Summary preserved.";
-                            setTimeout(() => {
-                                isProcessingFile = false;
-                                uploadZone.classList.remove('processing');
-                                progressContainer.style.display = 'none';
-                            }, 2000);
-                        } else {
-                            statusText.textContent = "Recording complete! Summary preserved. Ready for new recording.";
-                            recordButton.disabled = false;
-                        }
-                        
-                        if (websocket) {
-                            userClosing = true; 
-                            websocket.close(); 
-                        }
-                        
-                        sessionActive = false;
-                        isRecording = false;
-                        lastReceivedData = null;
-                        lastTranscriptData = null;
-                        
-                        if (timerInterval) clearInterval(timerInterval); timerInterval = null;
-                        if (timerElement) timerElement.textContent = "00:00";
-                        startTime = null;
-                        
-                        updateUI();
-                        return;
+                    // Add buffer diarization if available  
+                    if (data.buffer_diarization) {
+                        if (transcriptText) transcriptText += '\n';
+                        transcriptText += data.buffer_diarization;
                     }
                     
-                    if (data.type === "error") {
-                        if (isProcessingFile) {
-                            handleUploadError(data.error || 'Unknown error during file processing');
-                        } else {
-                            statusText.textContent = `Error: ${data.error}`;
-                        }
-                        return;
-                    }
-                    
-                    const { 
-                        lines = [], 
-                        buffer_transcription = "", 
-                        buffer_diarization = "",
-                        remaining_time_transcription = 0,
-                        remaining_time_diarization = 0,
-                        diarization_enabled = false
-                    } = data;
-                    
-                    renderLinesWithBuffer(
-                        lines, 
-                        buffer_diarization, 
-                        buffer_transcription, 
-                        remaining_time_diarization,
-                        remaining_time_transcription,
-                        false, 
-                        diarization_enabled 
-                    );
-                };
-            });
-        }
-
-        // Render transcript function (same as original)
-        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false, diarization_enabled = false) {
-            const linesHtml = lines.map((item, idx) => {
-                let timeInfo = "";
-                if (item.beg !== undefined && item.end !== undefined) {
-                    timeInfo = ` ${item.beg} - ${item.end}`;
-                }
-
-                let speakerLabel = "";
-                if (item.speaker === -2) {
-                    speakerLabel = `<span class="silence">Silence<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker == -1) {
-                    speakerLabel = `<span id="speaker">Speaker 1<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker >= 0) {
-                    const displaySpeaker = item.speaker + 1;
-                    speakerLabel = `<span id="speaker">Speaker ${displaySpeaker}<span id='timeInfo'>${timeInfo}</span></span>`;
-                    if (diarization_enabled && item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
-                        speakerLabel += `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
-                    }
-                }
-
-                let currentLineText = item.text || "";
-
-                if (idx === lines.length - 1) { 
-                    if (!isFinalizing) {
-                        if (remaining_time_transcription > 0) {
-                             speakerLabel += `<span class="label_transcription"><span class="spinner"></span>Transcription lag <span id='timeInfo'>${remaining_time_transcription}s</span></span>`;
-                        }
-                        if (diarization_enabled && buffer_diarization && remaining_time_diarization > 0) {
-                             speakerLabel += `<span class="label_diarization"><span class="spinner"></span>Diarization lag<span id='timeInfo'>${remaining_time_diarization}s</span></span>`;
-                        }
-                    }
-
-                    if (buffer_diarization) {
-                        if (isFinalizing) {
-                            currentLineText += (currentLineText.length > 0 && buffer_diarization.trim().length > 0 ? " " : "") + buffer_diarization.trim();
-                        } else {
-                            currentLineText += `<span class="buffer_diarization">${buffer_diarization}</span>`;
-                        }
-                    }
-                    if (buffer_transcription) {
-                        if (isFinalizing) {
-                            currentLineText += (currentLineText.length > 0 && buffer_transcription.trim().length > 0 ? " " : "") + buffer_transcription.trim();
-                        } else {
-                            currentLineText += `<span class="buffer_transcription">${buffer_transcription}</span>`;
-                        }
+                    if (transcriptText.trim()) {
+                        transcriptArea.textContent = transcriptText.trim();
+                        transcriptArea.classList.add('has-content');
                     }
                 }
                 
-                return currentLineText.trim().length > 0 || speakerLabel.length > 0
-                    ? `<p>${speakerLabel}<br/><div class='textcontent'>${currentLineText}</div></p>`
-                    : `<p>${speakerLabel}<br/></p>`; 
-            }).join("");
-
-            linesTranscriptDiv.innerHTML = linesHtml;
-        }
-
-        // Timer and visualization functions (same as original)
-        function updateTimer() {
-            if (!startTime) return;
-            
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const minutes = Math.floor(elapsed / 60).toString().padStart(2, "0");
-            const seconds = (elapsed % 60).toString().padStart(2, "0");
-            timerElement.textContent = `${minutes}:${seconds}`;
-        }
-
-        function drawWaveform() {
-            if (!analyser) return;
-            
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            analyser.getByteTimeDomainData(dataArray);
-            
-            waveCtx.clearRect(0, 0, waveCanvas.width / (window.devicePixelRatio || 1), waveCanvas.height / (window.devicePixelRatio || 1));
-            waveCtx.lineWidth = 1;
-            waveCtx.strokeStyle = 'rgb(0, 0, 0)';
-            waveCtx.beginPath();
-            
-            const sliceWidth = (waveCanvas.width / (window.devicePixelRatio || 1)) / bufferLength;
-            let x = 0;
-            
-            for (let i = 0; i < bufferLength; i++) {
-                const v = dataArray[i] / 128.0;
-                const y = v * (waveCanvas.height / (window.devicePixelRatio || 1)) / 2;
-                
-                if (i === 0) {
-                    waveCtx.moveTo(x, y);
-                } else {
-                    waveCtx.lineTo(x, y);
+                // Handle analysis results
+                if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries) {
+                    updateAnalysisFromData(data);
                 }
                 
-                x += sliceWidth;
-            }
-            
-            waveCtx.lineTo(waveCanvas.width / (window.devicePixelRatio || 1), waveCanvas.height / (window.devicePixelRatio || 1) / 2);
-            waveCtx.stroke();
-            
-            animationFrame = requestAnimationFrame(drawWaveform);
-        }
-
-        // Recording functions (same as original)
-        async function startRecording() {
-            try {
-                // Clean up any previous session before starting new recording
-                if (sessionActive) {
-                    await cleanupSession(true); // Preserve summaries when starting new recording
-                    // Wait a moment for cleanup to complete
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-                
-                sessionActive = true;
-                
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                microphone = audioContext.createMediaStreamSource(stream);
-                microphone.connect(analyser);
-                
-                recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-                recorder.ondataavailable = (e) => {
-                    if (websocket && websocket.readyState === WebSocket.OPEN) {
-                        websocket.send(e.data);
+                // Handle completion signals
+                if (data.type === 'ready_to_stop' || data.status === 'completed') {
+                    if (isRecording) {
+                        showStatus('Live transcription completed');
+                    } else if (isProcessingFile) {
+                        showStatus('File processing completed', 'success');
+                        isProcessingFile = false;
                     }
-                };
-                recorder.start(chunkDuration);
+                }
                 
-                startTime = Date.now();
-                timerInterval = setInterval(updateTimer, 1000);
-                drawWaveform();
-                
-                isRecording = true;
-                updateUI();
-            } catch (err) {
-                statusText.textContent = "Error accessing microphone. Please allow microphone access.";
-                sessionActive = false;
-            }
-        }
+                // Handle errors
+                if (data.type === 'error' || data.error) {
+                    const errorMsg = data.error || data.message || 'Unknown error occurred';
+                    showStatus(`Error: ${errorMsg}`, 'error');
+                    console.error('WebSocket error:', data);
+                }
 
-        async function stopRecording() {
-            userClosing = true;
-            waitingForStop = true;
-            
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                // Send empty audio buffer as stop signal
-                const emptyBlob = new Blob([], { type: 'audio/webm' });
-                websocket.send(emptyBlob);
-                statusText.textContent = "Recording stopped. Processing final audio...";
-            }
-            
-            if (recorder) {
-                recorder.stop();
-                recorder = null;
-            }
-            
-            if (microphone) {
-                microphone.disconnect();
-                microphone = null;
-            }
-            
-            if (analyser) {
-                analyser = null;
-            }
-            
-            if (audioContext && audioContext.state !== 'closed') {
-                try {
-                    audioContext.close();
-                } catch (e) {
-                    // Silent error handling for audio context closure
-                }
-                audioContext = null;
-            }
-            
-            if (animationFrame) {
-                cancelAnimationFrame(animationFrame);
-                animationFrame = null;
-            }
-            
-            if (timerInterval) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-            }            
-            timerElement.textContent = "00:00";
-            startTime = null;
-            
-            isRecording = false;
-            updateUI();	
-        }
-
-        async function toggleRecording() {
-            if (!isRecording) {
-                if (waitingForStop) {
-                    return;
-                }
-                
-                // Check if we need to clean up a previous session first
-                if (sessionActive && !cleanupInProgress) {
-                    await cleanupSession(true); // Preserve summaries when starting new recording
-                    // Wait a moment for cleanup to complete
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-                
-                statusText.textContent = "Connecting to server...";
-                
-                try {
-                    // Always create a fresh WebSocket connection for new recordings
-                    if (websocket && websocket.readyState === WebSocket.OPEN) {
-                        await startRecording();
-                    } else {
-                        await setupWebSocket();
-                        await startRecording();
-                    }
-                } catch (err) {
-                    statusText.textContent = "Could not connect to WebSocket or access microphone. Please try again.";
-                    
-                    // Reset state on error
-                    isRecording = false;
-                    sessionActive = false;
-                    updateUI();
-                }
-            } else {
-                await stopRecording();
-            }
-        }
-
-        function updateUI() {
-            recordButton.classList.toggle("recording", isRecording);
-            recordButton.disabled = waitingForStop;
-
-            if (waitingForStop) {
-                if (statusText.textContent !== "Recording stopped. Processing final audio...") {
-                     statusText.textContent = "Please wait for processing to complete...";
-                }
-            } else if (isRecording) {
-                statusText.textContent = "Recording...";
-            } else {
-                if (statusText.textContent !== "Finished processing audio! Ready to record again." &&
-                    statusText.textContent !== "Processing finalized or connection closed.") {
-                    statusText.textContent = "Click to start transcription";
-                }
-            }
-            if (!waitingForStop) {
-                recordButton.disabled = false;
-            }
-        }
-
-        // Event listeners
-        recordButton.addEventListener("click", toggleRecording);
-        
-        // Initialize
-        statusText.textContent = "Click to start transcription";
-
-        // Session cleanup functions
-        async function cleanupSession(preserveSummaries = false) {
-            if (cleanupInProgress) {
-                return;
-            }
-            
-            cleanupInProgress = true;
-            
-            try {
-                if (isRecording) {
-                    await stopRecording();
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-                
-                if (websocket) {
-                    const closePromise = new Promise((resolve) => {
-                        if (websocket.readyState === WebSocket.CLOSED) resolve();
-                        else { websocket.onclose = () => resolve(); websocket.close(); }
-                    });
-                    await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000))]);
-                    websocket = null;
-                }
-                
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-                    
-                    const response = await fetch('/cleanup-session', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        signal: controller.signal
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                    }
-                } catch (error) {
-                    // Silent error handling for cleanup endpoint
-                }
-                
-                if (!preserveSummaries) {
-                    linesTranscriptDiv.innerHTML = '';
-                    summariesDiv.innerHTML = '';
-                }
-                
-                // ... (rest of UI reset logic) ...
-                
             } catch (error) {
-                // Silent error handling for session cleanup
-            } finally {
-                cleanupInProgress = false;
+                console.error('Error handling WebSocket message:', error);
+                showStatus('Error processing response', 'error');
             }
         }
-        
-        // Call cleanup when page is about to unload
-        window.addEventListener('beforeunload', () => {
-            if (sessionActive) {
-                cleanupSession(false); // Full cleanup on page unload
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                return; // Already connected
+            }
+
+            const wsUrl = `${getServerUrl()}/asr`;
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = () => {
+                console.log('WebSocket connected');
+                showStatus('Connected to server');
+            };
+
+            websocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showStatus('Connection error', 'error');
+            };
+
+            websocket.onclose = () => {
+                console.log('WebSocket closed');
+                if (isRecording) {
+                    showStatus('Connection lost during recording', 'error');
+                    stopRecording();
+                }
+            };
+        }
+
+        // Microphone recording
+        micBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                try {
+                    // Initialize WebSocket first
+                    initWebSocket();
+                    
+                    // Wait for WebSocket to be ready
+                    if (websocket.readyState !== WebSocket.OPEN) {
+                        await new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+                            websocket.onopen = () => {
+                                clearTimeout(timeout);
+                                resolve();
+                            };
+                            websocket.onerror = () => {
+                                clearTimeout(timeout);
+                                reject(new Error('Connection failed'));
+                            };
+                        });
+                    }
+
+                    // Get microphone access
+                    audioStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            sampleRate: 16000,
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true
+                        } 
+                    });
+                    
+                    mediaRecorder = new MediaRecorder(audioStream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
+                            websocket.send(event.data);
+                        }
+                    };
+                    
+                    mediaRecorder.start(100); // Send data every 100ms
+                    isRecording = true;
+                    micBtn.classList.add('active');
+                    recordingIndicator.classList.add('active');
+                    transcriptArea.textContent = 'Listening...';
+                    transcriptArea.classList.add('has-content');
+                    clearAnalysis();
+                    showStatus('Recording started - speak now');
+                    
+                } catch (error) {
+                    console.error('Error starting recording:', error);
+                    showStatus(`Recording failed: ${error.message}`, 'error');
+                    stopRecording();
+                }
+            } else {
+                stopRecording();
             }
         });
-        
-        // Note: Removed auto-cleanup on page visibility change to preserve summaries
-        // Users can manually clean session using the Clean Session button
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                audioStream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                micBtn.classList.remove('active');
+                recordingIndicator.classList.remove('active');
+                showStatus('Recording stopped');
+            }
+        }
+
+        // File upload for WebSocket processing
+        async function processFileViaWebSocket(file) {
+            try {
+                isProcessingFile = true;
+                showStatus(`Processing ${file.name}...`);
+                transcriptArea.innerHTML = `<div class="loading"><div class="spinner"></div>Processing ${file.name}...</div>`;
+                transcriptArea.classList.add('has-content');
+                clearAnalysis();
+
+                // First upload the file
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const uploadResponse = await fetch(`${getApiUrl()}/upload-file`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+                }
+
+                const uploadResult = await uploadResponse.json();
+                
+                // Initialize WebSocket connection
+                initWebSocket();
+                
+                // Wait for WebSocket to be ready
+                if (websocket.readyState !== WebSocket.OPEN) {
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+                        websocket.onopen = () => {
+                            clearTimeout(timeout);
+                            resolve();
+                        };
+                        websocket.onerror = () => {
+                            clearTimeout(timeout);
+                            reject(new Error('Connection failed'));
+                        };
+                    });
+                }
+
+                // Send file processing message via WebSocket
+                const fileMessage = {
+                    type: 'file_upload',
+                    file_path: uploadResult.file_path,
+                    duration: uploadResult.duration,
+                    filename: uploadResult.filename
+                };
+
+                websocket.send(JSON.stringify(fileMessage));
+                showStatus(`Processing ${file.name} in real-time...`);
+
+            } catch (error) {
+                console.error('Error processing file:', error);
+                showStatus(`File processing failed: ${error.message}`, 'error');
+                isProcessingFile = false;
+                transcriptArea.textContent = 'Your audio transcript will appear here...';
+                transcriptArea.classList.remove('has-content');
+            }
+        }
+
+        // File upload
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                uploadBtn.classList.add('active');
+                await processFileViaWebSocket(file);
+                uploadBtn.classList.remove('active');
+            }
+        });
+
+        // Waveform animation
+        function animateWaveform() {
+            const bars = document.querySelectorAll('.waveform-bar');
+            if (isRecording || isProcessingFile) {
+                bars.forEach((bar, index) => {
+                    const height = Math.random() * 32 + 8;
+                    bar.style.height = height + 'px';
+                });
+            } else {
+                bars.forEach(bar => {
+                    bar.style.height = '8px';
+                });
+            }
+        }
+
+        // Start waveform animation
+        setInterval(animateWaveform, 400);
+
+        // Drag and drop functionality
+        const panels = document.querySelectorAll('.panel');
+        panels.forEach(panel => {
+            panel.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                panel.classList.add('dragover');
+            });
+            
+            panel.addEventListener('dragleave', () => {
+                panel.classList.remove('dragover');
+            });
+            
+            panel.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                panel.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('audio/')) {
+                    const file = files[0];
+                    await processFileViaWebSocket(file);
+                } else {
+                    showStatus('Please drop an audio file', 'error');
+                }
+            });
+        });
+
+        // Cleanup session on page unload
+        window.addEventListener('beforeunload', async () => {
+            if (websocket) {
+                websocket.close();
+            }
+            if (isRecording) {
+                stopRecording();
+            }
+            
+            // Try to cleanup session
+            try {
+                await fetch(`${getApiUrl()}/cleanup-session`, { method: 'POST' });
+            } catch (error) {
+                console.log('Session cleanup failed:', error);
+            }
+        });
+
+        // Initialize
+        showStatus('Ready to transcribe');
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case 'm':
+                        e.preventDefault();
+                        micBtn.click();
+                        break;
+                    case 'u':
+                        e.preventDefault();
+                        uploadBtn.click();
+                        break;
+                    case 'd':
+                        e.preventDefault();
+                        themeToggle.click();
+                        break;
+                }
+            }
+        });
     </script>
 </body>
-
-</html>
+</html> 

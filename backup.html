@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Audio Transcription</title>
+    <title>AudioInsight</title>
     <style>
         body {
             font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
@@ -457,6 +457,7 @@
         <div class="mode-selector">
             <button class="mode-button active" id="recordMode">🎤 Live Recording</button>
             <button class="mode-button" id="uploadMode">📁 Upload File</button>
+            <button class="mode-button" id="cleanupButton" style="background-color: #ff6b6b; color: white;">🧹 Clean Session</button>
         </div>
 
         <!-- Recording container -->
@@ -545,12 +546,17 @@
         let animationFrame = null;
         let waitingForStop = false;
         let lastReceivedData = null;
+        let lastTranscriptData = null; // NEW: Preserve last transcript data separately
         
         // File upload variables
         let isProcessingFile = false;
         let currentMode = 'record'; // 'record' or 'upload'
         let realtimeMode = true; // Real-time display mode
         let uploadResults = []; // Store upload results for real-time display
+        
+        // Session management
+        let sessionActive = false;
+        let cleanupInProgress = false;
         
         // Initialize canvas
         waveCanvas.width = 60 * (window.devicePixelRatio || 1);
@@ -569,6 +575,7 @@
         // Mode switching elements
         const recordMode = document.getElementById("recordMode");
         const uploadMode = document.getElementById("uploadMode");
+        const cleanupButton = document.getElementById("cleanupButton");
         const recordContainer = document.querySelector(".record-container");
         const uploadContainer = document.querySelector(".upload-container");
         
@@ -592,6 +599,20 @@
         // Mode switching
         recordMode.addEventListener("click", () => switchMode('record'));
         uploadMode.addEventListener("click", () => switchMode('upload'));
+        
+        // Cleanup button
+        cleanupButton.addEventListener("click", async () => {
+            if (cleanupInProgress) return;
+            
+            const originalText = cleanupButton.textContent;
+            cleanupButton.textContent = "🧹 Cleaning...";
+            cleanupButton.disabled = true;
+            
+            await cleanupSession(false); // Full cleanup - don't preserve summaries
+            
+            cleanupButton.textContent = originalText;
+            cleanupButton.disabled = false;
+        });
 
         function switchMode(mode) {
             currentMode = mode;
@@ -613,9 +634,8 @@
                 progressContainer.style.display = 'none';
             }
             
-            // Clear transcript and status
+            // Clear transcript but preserve summaries when switching modes
             linesTranscriptDiv.innerHTML = '';
-            // Don't clear summaries when switching modes - they should persist
             statusText.textContent = mode === 'record' ? 
                 "Click to start transcription" : 
                 "Select or drag an audio file to transcribe";
@@ -682,12 +702,20 @@
         async function processFile(file) {
             if (isProcessingFile) return;
             
+            // Clean up any previous session before starting new one
+            if (sessionActive) {
+                await cleanupSession(true); // Preserve summaries when starting new file upload
+                // Wait a moment for cleanup to complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
             isProcessingFile = true;
+            sessionActive = true;
             uploadZone.classList.add('processing');
             progressContainer.style.display = 'block';
             progressFill.style.width = '0%';
             
-            // Clear previous transcription
+            // Clear previous transcription (but summaries are preserved by cleanup)
             linesTranscriptDiv.innerHTML = '';
             uploadResults = [];
             
@@ -731,13 +759,11 @@
                     await processFileViaWebSocket(file_path, duration, filename);
                 } else {
                     // Need to establish WebSocket connection first
-                    console.log("Connecting to WebSocket for file processing");
                     await setupWebSocket();
                     await processFileViaWebSocket(file_path, duration, filename);
                 }
                 
             } catch (error) {
-                console.error("Error in unified file processing:", error);
                 handleUploadError(error.message);
             }
         }
@@ -767,7 +793,6 @@
                 // as live recording, ensuring identical processing behavior
                 
             } catch (error) {
-                console.error("Error processing file via WebSocket:", error);
                 handleUploadError(error.message);
             }
         }
@@ -825,7 +850,6 @@
                 }
                 
             } catch (error) {
-                console.error("Error in real-time processing:", error);
                 handleUploadError(error.message);
             }
         }
@@ -871,7 +895,8 @@
                                 currentLines.slice(), // Current completed lines
                                 "", // No diarization buffer for uploads
                                 data.buffer || "", // Current buffer
-                                0, 0, false // Not finalizing
+                                0, 0, false, // Not finalizing
+                                data.diarization_enabled || false // Diarization enabled flag
                             );
                         }
                         break;
@@ -888,7 +913,7 @@
                         statusText.textContent = "File processed successfully in real-time!";
                         
                         // Final render to clean up any remaining buffer content
-                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true);
+                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true, false);
                         
                         setTimeout(() => {
                             isProcessingFile = false;
@@ -903,7 +928,7 @@
                 }
                 
             } catch (e) {
-                console.warn('Failed to parse SSE event data:', eventData, e);
+                // Silent error handling for SSE parsing issues
             }
         }
 
@@ -936,7 +961,6 @@
                             const result = JSON.parse(xhr.responseText);
                             handleUploadSuccess(result);
                         } catch (e) {
-                            console.error('Error parsing response:', e);
                             handleUploadError('Invalid response from server');
                         }
                     } else {
@@ -958,7 +982,6 @@
                 xhr.send(formData);
                 
             } catch (error) {
-                console.error("Error processing file:", error);
                 handleUploadError(error.message);
             }
         }
@@ -992,7 +1015,7 @@
                 }));
                 
                 // Render all transcription at once
-                renderLinesWithBuffer(lines, "", "", 0, 0, true);
+                renderLinesWithBuffer(lines, "", "", 0, 0, true, false);
             }
         }
         
@@ -1006,6 +1029,12 @@
         // WebSocket setup function (same as original)
         function setupWebSocket() {
             return new Promise((resolve, reject) => {
+                // Clean up any existing WebSocket first
+                if (websocket && websocket.readyState !== WebSocket.CLOSED) {
+                    websocket.close();
+                    websocket = null;
+                }
+                
                 try {
                     websocket = new WebSocket(websocketUrl);
                 } catch (error) {
@@ -1019,85 +1048,124 @@
                     resolve();
                 };
 
-                websocket.onclose = () => {
+                websocket.onclose = (event) => {
                     if (userClosing) {
-                        if (waitingForStop) {
-                            statusText.textContent = "Processing finalized or connection closed.";
-                            if (lastReceivedData) {
-                                renderLinesWithBuffer(
-                                    lastReceivedData.lines || [],
-                                    lastReceivedData.buffer_diarization || "",
-                                    lastReceivedData.buffer_transcription || "",
-                                    0, 0, true // isFinalizing = true
-                                );
-                            }
+                        statusText.textContent = "Processing finalized or connection closed.";
+                        
+                        // Use lastTranscriptData for final rendering instead of lastReceivedData
+                        if (lastTranscriptData) {
+                            renderLinesWithBuffer(
+                                lastTranscriptData.lines || [],
+                                lastTranscriptData.buffer_diarization || "",
+                                lastTranscriptData.buffer_transcription || "",
+                                0, 
+                                0, 
+                                true, 
+                                lastTranscriptData.diarization_enabled || false 
+                            );
                         }
+                        lastReceivedData = null; 
+                        lastTranscriptData = null;
                     } else {
-                        statusText.textContent = "Disconnected from the WebSocket server. (Check logs if model is loading.)";
+                        if (event.code !== 1000) {
+                            statusText.textContent = "Disconnected from the WebSocket server. (Check logs if model is loading.)";
+                        }
                         if (isRecording) {
                             stopRecording(); 
                         }
+                        lastReceivedData = null; 
+                        lastTranscriptData = null;
                     }
+                    
                     isRecording = false;  
                     waitingForStop = false; 
                     userClosing = false;  
-                    lastReceivedData = null;  
                     websocket = null;    
                     updateUI();  
                 };
 
-                websocket.onerror = () => {
-                    statusText.textContent = "Error connecting to WebSocket.";
+                websocket.onerror = (error) => {
+                    statusText.textContent = "Error connecting to WebSocket. Please try again.";
                     reject(new Error("Error connecting to WebSocket"));
                 };
 
-                // Handle messages from server
                 websocket.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     
-                    // Check for status messages
+                    lastReceivedData = data; 
+                    
+                    // NEW: Preserve transcript data separately if this message contains lines
+                    if (data.lines && data.lines.length > 0) {
+                        lastTranscriptData = {
+                            lines: data.lines,
+                            buffer_diarization: data.buffer_diarization || "",
+                            buffer_transcription: data.buffer_transcription || "",
+                            remaining_time_diarization: data.remaining_time_diarization || 0,
+                            remaining_time_transcription: data.remaining_time_transcription || 0,
+                            diarization_enabled: data.diarization_enabled || false
+                        };
+                    }
+                    
+                    if (data.summaries && data.summaries.length > 0) {
+                        const latestSummary = data.summaries[data.summaries.length - 1];
+                        summariesDiv.innerHTML = `
+                            <div class="summary">
+                                <div class="summary-header">📝 AI Summary</div>
+                                <p><strong>Summary:</strong> ${latestSummary.summary}</p>
+                                <p><strong>Key Points:</strong> ${latestSummary.key_points.join(" • ")}</p>
+                                <p><strong>Text Length:</strong> ${latestSummary.text_length} characters</p>
+                            </div>
+                        `;
+                        summariesDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                    
                     if (data.type === "ready_to_stop") {
-                        console.log("Ready to stop received, finalizing display and closing WebSocket.");
-                        waitingForStop = false;
-
-                        if (lastReceivedData) {
+                        // Use lastTranscriptData for final rendering instead of lastReceivedData
+                        if (lastTranscriptData) {
                             renderLinesWithBuffer(
-                                lastReceivedData.lines || [],
-                                lastReceivedData.buffer_diarization || "",
-                                lastReceivedData.buffer_transcription || "",
-                                0, // No more lag
-                                0, // No more lag
-                                true // isFinalizing = true
+                                lastTranscriptData.lines || [],
+                                lastTranscriptData.buffer_diarization || "",
+                                lastTranscriptData.buffer_transcription || "",
+                                0, 
+                                0, 
+                                true, // isFinalizing = true
+                                lastTranscriptData.diarization_enabled || false 
                             );
                         }
                         
-                        // Handle completion for both live recording and file upload
                         if (isProcessingFile) {
-                            // File upload completed
                             progressFill.style.width = '100%';
                             progressText.textContent = "File processing complete!";
-                            statusText.textContent = "File processed successfully through unified pipeline!";
-                            
+                            statusText.textContent = "File processed successfully! Summary preserved.";
                             setTimeout(() => {
                                 isProcessingFile = false;
                                 uploadZone.classList.remove('processing');
                                 progressContainer.style.display = 'none';
                             }, 2000);
                         } else {
-                            // Live recording completed
-                            statusText.textContent = "Finished processing audio! Ready to record again.";
+                            statusText.textContent = "Recording complete! Summary preserved. Ready for new recording.";
                             recordButton.disabled = false;
                         }
                         
                         if (websocket) {
-                            websocket.close(); // will trigger onclose
+                            userClosing = true; 
+                            websocket.close(); 
                         }
+                        
+                        sessionActive = false;
+                        isRecording = false;
+                        lastReceivedData = null;
+                        lastTranscriptData = null;
+                        
+                        if (timerInterval) clearInterval(timerInterval); timerInterval = null;
+                        if (timerElement) timerElement.textContent = "00:00";
+                        startTime = null;
+                        
+                        updateUI();
                         return;
                     }
                     
-                    // Check for error messages
                     if (data.type === "error") {
-                        console.error("WebSocket error received:", data.error);
                         if (isProcessingFile) {
                             handleUploadError(data.error || 'Unknown error during file processing');
                         } else {
@@ -1106,32 +1174,13 @@
                         return;
                     }
                     
-                    lastReceivedData = data; 
-                    
-                    // Render summaries if provided
-                    if (data.summaries && data.summaries.length > 0) {
-                        console.log("📝 Rendering summaries:", data.summaries);
-                        const summaryTime = new Date(data.summaries[0].timestamp * 1000).toLocaleTimeString();
-                        summariesDiv.innerHTML = data.summaries.map((s, index) => `
-                            <div class="summary">
-                                <div class="summary-header">📝 AI Summary ${index + 1} (${summaryTime})</div>
-                                <p><strong>Summary:</strong> ${s.summary}</p>
-                                <p><strong>Key Points:</strong> ${s.key_points.join(" • ")}</p>
-                                <p><strong>Text Length:</strong> ${s.text_length} characters</p>
-                            </div>
-                        `).join("");
-                        
-                        // Scroll summaries into view
-                        summariesDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                    
-                    // Handle normal transcription updates (same for both live and file upload)
                     const { 
                         lines = [], 
                         buffer_transcription = "", 
                         buffer_diarization = "",
                         remaining_time_transcription = 0,
-                        remaining_time_diarization = 0
+                        remaining_time_diarization = 0,
+                        diarization_enabled = false
                     } = data;
                     
                     renderLinesWithBuffer(
@@ -1140,14 +1189,15 @@
                         buffer_transcription, 
                         remaining_time_diarization,
                         remaining_time_transcription,
-                        false // isFinalizing = false for normal updates
+                        false, 
+                        diarization_enabled 
                     );
                 };
             });
         }
 
         // Render transcript function (same as original)
-        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false) {
+        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false, diarization_enabled = false) {
             const linesHtml = lines.map((item, idx) => {
                 let timeInfo = "";
                 if (item.beg !== undefined && item.end !== undefined) {
@@ -1157,12 +1207,14 @@
                 let speakerLabel = "";
                 if (item.speaker === -2) {
                     speakerLabel = `<span class="silence">Silence<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker == 0 && !isFinalizing) {
-                    speakerLabel = `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
                 } else if (item.speaker == -1) {
                     speakerLabel = `<span id="speaker">Speaker 1<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker !== -1 && item.speaker !== 0) {
-                    speakerLabel = `<span id="speaker">Speaker ${item.speaker}<span id='timeInfo'>${timeInfo}</span></span>`;
+                } else if (item.speaker >= 0) {
+                    const displaySpeaker = item.speaker + 1;
+                    speakerLabel = `<span id="speaker">Speaker ${displaySpeaker}<span id='timeInfo'>${timeInfo}</span></span>`;
+                    if (diarization_enabled && item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
+                        speakerLabel += `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
+                    }
                 }
 
                 let currentLineText = item.text || "";
@@ -1172,7 +1224,7 @@
                         if (remaining_time_transcription > 0) {
                              speakerLabel += `<span class="label_transcription"><span class="spinner"></span>Transcription lag <span id='timeInfo'>${remaining_time_transcription}s</span></span>`;
                         }
-                        if (buffer_diarization && remaining_time_diarization > 0) {
+                        if (diarization_enabled && buffer_diarization && remaining_time_diarization > 0) {
                              speakerLabel += `<span class="label_diarization"><span class="spinner"></span>Diarization lag<span id='timeInfo'>${remaining_time_diarization}s</span></span>`;
                         }
                     }
@@ -1248,6 +1300,15 @@
         // Recording functions (same as original)
         async function startRecording() {
             try {
+                // Clean up any previous session before starting new recording
+                if (sessionActive) {
+                    await cleanupSession(true); // Preserve summaries when starting new recording
+                    // Wait a moment for cleanup to complete
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                sessionActive = true;
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1272,7 +1333,7 @@
                 updateUI();
             } catch (err) {
                 statusText.textContent = "Error accessing microphone. Please allow microphone access.";
-                console.error(err);
+                sessionActive = false;
             }
         }
 
@@ -1305,7 +1366,7 @@
                 try {
                     audioContext.close();
                 } catch (e) {
-                    console.warn("Could not close audio context:", e);
+                    // Silent error handling for audio context closure
                 }
                 audioContext = null;
             }
@@ -1329,11 +1390,20 @@
         async function toggleRecording() {
             if (!isRecording) {
                 if (waitingForStop) {
-                    console.log("Waiting for stop, early return");
                     return;
                 }
-                console.log("Connecting to WebSocket");
+                
+                // Check if we need to clean up a previous session first
+                if (sessionActive && !cleanupInProgress) {
+                    await cleanupSession(true); // Preserve summaries when starting new recording
+                    // Wait a moment for cleanup to complete
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                statusText.textContent = "Connecting to server...";
+                
                 try {
+                    // Always create a fresh WebSocket connection for new recordings
                     if (websocket && websocket.readyState === WebSocket.OPEN) {
                         await startRecording();
                     } else {
@@ -1341,12 +1411,15 @@
                         await startRecording();
                     }
                 } catch (err) {
-                    statusText.textContent = "Could not connect to WebSocket or access mic. Aborted.";
-                    console.error(err);
+                    statusText.textContent = "Could not connect to WebSocket or access microphone. Please try again.";
+                    
+                    // Reset state on error
+                    isRecording = false;
+                    sessionActive = false;
+                    updateUI();
                 }
             } else {
-                console.log("Stopping recording");
-                stopRecording();
+                await stopRecording();
             }
         }
 
@@ -1376,6 +1449,72 @@
         
         // Initialize
         statusText.textContent = "Click to start transcription";
+
+        // Session cleanup functions
+        async function cleanupSession(preserveSummaries = false) {
+            if (cleanupInProgress) {
+                return;
+            }
+            
+            cleanupInProgress = true;
+            
+            try {
+                if (isRecording) {
+                    await stopRecording();
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                if (websocket) {
+                    const closePromise = new Promise((resolve) => {
+                        if (websocket.readyState === WebSocket.CLOSED) resolve();
+                        else { websocket.onclose = () => resolve(); websocket.close(); }
+                    });
+                    await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000))]);
+                    websocket = null;
+                }
+                
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                    
+                    const response = await fetch('/cleanup-session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                    }
+                } catch (error) {
+                    // Silent error handling for cleanup endpoint
+                }
+                
+                if (!preserveSummaries) {
+                    linesTranscriptDiv.innerHTML = '';
+                    summariesDiv.innerHTML = '';
+                }
+                
+                // ... (rest of UI reset logic) ...
+                
+            } catch (error) {
+                // Silent error handling for session cleanup
+            } finally {
+                cleanupInProgress = false;
+            }
+        }
+        
+        // Call cleanup when page is about to unload
+        window.addEventListener('beforeunload', () => {
+            if (sessionActive) {
+                cleanupSession(false); // Full cleanup on page unload
+            }
+        });
+        
+        // Note: Removed auto-cleanup on page visibility change to preserve summaries
+        // Users can manually clean session using the Clean Session button
     </script>
 </body>
 
