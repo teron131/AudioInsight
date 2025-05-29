@@ -1,7 +1,7 @@
 import io
-import logging
 import math
 import sys
+from typing import List
 
 import soundfile as sf
 
@@ -9,13 +9,12 @@ try:
     import torch
 except ImportError:
     torch = None
-from typing import List
-
 import numpy as np
 
+from ..logging_config import get_logger
 from ..timed_objects import ASRToken
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ASRBase:

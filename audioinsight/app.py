@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -7,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from . import AudioInsight, parse_args
+from .logging_config import get_logger, setup_logging
 from .server.config import CORS_SETTINGS
 from .server.file_handlers import (
     handle_file_upload_and_process,
@@ -19,11 +19,9 @@ from .server.websocket_handlers import (
     handle_websocket_connection,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logging.getLogger().setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# Ensure logging is initialized early
+setup_logging()
+logger = get_logger(__name__)
 
 # Global AudioInsight kit instance
 kit = None

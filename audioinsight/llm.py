@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import time
 from dataclasses import dataclass
@@ -11,9 +10,11 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from .logging_config import get_logger
+
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Cache OpenCC converter instance to avoid recreation
 _s2hk_converter = None

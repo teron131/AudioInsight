@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import time
 from pathlib import Path
 from typing import AsyncGenerator, Dict
@@ -8,6 +7,7 @@ from typing import AsyncGenerator, Dict
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from ..logging_config import get_logger
 from ..processors import AudioProcessor
 from .config import ALLOWED_AUDIO_TYPES, SSE_HEADERS
 from .utils import (
@@ -22,7 +22,7 @@ from .utils import (
     validate_file_type,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def handle_file_upload_for_websocket(file: UploadFile) -> Dict:

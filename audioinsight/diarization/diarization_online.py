@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import re
 import threading
 from typing import Any, List, Tuple
@@ -11,9 +10,10 @@ from diart.sources import AudioSource, MicrophoneAudioSource
 from pyannote.core import Annotation
 from rx.core import Observer
 
+from ..logging_config import get_logger
 from ..timed_objects import SpeakerSegment
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def extract_number(s: str) -> int:

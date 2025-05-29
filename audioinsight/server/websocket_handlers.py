@@ -1,23 +1,22 @@
 import asyncio
 import json
-import logging
 import os
 from typing import AsyncGenerator
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ..logging_config import get_logger
 from ..processors import AudioProcessor
 from .utils import (
     calculate_streaming_params,
     cleanup_temp_file,
-    get_audio_duration,
     log_progress,
     read_audio_chunks,
     setup_ffmpeg_process,
     stream_chunks_realtime,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Global audio processor to reuse between connections
 _global_audio_processor = None

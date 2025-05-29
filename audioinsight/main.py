@@ -1,8 +1,12 @@
-import logging
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict, Optional
 
+from .logging_config import get_logger, setup_logging
 from .whisper_streaming.whisper_online import backend_factory, warmup_asr
+
+# Initialize centralized logging early
+setup_logging()
+logger = get_logger(__name__)
 
 # Global cached parser to avoid recreation
 _CACHED_PARSER: Optional[ArgumentParser] = None
@@ -298,7 +302,7 @@ class AudioInsight:
             self.asr, self.tokenizer = backend_factory(self.args)
             warmup_asr(self.asr, self.args.warmup_file)
         except Exception as e:
-            logging.error(f"Failed to load ASR models: {e}")
+            logger.error(f"Failed to load ASR models: {e}")
             raise
 
     def _load_diarization(self):
@@ -322,7 +326,7 @@ class AudioInsight:
 
             self.diarization = DiartDiarization(config=config)
         except Exception as e:
-            logging.error(f"Failed to load diarization models: {e}")
+            logger.error(f"Failed to load diarization models: {e}")
             raise
 
     @classmethod
@@ -375,7 +379,7 @@ class AudioInsight:
             AudioInsight._cached_html = html
             return html
         except Exception as e:
-            logging.error(f"Failed to load web interface: {e}")
+            logger.error(f"Failed to load web interface: {e}")
             # Return a minimal fallback HTML
             return """
             <html><head><title>AudioInsight</title></head>

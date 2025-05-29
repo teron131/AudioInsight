@@ -1,14 +1,14 @@
 import asyncio
-import logging
 import os
 import subprocess
 import tempfile
 import time
 from typing import List, Optional, Tuple
 
+from ..logging_config import get_logger
 from .config import CHUNK_SIZE, FFMPEG_AUDIO_PARAMS, FFPROBE_DURATION_CMD
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_audio_duration(file_path: str) -> float:

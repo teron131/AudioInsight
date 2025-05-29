@@ -1,12 +1,12 @@
-import logging
 import sys
 from typing import List, Optional, Tuple
 
 import numpy as np
 
+from ..logging_config import get_logger
 from ..timed_objects import ASRToken, Sentence, Transcript
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HypothesisBuffer:

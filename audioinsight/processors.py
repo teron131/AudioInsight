@@ -1,9 +1,10 @@
 import asyncio
-import logging
 import math
+import os
 import re
 import traceback
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 from time import sleep, time
 
 import ffmpeg
@@ -11,14 +12,13 @@ import numpy as np
 import opencc
 
 from .llm import LLM, LLMTrigger
+from .logging_config import get_logger
 from .main import AudioInsight
 from .timed_objects import ASRToken
 from .whisper_streaming.whisper_online import online_factory
 
-# Set up logging once
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# Initialize logging using centralized configuration
+logger = get_logger(__name__)
 
 SENTINEL = object()  # unique sentinel object for end of stream marker
 
@@ -279,21 +279,25 @@ class FFmpegProcessor:
                 # Process transcription more aggressively - use smaller buffer requirement
                 min_transcription_buffer = max(self.bytes_per_sec // 4, 4096)  # 0.25 seconds minimum or 4KB
                 if self.pcm_buffer_length >= min_transcription_buffer:
-                    # Only log processing occasionally to reduce spam
+                    # Only log processing every 10 seconds and make it more concise
                     if not hasattr(self, "_ffmpeg_log_counter"):
                         self._ffmpeg_log_counter = 0
+                        self._last_processing_log = 0
                     self._ffmpeg_log_counter += 1
-                    if self._ffmpeg_log_counter % 20 == 0:  # Log every 20 processing cycles
-                        logger.debug(f"📊 Processing transcription: buffer_size={self.pcm_buffer_length} bytes ({self.pcm_buffer_length / self.bytes_per_sec:.2f}s)")
+
+                    current_log_time = time()
+                    if current_log_time - self._last_processing_log > 10.0:  # Log every 10 seconds, less frequently
+                        logger.info(f"🎵 Processing: {self._ffmpeg_log_counter} chunks, {self.pcm_buffer_length / self.bytes_per_sec:.1f}s buffered")
+                        self._last_processing_log = current_log_time
 
                     if self.pcm_buffer_length > self.max_bytes_per_sec:
-                        logger.warning(f"Audio buffer too large: {self.pcm_buffer_length / self.bytes_per_sec:.2f}s. " f"Consider using a smaller model.")
+                        logger.warning(f"Audio buffer large: {self.pcm_buffer_length / self.bytes_per_sec:.2f}s")
 
                     # Process audio chunk - take up to max_bytes_per_sec or all available
                     bytes_to_process = min(self.pcm_buffer_length, self.max_bytes_per_sec)
                     pcm_array = self.convert_pcm_to_float(self.get_pcm_data(bytes_to_process))
 
-                    # Send to transcription if enabled (remove frequent debug log)
+                    # Send to transcription if enabled
                     if self.args.transcription and transcription_queue:
                         await transcription_queue.put(pcm_array.copy())
 
@@ -315,9 +319,14 @@ class FFmpegProcessor:
                                 # Concatenate buffered chunks
                                 combined_audio = np.concatenate(self._diarization_chunk_buffer)
                                 await diarization_queue.put(combined_audio)
-                                logger.debug(f"🔊 Sent {len(combined_audio)} samples to diarization queue (2s chunk)")
+                                # Remove verbose diarization logging entirely - only log errors
                             else:
-                                logger.warning(f"🚫 Diarization queue full ({diarization_queue.qsize()} items), skipping chunk to prevent delay")
+                                # Only warn occasionally about queue being full
+                                if not hasattr(self, "_last_queue_warning"):
+                                    self._last_queue_warning = 0
+                                if time() - self._last_queue_warning > 10.0:  # Warn every 10 seconds
+                                    logger.warning(f"Diarization queue full ({diarization_queue.qsize()} items)")
+                                    self._last_queue_warning = time()
 
                             # Reset buffer regardless of whether we sent data
                             self._diarization_chunk_buffer = []
@@ -326,32 +335,21 @@ class FFmpegProcessor:
                     # Sleep if no processing is happening
                     if not self.args.transcription and not self.args.diarization:
                         await asyncio.sleep(0.1)
-                else:
-                    logger.debug(f"⏳ Waiting for more audio: current_buffer={self.pcm_buffer_length} bytes, need={min_transcription_buffer} bytes ({self.pcm_buffer_length / self.bytes_per_sec:.2f}s / {min_transcription_buffer / self.bytes_per_sec:.2f}s)")
 
             except Exception as e:
                 logger.warning(f"Exception in ffmpeg_stdout_reader: {e}")
-                logger.warning(f"Traceback: {traceback.format_exc()}")
                 break
 
-        logger.info("FFmpeg stdout processing finished. Signaling downstream processors.")
+        logger.info("FFmpeg processing finished. Signaling downstream processors.")
         if self.args.transcription and transcription_queue:
             await transcription_queue.put(SENTINEL)
-            logger.debug("Sentinel put into transcription_queue.")
         if self.args.diarization and diarization_queue:
             await diarization_queue.put(SENTINEL)
-            logger.debug("Sentinel put into diarization_queue.")
 
     async def process_audio_chunk(self, message):
         """Process incoming audio data."""
         retry_count = 0
         max_retries = 2  # Reduce max retries to prevent restart loops
-
-        # Log periodic heartbeats showing ongoing audio proc
-        current_time = time()
-        if not hasattr(self, "_last_heartbeat") or current_time - self._last_heartbeat >= 10:
-            logger.debug(f"Processing audio chunk, last FFmpeg activity: {current_time - self.last_ffmpeg_activity:.2f}s ago")
-            self._last_heartbeat = current_time
 
         while retry_count < max_retries:
             try:
@@ -376,7 +374,7 @@ class FFmpegProcessor:
                 try:
                     await asyncio.wait_for(loop.run_in_executor(None, lambda: self.ffmpeg_process.stdin.write(message)), timeout=write_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"FFmpeg write operation timed out after {write_timeout}s, restarting...")
+                    logger.warning(f"FFmpeg write timeout ({write_timeout}s), restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
                     continue
@@ -386,7 +384,7 @@ class FFmpegProcessor:
                 try:
                     await asyncio.wait_for(loop.run_in_executor(None, self.ffmpeg_process.stdin.flush), timeout=flush_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"FFmpeg flush operation timed out after {flush_timeout}s, restarting...")
+                    logger.warning(f"FFmpeg flush timeout ({flush_timeout}s), restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
                     continue
@@ -397,17 +395,16 @@ class FFmpegProcessor:
 
             except (BrokenPipeError, AttributeError, OSError) as e:
                 retry_count += 1
-                logger.warning(f"Error writing to FFmpeg: {e}. Retry {retry_count}/{max_retries}...")
+                logger.warning(f"FFmpeg error: {e}. Retry {retry_count}/{max_retries}")
 
                 if retry_count < max_retries:
                     await self.restart_ffmpeg()
                     await asyncio.sleep(0.5)
                 else:
                     logger.error("Maximum retries reached for FFmpeg process")
-                    # Don't restart again here - let the next call handle it
                     return
 
-        logger.warning("All FFmpeg processing attempts failed, giving up on this chunk")
+        logger.warning("All FFmpeg processing attempts failed")
         return
 
     def cleanup(self):
@@ -509,25 +506,26 @@ class TranscriptionProcessor:
         if self.online:
             self.sep = self.online.asr.sep
 
-        logger.info("🎙️ Transcription processor started and ready to process audio")
+        logger.info("🎙️ Transcription processor started")
 
         while True:
             try:
                 pcm_array = await transcription_queue.get()
                 if pcm_array is SENTINEL:
-                    logger.debug("Transcription processor received sentinel. Finishing.")
                     transcription_queue.task_done()
                     break
 
-                logger.debug(f"🎵 Transcription processor received audio chunk: {len(pcm_array)} samples")
-
-                # Only log periodically to reduce spam (every 10 chunks or so)
+                # Only log periodically and make it very concise
                 if not hasattr(self, "_transcription_log_counter"):
                     self._transcription_log_counter = 0
+                    self._last_chunk_log = 0
                 self._transcription_log_counter += 1
 
-                if self._transcription_log_counter % 10 == 0:
-                    logger.debug(f"🎵 Transcription processor: processed {self._transcription_log_counter} chunks")
+                # Log every 60 seconds instead of 30 seconds, very minimal
+                current_log_time = time()
+                if current_log_time - self._last_chunk_log > 60.0:
+                    logger.info(f"🎵 Transcription: {self._transcription_log_counter} chunks processed")
+                    self._last_chunk_log = current_log_time
 
                 if not self.online:  # Should not happen if queue is used
                     logger.warning("Transcription processor: self.online not initialized.")
@@ -541,12 +539,12 @@ class TranscriptionProcessor:
                 if self.coordinator:
                     transcription_lag_s = max(0.0, time() - self.coordinator.beg_loop - self.coordinator.end_buffer)
 
-                # Only log ASR processing every few seconds to reduce spam
+                # Only log ASR processing every 20 seconds and make it more concise
                 if not hasattr(self, "_last_asr_log_time"):
                     self._last_asr_log_time = 0
                 current_time = time()
-                if current_time - self._last_asr_log_time > 3.0:  # Log every 3 seconds
-                    logger.info(f"ASR processing: internal_buffer={asr_internal_buffer_duration_s:.2f}s, lag={transcription_lag_s:.2f}s.")
+                if current_time - self._last_asr_log_time > 20.0:  # Log every 20 seconds
+                    logger.info(f"ASR: buffer={asr_internal_buffer_duration_s:.1f}s, lag={transcription_lag_s:.1f}s")
                     self._last_asr_log_time = current_time
 
                 # Process transcription
@@ -555,8 +553,7 @@ class TranscriptionProcessor:
 
                 if new_tokens:
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
-                    # Only log when we actually get new tokens (meaningful events)
-                    logger.debug(f"🎙️ Generated {len(new_tokens)} new tokens: '{new_tokens[0].text[:30]}...'")
+                    # Remove token generation logging entirely - too verbose
 
                 # Get buffer information
                 _buffer = self.online.get_buffer()
@@ -584,10 +581,9 @@ class TranscriptionProcessor:
 
             except Exception as e:
                 logger.warning(f"Exception in transcription_processor: {e}")
-                logger.warning(f"Traceback: {traceback.format_exc()}")
                 if "pcm_array" in locals() and pcm_array is not SENTINEL:  # Check if pcm_array was assigned from queue
                     transcription_queue.task_done()
-        logger.info("Transcription processor task finished.")
+        logger.info("Transcription processor finished.")
 
     async def _get_end_buffer(self):
         """Get current end buffer value - to be implemented by coordinator."""
@@ -613,14 +609,26 @@ class DiarizationProcessor:
     async def process(self, diarization_queue, get_state_callback, update_callback):
         """Process audio chunks for speaker diarization."""
         buffer_diarization = ""
+        processed_chunks = 0
+
+        logger.info("🔊 Diarization processor started")
 
         while True:
             try:
                 pcm_array = await diarization_queue.get()
                 if pcm_array is SENTINEL:
-                    logger.debug("Diarization processor received sentinel. Finishing.")
                     diarization_queue.task_done()
                     break
+
+                processed_chunks += 1
+
+                # Only log every 120 seconds to reduce spam significantly
+                if not hasattr(self, "_last_diarization_log"):
+                    self._last_diarization_log = 0
+                current_time = time()
+                if current_time - self._last_diarization_log > 120.0:
+                    logger.info(f"🔊 Diarization: {processed_chunks} chunks processed")
+                    self._last_diarization_log = current_time
 
                 # Process diarization
                 await self.diarization_obj.diarize(pcm_array)
@@ -634,10 +642,9 @@ class DiarizationProcessor:
 
             except Exception as e:
                 logger.warning(f"Exception in diarization_processor: {e}")
-                logger.warning(f"Traceback: {traceback.format_exc()}")
                 if "pcm_array" in locals() and pcm_array is not SENTINEL:
                     diarization_queue.task_done()
-        logger.info("Diarization processor task finished.")
+        logger.info("Diarization processor finished.")
 
     def cleanup(self):
         """Clean up diarization resources."""
@@ -740,14 +747,6 @@ class Formatter:
         lines = []
         last_end_diarized = 0
         undiarized_text = []
-
-        # Debug logging to understand token flow - only log occasionally to reduce spam
-        if tokens and not hasattr(self, "_format_log_counter"):
-            self._format_log_counter = 0
-        if tokens:
-            self._format_log_counter += 1
-            if self._format_log_counter % 50 == 0:  # Log every 50 formatting operations
-                logger.debug(f"🔤 Formatting {len(tokens)} tokens. End attributed speaker: {end_attributed_speaker}")
 
         # Process each token
         for token in tokens:
@@ -988,14 +987,14 @@ class AudioProcessor:
 
                 # Add summaries if available - optimize by checking flag first and limiting frequency
                 current_time = time()
-                if self._has_summaries or (current_time - self._last_summary_check > 2.0):  # Check every 2 seconds if no summaries
+                if self._has_summaries or (current_time - self._last_summary_check > 10.0):  # Check every 10 seconds if no summaries
                     self._last_summary_check = current_time
                     async with self.lock:
                         if self.summaries:
                             response["summaries"] = self.summaries.copy()
                             # Only log occasionally to reduce spam
-                            if current_time - getattr(self, "_last_summary_log", 0) > 5.0:
-                                logger.info(f"🔄 Including {len(self.summaries)} summaries in response")
+                            if current_time - getattr(self, "_last_summary_log", 0) > 60.0:  # Log every 60 seconds instead of 30
+                                logger.info(f"Including {len(self.summaries)} summaries")
                                 self._last_summary_log = current_time
                             self._has_summaries = True
                         else:
@@ -1166,33 +1165,39 @@ class AudioProcessor:
         """Monitors the health of critical processing tasks."""
         while True:
             try:
-                await asyncio.sleep(10)
+                await asyncio.sleep(15)  # Check every 15 seconds instead of 10
                 current_time = time()
 
                 for i, task in enumerate(tasks_to_monitor):
                     if task.done():
                         exc = task.exception()
-                        task_name = task.get_name() if hasattr(task, "get_name") else f"Monitored Task {i}"
+                        task_name = task.get_name() if hasattr(task, "get_name") else f"Task {i}"
                         if exc:
-                            logger.error(f"{task_name} unexpectedly completed with exception: {exc}")
+                            logger.error(f"{task_name} failed: {exc}")
                         else:
-                            logger.info(f"{task_name} completed normally.")
+                            logger.info(f"{task_name} completed normally")
 
                 # Sync FFmpeg activity timing
                 self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
                 ffmpeg_idle_time = current_time - self.last_ffmpeg_activity
-                if ffmpeg_idle_time > 15:
-                    logger.warning(f"FFmpeg idle for {ffmpeg_idle_time:.2f}s - may need attention.")
-                    if ffmpeg_idle_time > 30 and not self.is_stopping:
-                        logger.error("FFmpeg idle for too long and not in stopping phase, forcing restart.")
-                        await self.ffmpeg_processor.restart_ffmpeg()
-                        # Update timing after restart
-                        self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
+
+                # Only log idle warnings every 60 seconds and if significant
+                if not hasattr(self, "_last_idle_warning"):
+                    self._last_idle_warning = 0
+
+                if ffmpeg_idle_time > 20 and current_time - self._last_idle_warning > 60.0:
+                    logger.warning(f"FFmpeg idle for {ffmpeg_idle_time:.1f}s")
+                    self._last_idle_warning = current_time
+
+                if ffmpeg_idle_time > 30 and not self.is_stopping:
+                    logger.error("FFmpeg idle too long, forcing restart")
+                    await self.ffmpeg_processor.restart_ffmpeg()
+                    # Update timing after restart
+                    self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
             except asyncio.CancelledError:
-                logger.info("Watchdog task cancelled.")
                 break
             except Exception as e:
-                logger.error(f"Error in watchdog task: {e}", exc_info=True)
+                logger.error(f"Watchdog error: {e}")
 
     async def cleanup(self):
         """Clean up resources when processing is complete."""
