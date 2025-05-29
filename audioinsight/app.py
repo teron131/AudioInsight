@@ -1,3 +1,4 @@
+import time
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -199,6 +200,262 @@ async def clear_display_parser_cache():
     except Exception as e:
         logger.error(f"Error clearing display parser cache: {e}")
         return {"status": "error", "message": f"Error clearing display parser cache: {str(e)}"}
+
+
+# =============================================================================
+# Configuration Management APIs
+# =============================================================================
+
+
+@app.get("/api/config/models")
+async def get_model_config():
+    """Get current model configuration."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        # Get current configuration from the kit
+        config = {
+            "transcription_model": getattr(kit, "whisper_model", "openai/whisper-large-v3"),
+            "diarization_enabled": getattr(kit, "diarization_enabled", True),
+            "llm_analysis_enabled": getattr(kit, "llm_enabled", False),
+            "fast_llm_model": getattr(kit.display_parser, "config", {}).get("model_id", "google/gemini-flash-1.5-8b") if hasattr(kit, "display_parser") else "google/gemini-flash-1.5-8b",
+        }
+
+        return {"status": "success", "config": config}
+    except Exception as e:
+        logger.error(f"Error getting model config: {e}")
+        return {"status": "error", "message": f"Error getting model config: {str(e)}"}
+
+
+@app.post("/api/config/processing")
+async def update_processing_config(config: dict):
+    """Update processing configuration.
+
+    Args:
+        config: Processing configuration settings
+
+    Returns:
+        Status of the operation
+    """
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        # Update configuration
+        updated_fields = []
+
+        if "diarization_enabled" in config:
+            kit.diarization_enabled = config["diarization_enabled"]
+            updated_fields.append("diarization_enabled")
+
+        if "llm_analysis_enabled" in config:
+            kit.llm_enabled = config["llm_analysis_enabled"]
+            updated_fields.append("llm_analysis_enabled")
+
+        if "fast_llm_model" in config and hasattr(kit, "display_parser"):
+            from .llm import ParserConfig
+
+            kit.display_parser.config = ParserConfig(model_id=config["fast_llm_model"])
+            updated_fields.append("fast_llm_model")
+
+        logger.info(f"Updated processing config: {updated_fields}")
+        return {"status": "success", "message": f"Updated configuration: {', '.join(updated_fields)}", "updated_fields": updated_fields}
+    except Exception as e:
+        logger.error(f"Error updating processing config: {e}")
+        return {"status": "error", "message": f"Error updating config: {str(e)}"}
+
+
+# =============================================================================
+# System Status and Health APIs
+# =============================================================================
+
+
+@app.get("/api/system/status")
+async def get_system_status():
+    """Get system status and health information."""
+    try:
+        import platform
+
+        import psutil
+
+        # System info
+        system_info = {"platform": platform.system(), "python_version": platform.python_version(), "cpu_count": psutil.cpu_count(), "cpu_percent": psutil.cpu_percent(interval=1), "memory": {"total": psutil.virtual_memory().total, "available": psutil.virtual_memory().available, "percent": psutil.virtual_memory().percent}, "disk": {"total": psutil.disk_usage("/").total, "free": psutil.disk_usage("/").free, "percent": psutil.disk_usage("/").percent}}
+
+        # AudioInsight status
+        global kit
+        audioinsight_status = {"initialized": kit is not None, "diarization_enabled": getattr(kit, "diarization_enabled", False) if kit else False, "llm_enabled": getattr(kit, "llm_enabled", False) if kit else False, "display_parser_enabled": get_display_parser().is_enabled() if kit else False}
+
+        return {"status": "success", "system": system_info, "audioinsight": audioinsight_status, "timestamp": time.time()}
+    except Exception as e:
+        logger.error(f"Error getting system status: {e}")
+        return {"status": "error", "message": f"Error getting system status: {str(e)}"}
+
+
+@app.get("/api/system/health")
+async def health_check():
+    """Simple health check endpoint."""
+    try:
+        global kit
+        health_status = "healthy" if kit is not None else "unhealthy"
+
+        return {"status": health_status, "timestamp": time.time(), "service": "AudioInsight", "version": "1.0.0"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# =============================================================================
+# Export APIs
+# =============================================================================
+
+
+@app.post("/api/export/transcript")
+async def export_transcript(format: str = "txt", session_data: dict = None):
+    """Export transcript in various formats.
+
+    Args:
+        format: Export format (txt, srt, vtt, json)
+        session_data: Transcript data to export
+
+    Returns:
+        Exported transcript content
+    """
+    try:
+        if not session_data or "lines" not in session_data:
+            return {"status": "error", "message": "No transcript data provided"}
+
+        lines = session_data["lines"]
+
+        if format.lower() == "txt":
+            content = "\n\n".join([f"Speaker {line.get('speaker', 'Unknown')}: {line.get('text', '')}" for line in lines if line.get("text", "").strip()])
+
+        elif format.lower() == "srt":
+            content = ""
+            for i, line in enumerate(lines, 1):
+                if line.get("text", "").strip():
+                    start_time = _format_srt_time(line.get("beg", 0))
+                    end_time = _format_srt_time(line.get("end", 0))
+                    speaker = f"Speaker {line.get('speaker', 'Unknown')}"
+                    text = line.get("text", "")
+
+                    content += f"{i}\n{start_time} --> {end_time}\n{speaker}: {text}\n\n"
+
+        elif format.lower() == "vtt":
+            content = "WEBVTT\n\n"
+            for line in lines:
+                if line.get("text", "").strip():
+                    start_time = _format_vtt_time(line.get("beg", 0))
+                    end_time = _format_vtt_time(line.get("end", 0))
+                    speaker = f"Speaker {line.get('speaker', 'Unknown')}"
+                    text = line.get("text", "")
+
+                    content += f"{start_time} --> {end_time}\n{speaker}: {text}\n\n"
+
+        elif format.lower() == "json":
+            import json
+
+            content = json.dumps(session_data, indent=2)
+
+        else:
+            return {"status": "error", "message": f"Unsupported format: {format}"}
+
+        return {"status": "success", "format": format, "content": content, "filename": f"transcript.{format.lower()}"}
+
+    except Exception as e:
+        logger.error(f"Error exporting transcript: {e}")
+        return {"status": "error", "message": f"Error exporting transcript: {str(e)}"}
+
+
+# =============================================================================
+# Session Management APIs
+# =============================================================================
+
+
+@app.get("/api/sessions/current")
+async def get_current_session():
+    """Get current session information."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "No active session"}
+
+        # Get display parser stats if available
+        display_stats = {}
+        try:
+            display_parser = get_display_parser()
+            display_stats = display_parser.get_stats()
+        except:
+            pass
+
+        session_info = {"session_id": getattr(kit, "session_id", "default"), "created_at": getattr(kit, "created_at", time.time()), "diarization_enabled": getattr(kit, "diarization_enabled", False), "llm_enabled": getattr(kit, "llm_enabled", False), "display_parser_stats": display_stats, "status": "active"}
+
+        return {"status": "success", "session": session_info}
+    except Exception as e:
+        logger.error(f"Error getting current session: {e}")
+        return {"status": "error", "message": f"Error getting session: {str(e)}"}
+
+
+@app.post("/api/sessions/reset")
+async def reset_session():
+    """Reset current session with clean state."""
+    try:
+        # Use existing cleanup functionality
+        result = await cleanup_session()
+
+        if result.get("status") == "success":
+            return {"status": "success", "message": "Session reset successfully", "timestamp": time.time()}
+        else:
+            return result
+
+    except Exception as e:
+        logger.error(f"Error resetting session: {e}")
+        return {"status": "error", "message": f"Error resetting session: {str(e)}"}
+
+
+# =============================================================================
+# Analytics APIs
+# =============================================================================
+
+
+@app.get("/api/analytics/usage")
+async def get_usage_analytics():
+    """Get usage analytics and statistics."""
+    try:
+        # Get display parser stats
+        display_parser = get_display_parser()
+        display_stats = display_parser.get_stats()
+
+        analytics = {"display_parser": {"total_requests": display_stats.get("total_requests", 0), "cache_hits": display_stats.get("cache_hits", 0), "cache_misses": display_stats.get("cache_misses", 0), "average_response_time": display_stats.get("average_response_time", 0), "cache_hit_rate": display_stats.get("cache_hit_rate", 0)}, "session": {"current_session_active": kit is not None, "uptime": time.time() - getattr(kit, "created_at", time.time()) if kit else 0}, "timestamp": time.time()}
+
+        return {"status": "success", "analytics": analytics}
+    except Exception as e:
+        logger.error(f"Error getting usage analytics: {e}")
+        return {"status": "error", "message": f"Error getting analytics: {str(e)}"}
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def _format_srt_time(seconds: float) -> str:
+    """Format seconds to SRT time format (HH:MM:SS,mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+
+def _format_vtt_time(seconds: float) -> str:
+    """Format seconds to WebVTT time format (HH:MM:SS.mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
 
 
 def main():

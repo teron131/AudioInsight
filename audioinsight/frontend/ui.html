@@ -1068,6 +1068,26 @@
             }, type === 'error' ? 5000 : 3000);
         }
 
+        // Enhanced status with system health check
+        async function showStatusWithHealth(message, type = 'info') {
+            showStatus(message, type);
+            
+            // Check system health in background for critical operations
+            if (type === 'error' || type === 'success') {
+                try {
+                    const healthResponse = await fetch(`${getApiUrl()}/api/system/health`);
+                    const healthData = await healthResponse.json();
+                    
+                    if (healthData.status !== 'healthy') {
+                        console.warn('System health warning:', healthData);
+                        showStatus('System health warning detected', 'warning');
+                    }
+                } catch (error) {
+                    console.log('Health check failed:', error);
+                }
+            }
+        }
+
         // Clear analysis panels
         function clearAnalysis() {
             const summaryContent = document.getElementById('summaryContent');
@@ -1081,6 +1101,135 @@
             keyPointsContent.classList.remove('has-content');
             
             keywordsContainer.innerHTML = '<span class="keyword-tag">relevant</span><span class="keyword-tag highlighted">keywords</span><span class="keyword-tag">here</span>';
+            
+            // Clear any stored transcript data for export
+            window.currentTranscriptData = null;
+        }
+
+        // Store transcript data for export functionality
+        let currentTranscriptData = null;
+
+        // Export transcript functionality
+        async function exportTranscript(format = 'txt') {
+            if (!currentTranscriptData || !currentTranscriptData.lines || currentTranscriptData.lines.length === 0) {
+                showStatus('No transcript data available for export', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${getApiUrl()}/api/export/transcript?format=${format}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(currentTranscriptData)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Export failed: ${response.statusText}`);
+                }
+
+                const exportData = await response.json();
+                
+                if (exportData.status === 'success') {
+                    // Create download
+                    const blob = new Blob([exportData.content], { 
+                        type: format === 'json' ? 'application/json' : 'text/plain' 
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = exportData.filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    showStatus(`Transcript exported as ${format.toUpperCase()}`, 'success');
+                } else {
+                    throw new Error(exportData.message || 'Export failed');
+                }
+            } catch (error) {
+                console.error('Export error:', error);
+                showStatus(`Export failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Add context menu to transcript area
+        function addTranscriptContextMenu() {
+            transcriptArea.addEventListener('contextmenu', (e) => {
+                if (!currentTranscriptData || !currentTranscriptData.lines || currentTranscriptData.lines.length === 0) {
+                    return; // Let default context menu show
+                }
+                
+                e.preventDefault();
+                
+                // Remove existing context menu
+                const existingMenu = document.querySelector('.transcript-context-menu');
+                if (existingMenu) {
+                    existingMenu.remove();
+                }
+                
+                // Create context menu
+                const menu = document.createElement('div');
+                menu.className = 'transcript-context-menu';
+                menu.style.cssText = `
+                    position: fixed;
+                    top: ${e.clientY}px;
+                    left: ${e.clientX}px;
+                    background: var(--geist-background);
+                    border: 1px solid var(--geist-border);
+                    border-radius: var(--geist-radius);
+                    box-shadow: var(--geist-shadow-medium);
+                    z-index: 1000;
+                    min-width: 150px;
+                    overflow: hidden;
+                `;
+                
+                const menuItems = [
+                    { label: 'Export as TXT', action: () => exportTranscript('txt') },
+                    { label: 'Export as SRT', action: () => exportTranscript('srt') },
+                    { label: 'Export as VTT', action: () => exportTranscript('vtt') },
+                    { label: 'Export as JSON', action: () => exportTranscript('json') }
+                ];
+                
+                menuItems.forEach(item => {
+                    const menuItem = document.createElement('div');
+                    menuItem.textContent = item.label;
+                    menuItem.style.cssText = `
+                        padding: 8px 12px;
+                        cursor: pointer;
+                        transition: background 0.2s ease;
+                        font-size: 14px;
+                        color: var(--geist-foreground);
+                    `;
+                    
+                    menuItem.addEventListener('mouseenter', () => {
+                        menuItem.style.background = 'var(--geist-secondary)';
+                    });
+                    
+                    menuItem.addEventListener('mouseleave', () => {
+                        menuItem.style.background = 'transparent';
+                    });
+                    
+                    menuItem.addEventListener('click', () => {
+                        item.action();
+                        menu.remove();
+                    });
+                    
+                    menu.appendChild(menuItem);
+                });
+                
+                document.body.appendChild(menu);
+                
+                // Remove menu on click outside
+                setTimeout(() => {
+                    document.addEventListener('click', function removeMenu() {
+                        menu.remove();
+                        document.removeEventListener('click', removeMenu);
+                    });
+                }, 10);
+            });
         }
 
         // Update analysis from transcript data
@@ -1146,6 +1295,15 @@
                         diarization_enabled = false
                     } = data;
                     
+                    // Store transcript data for export functionality
+                    currentTranscriptData = {
+                        lines: lines,
+                        buffer_transcription: buffer_transcription,
+                        buffer_diarization: buffer_diarization,
+                        diarization_enabled: diarization_enabled,
+                        timestamp: Date.now()
+                    };
+                    
                     renderLinesWithBuffer(
                         lines, 
                         buffer_diarization, 
@@ -1160,14 +1318,24 @@
                 // Handle analysis results
                 if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries) {
                     updateAnalysisFromData(data);
+                    
+                    // Store analysis data in transcript data for export
+                    if (currentTranscriptData) {
+                        currentTranscriptData.analysis = {
+                            summary: data.summary,
+                            key_points: data.key_points,
+                            keywords: data.keywords,
+                            summaries: data.summaries
+                        };
+                    }
                 }
                 
                 // Handle completion signals
                 if (data.type === 'ready_to_stop' || data.status === 'completed') {
                     if (isRecording) {
-                        showStatus('Live transcription completed');
+                        showStatusWithHealth('Live transcription completed', 'success');
                     } else if (isProcessingFile) {
-                        showStatus('File processing completed', 'success');
+                        showStatusWithHealth('File processing completed', 'success');
                         isProcessingFile = false;
                     }
                 }
@@ -1175,13 +1343,13 @@
                 // Handle errors
                 if (data.type === 'error' || data.error) {
                     const errorMsg = data.error || data.message || 'Unknown error occurred';
-                    showStatus(`Error: ${errorMsg}`, 'error');
+                    showStatusWithHealth(`Error: ${errorMsg}`, 'error');
                     console.error('WebSocket error:', data);
                 }
 
             } catch (error) {
                 console.error('Error handling WebSocket message:', error);
-                showStatus('Error processing response', 'error');
+                showStatusWithHealth('Error processing response', 'error');
             }
         }
 
@@ -1352,7 +1520,7 @@
                     
                 } catch (error) {
                     console.error('Error starting recording:', error);
-                    showStatus(`Recording failed: ${error.message}`, 'error');
+                    showStatusWithHealth(`Recording failed: ${error.message}`, 'error');
                     stopRecording();
                 }
             } else {
@@ -1426,7 +1594,7 @@
 
             } catch (error) {
                 console.error('Error processing file:', error);
-                showStatus(`File processing failed: ${error.message}`, 'error');
+                showStatusWithHealth(`File processing failed: ${error.message}`, 'error');
                 isProcessingFile = false;
                 transcriptArea.textContent = 'Your audio transcript will appear here...';
                 transcriptArea.classList.remove('has-content');
@@ -1500,16 +1668,44 @@
                 stopRecording();
             }
             
-            // Try to cleanup session
+            // Enhanced cleanup using new session reset API
             try {
-                await fetch(`${getApiUrl()}/cleanup-session`, { method: 'POST' });
+                await fetch(`${getApiUrl()}/api/sessions/reset`, { method: 'POST' });
             } catch (error) {
-                console.log('Session cleanup failed:', error);
+                console.log('Enhanced session cleanup failed, trying legacy:', error);
+                // Fallback to legacy cleanup
+                try {
+                    await fetch(`${getApiUrl()}/cleanup-session`, { method: 'POST' });
+                } catch (legacyError) {
+                    console.log('Legacy session cleanup also failed:', legacyError);
+                }
             }
         });
 
+        // Enhanced initialization with system status check
+        async function initializeApp() {
+            try {
+                // Check system health on startup
+                const healthResponse = await fetch(`${getApiUrl()}/api/system/health`);
+                const healthData = await healthResponse.json();
+                
+                if (healthData.status === 'healthy') {
+                    showStatus('System ready - AudioInsight initialized');
+                } else {
+                    showStatus('System started with warnings', 'warning');
+                }
+                
+                // Add context menu to transcript area
+                addTranscriptContextMenu();
+                
+            } catch (error) {
+                console.log('Could not check system health:', error);
+                showStatus('Ready to transcribe');
+            }
+        }
+
         // Initialize
-        showStatus('Ready to transcribe');
+        initializeApp();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -1526,6 +1722,15 @@
                     case 'd':
                         e.preventDefault();
                         themeToggle.click();
+                        break;
+                    case 'e':
+                        e.preventDefault();
+                        // Export transcript as TXT with Ctrl+E
+                        if (currentTranscriptData && currentTranscriptData.lines && currentTranscriptData.lines.length > 0) {
+                            exportTranscript('txt');
+                        } else {
+                            showStatus('No transcript available for export', 'error');
+                        }
                         break;
                 }
             }
