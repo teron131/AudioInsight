@@ -11,4 +11,10 @@ fi
 
 # Start the audioinsight server
 echo "Starting audioinsight server..."
-audioinsight-server --backend faster-whisper --model large-v3-turbo --llm-model "gpt-4o-mini" --llm-trigger-time 5.0 --diarization
+
+audioinsight-server \
+    --backend faster-whisper \
+    --model large-v3-turbo \
+    --llm-model "gpt-4.1-mini" \
+    --llm-trigger-time 5.0 \
+    # --diarization
