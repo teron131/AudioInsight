@@ -314,6 +314,7 @@
             min-height: 200px;
             font-family: 'Inter', monospace;
             transition: all 0.2s ease;
+            position: relative;
         }
 
         .transcript-area:hover {
@@ -322,7 +323,10 @@
 
         .transcript-area.has-content {
             color: var(--geist-foreground);
-            white-space: pre-line; /* Preserve line breaks for speaker formatting */
+            white-space: pre-line;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.8;
+            letter-spacing: 0.01em;
         }
 
         /* Analysis Panel */
@@ -562,6 +566,333 @@
         .warning {
             color: var(--geist-warning);
         }
+
+        /* Processing Status Panel */
+        .status-panel {
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .status-panel .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-panel .status-label {
+            color: var(--geist-muted-foreground);
+            font-weight: 500;
+        }
+
+        .status-panel .status-value {
+            color: var(--geist-foreground);
+            font-weight: 600;
+            font-family: 'Inter', monospace;
+        }
+
+        .status-panel .status-value.processing {
+            color: var(--geist-warning);
+        }
+
+        .status-panel .status-value.ready {
+            color: var(--geist-success);
+        }
+
+        .status-panel .status-value.disabled {
+            color: var(--geist-muted);
+        }
+
+        /* Cool Status Overlays */
+        .status-overlay {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            border-radius: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 500;
+            margin: 4px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        [data-theme="light"] .status-overlay {
+            background: rgba(255, 255, 255, 0.8);
+            color: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .status-overlay.transcription {
+            background: rgba(0, 112, 243, 0.2);
+            border-color: rgba(0, 112, 243, 0.3);
+            color: var(--geist-blue);
+        }
+
+        .status-overlay.diarization {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.3);
+            color: var(--geist-success);
+        }
+
+        .status-overlay.processing {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: var(--geist-warning);
+            animation: pulse-glow 2s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { 
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.1);
+                transform: scale(1.02);
+            }
+        }
+
+        /* Cool Loading Spinner */
+        .cool-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin-cool 1s linear infinite;
+        }
+
+        @keyframes spin-cool {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Floating Status Container */
+        .floating-status {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Speaker Badge */
+        .speaker-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background: linear-gradient(135deg, var(--geist-blue), var(--geist-purple));
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            box-shadow: 0 2px 8px rgba(0, 112, 243, 0.3);
+        }
+
+        /* Transcript Text Enhancements */
+        .transcript-content {
+            position: relative;
+        }
+
+        .transcript-line {
+            margin-bottom: 16px;
+            padding: 12px 0;
+            border-left: 3px solid transparent;
+            padding-left: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .transcript-line.speaker-1 {
+            border-left-color: var(--geist-blue);
+        }
+
+        .transcript-line.speaker-2 {
+            border-left-color: var(--geist-success);
+        }
+
+        .transcript-line.speaker-3 {
+            border-left-color: var(--geist-pink);
+        }
+
+        .transcript-line.speaker-4 {
+            border-left-color: var(--geist-purple);
+        }
+
+        /* Speech Text Styling */
+        .speech-text {
+            margin-top: 8px;
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--geist-foreground);
+        }
+
+        .placeholder-text {
+            color: var(--geist-muted-foreground);
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        /* Status Text Inline */
+        .status-text {
+            font-size: 12px;
+            color: var(--geist-muted-foreground);
+            opacity: 0.6;
+            font-style: italic;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-text.processing {
+            color: var(--geist-warning);
+            opacity: 0.8;
+        }
+
+        .status-text .mini-spinner {
+            width: 10px;
+            height: 10px;
+            border: 1px solid transparent;
+            border-top: 1px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Speaker and Buffer Styles from backup.html */
+        #speaker {
+            border: 1px solid var(--geist-border);
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 12px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--geist-blue), var(--geist-purple));
+            color: white;
+            display: inline-block;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 8px rgba(0, 112, 243, 0.2);
+        }
+
+        .label_diarization {
+            background: var(--geist-secondary);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 4px 8px;
+            margin-left: 8px;
+            display: inline-block;
+            white-space: nowrap;
+            font-size: 11px;
+            margin-bottom: 4px;
+            color: var(--geist-warning);
+            font-weight: 500;
+        }
+
+        .label_transcription {
+            background: var(--geist-secondary);
+            border: 1px solid var(--geist-border);
+            border-radius: var(--geist-radius);
+            padding: 4px 8px;
+            display: inline-block;
+            white-space: nowrap;
+            margin-left: 8px;
+            font-size: 11px;
+            margin-bottom: 4px;
+            color: var(--geist-blue);
+            font-weight: 500;
+        }
+
+        #timeInfo {
+            color: var(--geist-muted-foreground);
+            margin-left: 8px;
+            font-size: 11px;
+            font-weight: 400;
+        }
+
+        .textcontent {
+            font-size: 15px;
+            padding-left: 12px;
+            margin-bottom: 12px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-radius: 0px 0px 0px 8px;
+            line-height: 1.6;
+            color: var(--geist-foreground);
+        }
+
+        .buffer_diarization {
+            color: var(--geist-muted-foreground);
+            opacity: 0.7;
+            margin-left: 4px;
+            background: var(--geist-background-2);
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+
+        .buffer_transcription {
+            color: var(--geist-muted-foreground);
+            opacity: 0.6;
+            margin-left: 4px;
+            font-style: italic;
+            background: var(--geist-background-2);
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--geist-border);
+            border-top: 2px solid var(--geist-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-bottom: 1px;
+            margin-right: 6px;
+        }
+
+        .silence {
+            color: var(--geist-muted-foreground);
+            background: var(--geist-background-2);
+            border: 1px solid var(--geist-border);
+            font-size: 12px;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-weight: 500;
+        }
+
+        .loading {
+            color: var(--geist-warning);
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: var(--geist-radius);
+            padding: 6px 12px;
+            font-size: 12px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -608,12 +939,6 @@
             <!-- Transcript Area -->
             <div class="transcript-area" id="transcriptArea">
                 Your audio transcript will appear here...
-            </div>
-
-            <!-- Status -->
-            <div class="status-message" id="statusMessage" style="display: none;">
-                <div class="status-dot"></div>
-                <span>Ready to transcribe</span>
             </div>
 
             <!-- Hidden file input -->
@@ -681,7 +1006,6 @@
         const fileInput = document.getElementById('fileInput');
         const transcriptArea = document.getElementById('transcriptArea');
         const recordingIndicator = document.getElementById('recordingIndicator');
-        const statusMessage = document.getElementById('statusMessage');
         const transcriptPanel = document.getElementById('transcriptPanel');
         
         let isRecording = false;
@@ -702,16 +1026,46 @@
 
         // Show status message
         function showStatus(message, type = 'info') {
-            const statusSpan = statusMessage.querySelector('span');
-            statusSpan.textContent = message;
-            statusMessage.style.display = 'flex';
+            console.log(`[${type.toUpperCase()}] ${message}`);
             
-            // Auto-hide after 5 seconds for non-error messages
-            if (type !== 'error') {
+            // Create temporary floating notification
+            const notification = document.createElement('div');
+            notification.className = 'temp-notification';
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'error' ? 'var(--geist-destructive)' : 
+                           type === 'success' ? 'var(--geist-success)' : 
+                           'var(--geist-blue)'};
+                color: white;
+                padding: 12px 16px;
+                border-radius: 8px;
+                z-index: 1000;
+                font-size: 14px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                transform: translateX(100%);
+                transition: transform 0.3s ease;
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.style.transform = 'translateX(0)';
+            }, 10);
+            
+            // Auto-remove after delay
+            setTimeout(() => {
+                notification.style.transform = 'translateX(100%)';
                 setTimeout(() => {
-                    statusMessage.style.display = 'none';
-                }, 5000);
-            }
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, type === 'error' ? 5000 : 3000);
         }
 
         // Clear analysis panels
@@ -778,39 +1132,29 @@
             }
         }
 
-        // Handle WebSocket messages
+        // Handle WebSocket messages with proper transcript rendering
         function handleWebSocketMessage(data) {
             try {
+                // Handle transcript data using proper renderLinesWithBuffer function
                 if (data.type === 'transcription' || data.lines) {
-                    // Update transcript with live results including speaker information
-                    let transcriptText = '';
+                    const { 
+                        lines = [], 
+                        buffer_transcription = "", 
+                        buffer_diarization = "",
+                        remaining_time_transcription = 0,
+                        remaining_time_diarization = 0,
+                        diarization_enabled = false
+                    } = data;
                     
-                    if (data.lines && data.lines.length > 0) {
-                        // Format transcript with speaker labels
-                        transcriptText = data.lines.map(line => {
-                            const speaker = line.speaker ? `Speaker ${line.speaker}: ` : '';
-                            return speaker + (line.text || '');
-                        }).join('\n');
-                    } else if (data.text) {
-                        transcriptText = data.text;
-                    }
-                    
-                    // Add buffer transcription if available
-                    if (data.buffer_transcription) {
-                        if (transcriptText) transcriptText += '\n';
-                        transcriptText += data.buffer_transcription;
-                    }
-                    
-                    // Add buffer diarization if available  
-                    if (data.buffer_diarization) {
-                        if (transcriptText) transcriptText += '\n';
-                        transcriptText += data.buffer_diarization;
-                    }
-                    
-                    if (transcriptText.trim()) {
-                        transcriptArea.textContent = transcriptText.trim();
-                        transcriptArea.classList.add('has-content');
-                    }
+                    renderLinesWithBuffer(
+                        lines, 
+                        buffer_diarization, 
+                        buffer_transcription, 
+                        remaining_time_diarization,
+                        remaining_time_transcription,
+                        false, 
+                        diarization_enabled 
+                    );
                 }
                 
                 // Handle analysis results
@@ -838,6 +1182,83 @@
             } catch (error) {
                 console.error('Error handling WebSocket message:', error);
                 showStatus('Error processing response', 'error');
+            }
+        }
+
+        // Render transcript with proper speaker and buffer handling (from backup.html)
+        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false, diarization_enabled = false) {
+            const linesHtml = lines.map((item, idx) => {
+                let timeInfo = "";
+                if (item.beg !== undefined && item.end !== undefined) {
+                    timeInfo = ` ${formatTime(item.beg)} - ${formatTime(item.end)}`;
+                }
+
+                let speakerLabel = "";
+                if (item.speaker === -2) {
+                    speakerLabel = `<span class="silence">Silence<span id='timeInfo'>${timeInfo}</span></span>`;
+                } else if (item.speaker == -1) {
+                    speakerLabel = `<span id="speaker">Speaker 1<span id='timeInfo'>${timeInfo}</span></span>`;
+                } else if (item.speaker >= 0) {
+                    const displaySpeaker = item.speaker + 1;
+                    speakerLabel = `<span id="speaker">Speaker ${displaySpeaker}<span id='timeInfo'>${timeInfo}</span></span>`;
+                    if (diarization_enabled && item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
+                        speakerLabel += `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization.toFixed(1)} second(s) of audio are undergoing diarization</span></span>`;
+                    }
+                }
+
+                let currentLineText = item.text || "";
+
+                if (idx === lines.length - 1) { 
+                    if (!isFinalizing) {
+                        if (remaining_time_transcription > 0) {
+                             speakerLabel += `<span class="label_transcription"><span class="spinner"></span>Transcription lag <span id='timeInfo'>${remaining_time_transcription.toFixed(1)}s</span></span>`;
+                        }
+                        if (diarization_enabled && buffer_diarization && remaining_time_diarization > 0) {
+                             speakerLabel += `<span class="label_diarization"><span class="spinner"></span>Diarization lag<span id='timeInfo'>${remaining_time_diarization.toFixed(1)}s</span></span>`;
+                        }
+                    }
+
+                    if (buffer_diarization) {
+                        if (isFinalizing) {
+                            currentLineText += (currentLineText.length > 0 && buffer_diarization.trim().length > 0 ? " " : "") + buffer_diarization.trim();
+                        } else {
+                            currentLineText += `<span class="buffer_diarization">${buffer_diarization}</span>`;
+                        }
+                    }
+                    if (buffer_transcription) {
+                        if (isFinalizing) {
+                            currentLineText += (currentLineText.length > 0 && buffer_transcription.trim().length > 0 ? " " : "") + buffer_transcription.trim();
+                        } else {
+                            currentLineText += `<span class="buffer_transcription">${buffer_transcription}</span>`;
+                        }
+                    }
+                }
+                
+                return currentLineText.trim().length > 0 || speakerLabel.length > 0
+                    ? `<p>${speakerLabel}<br/><div class='textcontent'>${currentLineText}</div></p>`
+                    : `<p>${speakerLabel}<br/></p>`; 
+            }).join("");
+
+            transcriptArea.innerHTML = linesHtml;
+            if (linesHtml) {
+                transcriptArea.classList.add('has-content');
+            }
+        }
+
+        // Helper function to format time properly with hours, minutes, and seconds
+        function formatTime(seconds) {
+            if (isNaN(seconds) || seconds < 0) {
+                return '0:00';
+            }
+            
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {
+                return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            } else {
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
             }
         }
 
@@ -1012,7 +1433,7 @@
             }
         }
 
-        // File upload
+        // File upload event listeners
         uploadBtn.addEventListener('click', () => {
             fileInput.click();
         });
@@ -1111,4 +1532,4 @@
         });
     </script>
 </body>
-</html> 
+</html>
