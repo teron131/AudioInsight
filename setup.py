@@ -22,16 +22,16 @@ setup(
         "diarization": ["diart"],
         "vac": ["torch"],
         "sentence": ["mosestokenizer"],
-        "whisper": ["whisper"],
+        "whisper": ["whisper", "opencc"],
         "openai": ["openai"],
-        "llm": ["langchain", "langchain-openai", "python-dotenv"],
+        "llm": ["langchain", "langchain-openai", "python-dotenv", "pydantic"],
     },
     package_data={
-        "audioinsight": ["frontend/*.html"],
+        "audioinsight": ["frontend/*.html", "server/*.py"],
     },
     entry_points={
         "console_scripts": [
-            "audioinsight-server=audioinsight.server:main",
+            "audioinsight-server=audioinsight.server.app:main",
         ],
     },
     classifiers=[

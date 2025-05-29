@@ -4,11 +4,8 @@ import sys
 import time
 from functools import lru_cache
 
-from audioinsight.whisper_streaming.backends import FasterWhisperASR, OpenAIAPIASR
-from audioinsight.whisper_streaming.online_asr import (
-    OnlineASRProcessor,
-    VACOnlineASRProcessor,
-)
+from .backends import FasterWhisperASR, OpenAIAPIASR
+from .online_asr import OnlineASRProcessor, VACOnlineASRProcessor
 
 logger = logging.getLogger(__name__)
 

@@ -34,24 +34,37 @@ AudioInsight solves the fundamental challenge of real-time speech recognition by
 🌐 **Multi-User Ready** - Handle multiple sessions simultaneously  
 ⚡ **Ultra-Low Latency** - Optimized streaming algorithms  
 🛠️ **Production Ready** - Built for real-world applications  
+🎯 **Modular Architecture** - Specialized components for enhanced maintainability  
+📁 **Comprehensive File Support** - Multiple processing modes for audio files  
+🔄 **Unified Processing Pipeline** - Same engine for live and file processing  
+📊 **Multiple Response Formats** - JSON, WebSocket, and Server-Sent Events
 
 ### 🏗️ Architecture Overview
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Browser UI    │───▶│  FastAPI Server  │───▶│  Core Engine    │
-│  (WebSocket)    │    │  (Multi-User)    │    │  (ASR + Diart)  │
+│  (WebSocket)    │    │  (Multi-Module)  │    │  (ASR + Diart)  │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
         │                        │                        │
         ▼                        ▼                        ▼
-  Audio Capture           WebSocket Routing        Real-time Processing
-  MediaRecorder           Session Management       LocalAgreement Policy
+  Audio Capture           Modular Architecture      Real-time Processing
+  MediaRecorder          ┌──────────────────┐       LocalAgreement Policy
+                         │  server/config   │       Specialized Processors
+                         │  server/handlers │       
+                         │  server/websocket│       
+                         │  server/utils    │       
+                         └──────────────────┘       
 ```
 
-**Three-Layer Design:**
-- **Frontend**: HTML5/JavaScript interface with WebSocket streaming
-- **Server**: FastAPI-based multi-user WebSocket handler  
-- **Core**: Advanced streaming algorithms with speaker diarization
+**Three-Layer Modular Design:**
+- **Frontend**: HTML5/JavaScript interface with WebSocket streaming and file upload
+- **Server**: Modular FastAPI architecture with specialized components:
+  - **Configuration Management** (`server/config.py`): CORS, audio validation, processing settings
+  - **File Handlers** (`server/file_handlers.py`): Upload processing, SSE streaming, unified pipeline
+  - **WebSocket Management** (`server/websocket_handlers.py`): Connection lifecycle, real-time processing
+  - **Utilities** (`server/utils.py`): Audio processing, FFmpeg integration, streaming simulation
+- **Core**: Advanced streaming algorithms with modular processors and speaker diarization
 
 ---
 
@@ -66,7 +79,7 @@ pip install audioinsight
 ### Development Installation
 
 ```bash
-git clone https://github.com/QuentinFuxa/AudioInsight
+git clone https://github.com/teron131/AudioInsight
 cd AudioInsight
 pip install -e .
 ```
@@ -187,10 +200,45 @@ async def websocket_endpoint(websocket: WebSocket):
         await processor.cleanup()
 ```
 
+**File Processing Integration:**
+```python
+from audioinsight.server.file_handlers import handle_file_upload_and_process
+from audioinsight.server.websocket_handlers import process_file_through_websocket
+from fastapi import UploadFile
+import asyncio
+
+async def process_audio_file(file_path: str):
+    """Process audio file through unified pipeline."""
+    # Option 1: Direct file processing with JSON response
+    from pathlib import Path
+    from audioinsight.server.utils import get_audio_duration
+    
+    # Get file duration for real-time simulation
+    duration = get_audio_duration(file_path)
+    
+    # Process through same pipeline as live audio
+    from audioinsight.processors import AudioProcessor
+    processor = AudioProcessor()
+    
+    # Stream file with temporal accuracy
+    elapsed = await process_file_through_websocket(
+        file_path, duration, processor
+    )
+    
+    print(f"Processed {duration:.2f}s audio in {elapsed:.2f}s")
+
+# Option 2: Server-Sent Events for real-time progress
+@app.post("/upload-stream")
+async def upload_file_stream(file: UploadFile):
+    """Upload with real-time streaming results."""
+    from audioinsight.server.file_handlers import handle_file_upload_stream
+    return await handle_file_upload_stream(file)
+```
+
 **Custom Processing Pipeline:**
 ```python
-from audioinsight.core import AudioInsight
-from audioinsight.audio_processor import AudioProcessor
+from audioinsight.main import AudioInsight
+from audioinsight.processors import AudioProcessor
 import asyncio
 
 async def custom_transcription_pipeline():
@@ -229,7 +277,7 @@ async def custom_transcription_pipeline():
 | Parameter | Description | Default | Options |
 |-----------|-------------|---------|---------|
 | `--model` | Whisper model size | `large-v3-turbo` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo` |
-| `--language` | Source language | `en` | Language codes or `auto` |
+| `--language` | Source language | `auto` | Language codes such as `en`, `zh`, `ja`, etc. |
 | `--task` | Processing task | `transcribe` | `transcribe`, `translate` |
 | `--backend` | Whisper backend | `faster-whisper` | `faster-whisper`, `openai-api`, `whisper` |
 
@@ -251,6 +299,25 @@ async def custom_transcription_pipeline():
 | `--port` | Server port | `8001` |
 | `--ssl-certfile` | SSL certificate path | `None` |
 | `--ssl-keyfile` | SSL private key path | `None` |
+
+### API Endpoints
+
+AudioInsight provides comprehensive API endpoints for different processing modes:
+
+| Endpoint | Method | Purpose | Response Format |
+|----------|--------|---------|-----------------|
+| `/` | GET | Web interface | HTML |
+| `/asr` | WebSocket | Real-time transcription (live + file) | WebSocket JSON |
+| `/upload-file` | POST | Prepare file for WebSocket processing | JSON |
+| `/upload` | POST | Direct file processing | JSON |
+| `/upload-stream` | POST | File processing with real-time updates | Server-Sent Events |
+| `/cleanup-file` | POST | Clean up temporary files | JSON |
+
+**Processing Modes:**
+- **Live Recording**: Direct WebSocket connection with browser microphone
+- **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation
+- **Direct File Processing**: Immediate processing with complete JSON response
+- **Streaming File Processing**: Real-time progress updates via Server-Sent Events
 
 ---
 

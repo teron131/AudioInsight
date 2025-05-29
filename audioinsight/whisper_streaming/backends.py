@@ -13,7 +13,7 @@ from typing import List
 
 import numpy as np
 
-from audioinsight.timed_objects import ASRToken
+from ..timed_objects import ASRToken
 
 logger = logging.getLogger(__name__)
 

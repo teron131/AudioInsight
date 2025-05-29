@@ -10,10 +10,10 @@ import ffmpeg
 import numpy as np
 import opencc
 
-from audioinsight.core import AudioInsight
-from audioinsight.llm import LLM, LLMTrigger
-from audioinsight.timed_objects import ASRToken
-from audioinsight.whisper_streaming.whisper_online import online_factory
+from .llm import LLM, LLMTrigger
+from .main import AudioInsight
+from .timed_objects import ASRToken
+from .whisper_streaming.whisper_online import online_factory
 
 # Set up logging once
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

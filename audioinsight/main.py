@@ -1,14 +1,8 @@
-try:
-    from audioinsight.whisper_streaming.whisper_online import (
-        backend_factory,
-        warmup_asr,
-    )
-except ImportError:
-    from .whisper_streaming.whisper_online import backend_factory, warmup_asr
-
 import logging
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict, Optional
+
+from .whisper_streaming.whisper_online import backend_factory, warmup_asr
 
 # Global cached parser to avoid recreation
 _CACHED_PARSER: Optional[ArgumentParser] = None
@@ -310,7 +304,7 @@ class AudioInsight:
     def _load_diarization(self):
         """Lazy loading of diarization models."""
         try:
-            from audioinsight.diarization.diarization_online import DiartDiarization
+            from .diarization.diarization_online import DiartDiarization
 
             self.diarization = DiartDiarization()
         except Exception as e:

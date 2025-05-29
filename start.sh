@@ -1,1 +1,1 @@
-audioinsight-server --model large-v3-turbo --backend faster-whisper --buffer_trimming sentence --llm-model "gpt-4.1-mini" --llm-trigger-time 5.0
+audioinsight-server --backend openai-api --buffer_trimming sentence --llm-model "gpt-4.1-mini" --llm-trigger-time 5.0

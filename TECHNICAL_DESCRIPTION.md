@@ -30,6 +30,8 @@ The system is organized into the following core modules:
 ### **`processors.py`** - Modular Audio Processing Pipeline and Specialized Processors
 **Purpose**: Implements a sophisticated multi-stage asynchronous pipeline through specialized processor classes that handle different aspects of real-time audio processing, with a central coordinator managing shared state and inter-processor communication.
 
+**Architectural Overview**: The system has been refactored into a modular design where specialized processor classes handle distinct aspects of audio processing:
+
 **Key Components**:
 - `AudioProcessor` class: Central coordinator that manages shared state, task lifecycle, and coordinates between specialized processors
 - `FFmpegProcessor` class: Dedicated handler for FFmpeg process management, audio format conversion, and PCM data processing
@@ -46,81 +48,248 @@ The system is organized into the following core modules:
 
 **Key Classes and Methods**:
 
-**FFmpegProcessor**:
+#### **FFmpegProcessor: Audio Format Conversion and Stream Management**
+**Purpose**: Handles all FFmpeg process lifecycle management, audio conversion, and PCM data distribution.
+
+**Key Methods**:
 - `start_ffmpeg_decoder()`, `restart_ffmpeg()`: Robust FFmpeg process lifecycle management with automatic failure recovery
-- `read_audio_data()`: Converts WebM/Opus streams to PCM format with real-time processing and queue distribution
+- `read_audio_data()`: Converts WebM/Opus streams to PCM format with real-time processing and queue distribution  
 - `process_audio_chunk()`: Entry point for incoming audio data with retry logic and health monitoring
 - `convert_pcm_to_float()`: Optimized PCM-to-numpy conversion with pre-allocated buffers for performance
 
-**TranscriptionProcessor**:
+**Performance Optimizations**:
+- **Pre-allocated Buffers**: Audio buffers (`_temp_int16_array`, `_temp_float32_array`) dimensioned for expected processing patterns
+- **Efficient Buffer Management**: Dynamic buffer resizing with exponential growth strategy in `append_to_pcm_buffer()`
+- **Zero-Copy Operations**: Optimized `get_pcm_data()` with in-place buffer shifting to minimize memory allocation
+- **Health Monitoring**: Timing-based health checks with configurable idle timeouts and automatic restart procedures
+
+**Responsibilities**:
+- **Process Management**: External FFmpeg process lifecycle with robust failure detection and recovery
+- **Format Conversion**: WebM/Opus to PCM conversion with optimal performance characteristics
+- **Data Distribution**: Efficient distribution of PCM data to both transcription and diarization processing queues
+- **Resource Efficiency**: Memory-optimized operations with pre-allocated conversion arrays
+
+#### **TranscriptionProcessor: Whisper Integration and Hypothesis Management**
+**Purpose**: Coordinates Whisper inference cycles and integrates with the LocalAgreement algorithm for stable output generation.
+
+**Key Methods**:
 - `process()`: Manages Whisper inference cycles and coordinates with LocalAgreement algorithm
 - `finish_transcription()`: Extracts remaining uncommitted text from transcript buffer during cleanup
 - Integrates with `whisper_streaming/online_asr.py` for streaming transcription processing
 
-**DiarizationProcessor**:
+**Integration Features**:
+- **Context Management**: Maintains reference to central coordinator for accessing shared timing state (`beg_loop`, `end_buffer`)
+- **LLM Coordination**: Forwards new transcription text with speaker attribution to LLM summarization system
+- **Buffer Finalization**: Ensures no transcription text is lost during processing completion through `finish_transcription()`
+- **Timing Coordination**: Direct access to coordinator timing state eliminates expensive async state calls
+
+**Responsibilities**:
+- **Streaming Coordination**: Management of Whisper inference cycles with LocalAgreement hypothesis validation
+- **Context Preservation**: Maintains conversational context across streaming chunks through integration with online ASR
+- **LLM Integration**: Coordinates with LLM summarization by forwarding new transcription text with speaker information
+- **State Synchronization**: Thread-safe coordination with central AudioProcessor state management
+
+#### **DiarizationProcessor: Speaker Identification Pipeline**  
+**Purpose**: Handles speaker identification processing independently of transcription pipeline to avoid latency impact.
+
+**Key Methods**:
 - `process()`: Handles speaker identification processing independently of transcription pipeline
 - Coordinates with `diarization/` module for real-time speaker attribution
 - Manages retrospective speaker-to-token assignment based on temporal overlap
 
-**Formatter**:
-- `format_by_sentences()`: Advanced sentence-boundary formatting using integrated tokenizers
-- `format_by_speaker()`: Speaker-change-based formatting for non-sentence-aware processing
-- Handles Traditional Chinese conversion and output structure generation
+**Asynchronous Architecture**:
+- **Independent Processing**: Operates on separate processing queue to avoid blocking primary transcription
+- **Retrospective Attribution**: Assigns speaker labels to committed tokens after transcription completion
+- **State Coordination**: Coordinates with central AudioProcessor through callback functions for token state access
+- **Temporal Analysis**: Uses timing overlap analysis for accurate speaker-to-token attribution
 
-**AudioProcessor (Central Coordinator)**:
+**Responsibilities**:
+- **Parallel Processing**: Speaker identification runs concurrently without affecting transcription latency
+- **Retrospective Attribution**: Speaker label assignment after transcription completion ensures optimal timing
+- **Resource Independence**: Maintains separate processing queue and state management for speaker identification
+- **Cleanup Management**: Processor-specific resource cleanup and state management
+
+#### **Formatter: Result Aggregation and Output Generation**
+**Purpose**: Handles intelligent formatting of transcription and diarization results with multiple segmentation strategies.
+
+**Key Methods**:
+- `format_by_sentences()`: Advanced sentence-boundary formatting using integrated tokenizers with Moses sentence splitter support
+- `format_by_speaker()`: Speaker-change-based formatting for non-sentence-aware processing with optimized speaker detection
+- Handles Traditional Chinese conversion through `s2hk()` and output structure generation
+
+**Formatting Strategies**:
+- **Sentence-Based Formatting**: Uses sentence tokenizers for intelligent boundary detection when available
+- **Speaker-Based Formatting**: Fallback formatting based on speaker changes for consistent output
+- **Language Processing**: Traditional Chinese conversion through global `_s2hk_converter` instance
+- **Output Optimization**: Efficient text aggregation with minimal string operations and optimized speaker frequency detection
+
+**Performance Optimizations**:
+- **Output Caching**: Reuses formatting structures and applies batch operations
+- **Language Conversion Caching**: Global OpenCC converter instance prevents repeated creation
+- **Regex Pre-compilation**: Sentence splitting patterns compiled once and reused
+- **Speaker Detection Optimization**: Efficient speaker frequency counting with set-based operations
+
+#### **AudioProcessor: Central Coordination System**
+**Purpose**: Serves as the central coordinator managing shared state, task orchestration, and inter-processor communication.
+
+**Key Methods**:
 - `create_tasks()`: Orchestrates specialized processor task creation and coordination
 - `update_transcription()`, `update_diarization()`: Thread-safe state management with async locks
 - `results_formatter()`: Aggregates multi-processor results for client delivery
 - `get_current_state()`: Provides thread-safe access to shared processing state
 - `cleanup()`: Coordinates resource cleanup across all specialized processors
 
-**Responsibilities**:
-- **State Coordination**: Central management of shared state (tokens, buffers, timing) with thread-safe access patterns
+**Coordination Responsibilities**:
+- **State Management**: Central management of shared state (tokens, buffers, timing) with thread-safe access patterns
 - **Task Orchestration**: Creation and lifecycle management of specialized processor tasks with proper error handling
 - **Inter-Processor Communication**: Queue-based communication between processors with backpressure management
 - **Resource Management**: Coordinated initialization and cleanup of FFmpeg processes, ML models, and system resources
 - **Error Recovery**: Comprehensive monitoring through `watchdog()` method with processor-specific recovery procedures
-- **Performance Optimization**: Memory-efficient operations with pre-allocated buffers and caching strategies
 
 **Performance Optimizations**:
-- **Pre-allocated Buffers**: Specialized processors maintain optimized buffer pools for their specific data types
+- **Memory Efficiency**: Central coordination prevents duplicate buffer allocation across processors
 - **Efficient Queue Management**: Optimized inter-processor communication with minimal serialization overhead
-- **Memory Locality**: Related processing operations grouped within specialized classes for better cache performance
-- **Resource Pooling**: Reusable components (numpy arrays, conversion objects) maintained per processor
+- **Resource Pooling**: Shared resource coordination (timing, configuration) without duplication
+- **Batch State Updates**: Minimizes lock acquisition overhead through batch operations
 
-**Integration Points**: Used by `server.py` for each WebSocket connection, coordinates with `whisper_streaming/online_asr.py` for transcription, integrates with `diarization/` for speaker identification, provides formatted output to WebSocket clients.
+**LLM Integration**: 
+- **Inference Processing**: Optional LLM inference processor for conversation monitoring and summarization
+- **Trigger Management**: Configurable triggers based on idle time, conversation count, and text length
+- **Callback System**: Handles inference results through `_handle_inference_callback()` with duplicate detection
+- **Statistics Tracking**: Monitors inference generation patterns and performance metrics
 
-### **`server.py`** - FastAPI WebSocket Server and Multi-User Connection Handling
-**Purpose**: FastAPI-based web server that handles WebSocket connections, manages multiple concurrent users, and provides both real-time streaming and file upload endpoints.
+**Error Recovery and Fault Tolerance**:
+- **Isolated Failure Handling**: Failures in one processor type don't directly impact others
+- **Coordinated Recovery**: Central coordinator manages recovery procedures across processors
+- **Watchdog Integration**: Monitors health of all specialized processor tasks with specific recovery procedures
+- **Graceful Degradation**: System continues core transcription even when non-critical components fail
+
+**Integration Points**: Used by `server/websocket_handlers.py` for each WebSocket connection, coordinates with `whisper_streaming/online_asr.py` for transcription, integrates with `diarization/` for speaker identification, provides formatted output to WebSocket clients through modular server architecture.
+
+### **`server/`** - Modular FastAPI Server Architecture and Multi-User Connection Handling
+**Purpose**: Modular FastAPI-based web server that provides clear separation of concerns through specialized modules for configuration, file handling, WebSocket management, and utility functions.
+
+**Module Architecture**:
+
+#### **`server/config.py`** - Configuration Management
+**Purpose**: Centralized configuration for server settings, CORS policies, and processing parameters.
 
 **Key Components**:
-- FastAPI application with lifespan management and CORS configuration
-- WebSocket endpoint `/asr` for unified real-time and file processing
-- File upload endpoints: `/upload`, `/upload-stream`, `/upload-file` for different processing modes
-- Connection lifecycle management with proper cleanup and resource allocation
+- `ALLOWED_AUDIO_TYPES`: Comprehensive set of supported audio formats (MP3, MP4, WAV, FLAC, OGG, WebM)
+- `CORS_SETTINGS`: Cross-origin resource sharing configuration for web interface compatibility
+- `SSE_HEADERS`: Server-Sent Events headers for real-time streaming responses
+- `FFMPEG_AUDIO_PARAMS`: Standardized FFmpeg conversion parameters across all processing modes
 
-**Key Methods**:
-- `websocket_endpoint()`: Unified WebSocket handler for both live recording and file upload processing
-- `handle_websocket_results()`: Manages result streaming from AudioProcessor to WebSocket clients
-- `process_file_through_websocket()`: Processes uploaded files through the same pipeline as live recording
-- `upload_file()`: HTTP endpoint for file upload with immediate processing and JSON response
-- `upload_file_stream()`: Server-sent events endpoint for streaming file processing results
+**Configuration Categories**:
+- **Audio Validation**: File type validation and format support
+- **Processing Settings**: Chunk sizes, progress intervals, and streaming parameters
+- **Server Configuration**: CORS policies, SSE headers, and connection management
+- **FFmpeg Integration**: Consistent audio processing parameters and probe commands
 
-**Responsibilities**:
-- Accept and manage WebSocket connections with proper session isolation
-- Route incoming audio data (live or file-based) to appropriate AudioProcessor instances
-- Implement fair resource allocation across multiple concurrent users
-- Provide HTTP endpoints for file upload and processing with various response formats
-- Handle connection termination and cleanup to prevent resource leaks
-- Serve the web interface HTML and manage static file delivery
+#### **`server/file_handlers.py`** - File Processing and Upload Management
+**Purpose**: Comprehensive file upload and processing system supporting multiple response formats and unified processing pipeline integration.
+
+**Key Components**:
+- `handle_file_upload_for_websocket()`: Prepares uploaded files for unified WebSocket processing
+- `handle_file_upload_and_process()`: Complete file processing with JSON response
+- `handle_file_upload_stream()`: Server-Sent Events streaming for real-time file processing
+- `handle_temp_file_cleanup()`: Secure temporary file management and cleanup
+
+**Processing Modes**:
+- **WebSocket Integration**: Files processed through the same pipeline as live audio with real-time simulation
+- **Direct Processing**: Immediate file processing with comprehensive JSON response
+- **Streaming Processing**: Real-time file processing with Server-Sent Events for progress updates
+- **Unified Pipeline**: All file processing uses the same AudioProcessor infrastructure as live recording
 
 **Features**:
-- Unified processing pipeline: Both live audio and uploaded files use the same AudioProcessor
-- Real-time file simulation: Uploaded files are streamed at their original duration for consistent processing
-- Multiple response formats: JSON, Server-Sent Events, and WebSocket for different client needs
-- Automatic temporary file cleanup and resource management
+- **Real-Time Simulation**: Uploaded files streamed at original duration for consistent processing behavior
+- **Multiple Response Formats**: JSON, SSE, and WebSocket responses for different client needs
+- **Comprehensive Error Handling**: Detailed error responses with proper HTTP status codes
+- **Resource Management**: Automatic temporary file cleanup and secure file validation
+- **Progress Monitoring**: Real-time progress updates during file processing
 
-**Integration Points**: Initializes `AudioInsight` from `core.py`, creates `AudioProcessor` instances per connection, serves web interface from `web/` directory.
+#### **`server/websocket_handlers.py`** - WebSocket Connection Management
+**Purpose**: Unified WebSocket handling for both live recording and file upload processing with comprehensive connection lifecycle management.
+
+**Key Components**:
+- `handle_websocket_connection()`: Main WebSocket endpoint handling both live and file modes
+- `handle_websocket_results()`: Result streaming from AudioProcessor to WebSocket clients  
+- `process_file_through_websocket()`: File processing through unified WebSocket pipeline
+- Connection lifecycle management with proper cleanup and resource allocation
+
+**Unified Processing Architecture**:
+- **Single Pipeline**: Both live audio and uploaded files use identical AudioProcessor instances
+- **Real-Time File Processing**: Files streamed with temporal accuracy to maintain processing consistency
+- **Bidirectional Communication**: Supports both binary audio data and JSON control messages
+- **Session Isolation**: Each connection maintains independent processing state and resources
+
+**Connection Management**:
+- **Graceful Handling**: Proper disconnection detection and resource cleanup
+- **Error Recovery**: Comprehensive error handling with client notification
+- **Task Coordination**: Coordinated management of results streaming and audio processing tasks
+- **Resource Cleanup**: Automatic cleanup of AudioProcessor instances and temporary files
+
+#### **`server/utils.py`** - Utility Functions and Processing Support
+**Purpose**: Core utility functions for file processing, audio analysis, and streaming simulation.
+
+**Key Functions**:
+- `get_audio_duration()`: FFprobe integration for accurate audio duration detection
+- `setup_ffmpeg_process()`: Standardized FFmpeg process creation and configuration
+- `stream_chunks_realtime()`: Temporal accuracy for file streaming simulation
+- `calculate_streaming_params()`: Optimization parameters for real-time streaming
+- `validate_file_type()`: Security-focused file type validation
+- `create_temp_file()` / `cleanup_temp_file()`: Secure temporary file management
+
+**Processing Optimizations**:
+- **Buffered Processing**: Efficient audio chunk reading and processing
+- **Temporal Accuracy**: Precise timing for real-time streaming simulation
+- **Resource Efficiency**: Optimized FFmpeg parameter sets and process management
+- **Security**: Safe temporary file handling with automatic cleanup
+
+**Integration Support**:
+- **FFmpeg Integration**: Standardized process setup and parameter management
+- **Progress Monitoring**: Real-time progress calculation and logging
+- **Error Handling**: Comprehensive error detection and recovery procedures
+- **Performance Optimization**: Efficient chunk processing and streaming algorithms
+
+#### **`app.py`** - FastAPI Application Coordination
+**Purpose**: Main FastAPI application that coordinates all server modules and provides unified API endpoints.
+
+**Key Components**:
+- Lifespan management with AudioInsight initialization
+- CORS middleware integration using `server.config.CORS_SETTINGS`
+- Endpoint routing to specialized handlers in `server.file_handlers` and `server.websocket_handlers`
+- SSL/HTTPS configuration for production deployment
+
+**Endpoint Architecture**:
+- `GET /`: Web interface serving using AudioInsight web template
+- `WebSocket /asr`: Unified endpoint handled by `server.websocket_handlers.handle_websocket_connection()`
+- `POST /upload-file`: File preparation handled by `server.file_handlers.handle_file_upload_for_websocket()`
+- `POST /upload`: Direct processing handled by `server.file_handlers.handle_file_upload_and_process()`
+- `POST /upload-stream`: SSE streaming handled by `server.file_handlers.handle_file_upload_stream()`
+- `POST /cleanup-file`: Cleanup handled by `server.file_handlers.handle_temp_file_cleanup()`
+
+**Responsibilities**:
+- **Module Coordination**: Integration of specialized server modules with clear separation of concerns
+- **Configuration Management**: Application-level configuration using centralized `server.config` settings
+- **Endpoint Routing**: Clean routing to specialized handlers for different processing modes
+- **Lifecycle Management**: AudioInsight initialization and lifespan management
+- **Security Configuration**: SSL/HTTPS support and CORS policy implementation
+
+**Architectural Benefits**:
+- **Separation of Concerns**: Clear boundaries between configuration, file handling, WebSocket management, and utilities
+- **Enhanced Maintainability**: Modular design enables independent development and testing of server components
+- **Unified Processing**: All processing modes (live, file upload, streaming) use the same underlying AudioProcessor infrastructure
+- **Improved Testability**: Individual server modules can be unit tested in isolation
+- **Resource Management**: Centralized resource management with proper cleanup across all processing modes
+
+**Multi-User Session Management**:
+- **Independent Processor Instantiation**: Each WebSocket connection creates isolated AudioProcessor instances
+- **Resource Allocation**: Fair scheduling algorithms prevent single session monopolization
+- **Lifecycle Management**: Proper connection handling with coordinated shutdown sequences
+- **Load Balancing**: Dynamic resource management with quality trade-offs when necessary
+
+**Integration Points**: Coordinates with `core.py` for AudioInsight initialization, uses `processors.py` AudioProcessor instances per connection, serves web interface from integrated template system, and provides comprehensive API for both real-time and file-based processing.
 
 ### **`whisper_streaming/`** - Core Streaming Algorithms and Hypothesis Buffer Management
 **Purpose**: Contains the core streaming algorithms that enable real-time Whisper processing, including the LocalAgreement policy implementation and backend abstraction layer.
@@ -675,27 +844,44 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ## Conclusion
 
-AudioInsight's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The **recent architectural refactoring** has enhanced the system's modularity by extracting specialized processor classes while maintaining system coherence through well-defined interfaces and coordination mechanisms.
+AudioInsight's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The **recent architectural refactoring** has significantly enhanced the system's modularity through both **server-side modularization** and **processing pipeline specialization**, while maintaining system coherence through well-defined interfaces and coordination mechanisms.
 
-The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while the newly modular `processors.py` orchestrates the complex real-time pipeline through specialized components: `FFmpegProcessor` for audio conversion, `TranscriptionProcessor` for Whisper integration, `DiarizationProcessor` for speaker identification, and `Formatter` for output generation. The central `AudioProcessor` coordinator manages shared state and task orchestration, while `server.py` handles multi-user coordination, and supporting modules provide specialized functionality.
+The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while the modular `processors.py` orchestrates the complex real-time pipeline through specialized components: `FFmpegProcessor` for audio conversion, `TranscriptionProcessor` for Whisper integration, `DiarizationProcessor` for speaker identification, and `Formatter` for output generation. The central `AudioProcessor` coordinator manages shared state and task orchestration.
 
-**Recent Architectural Enhancements**: The system has been significantly improved through modular refactoring:
+**Server Architecture Enhancements**: The system has been significantly improved through comprehensive server modularization:
 
-- **Separation of Concerns**: Clear boundaries between FFmpeg handling, transcription processing, diarization, and formatting logic enable independent optimization and maintenance
-- **Enhanced Maintainability**: Specialized processor classes provide focused interfaces and responsibilities, improving code organization and testability
-- **Resource Management**: Processor-specific cleanup and resource management with coordinated lifecycle management through the central coordinator
-- **Performance Optimization**: Processor-specific buffer pools, zero-copy operations between compatible processors, and specialized caching strategies
+- **Separation of Concerns**: Clear boundaries between configuration (`server/config.py`), file handling (`server/file_handlers.py`), WebSocket management (`server/websocket_handlers.py`), and utilities (`server/utils.py`)
+- **Enhanced File Processing**: Multiple processing modes supporting JSON responses, Server-Sent Events, and unified WebSocket processing
+- **Unified Pipeline**: All processing modes (live recording, file upload, streaming) use the same underlying AudioProcessor infrastructure
+- **Improved API Design**: Comprehensive endpoint architecture supporting different client needs and response formats
+- **Resource Management**: Centralized configuration management and secure temporary file handling
 
-**Performance Enhancements**: The modular system maintains and enhances existing optimizations:
-- **Memory Efficiency**: Pre-allocated buffers per processor type, frozen dataclasses, and processor-specific caching strategies reduce memory pressure and allocation overhead
-- **Algorithmic Improvements**: Batch processing in hypothesis buffer management and efficient list operations maintain O(n) computational complexity in critical paths
-- **Reliability Enhancements**: Final transcription buffer preservation and processor-specific error recovery ensure no text is lost during processing completion
-- **Monitoring and Observability**: Enhanced logging and processor-specific health monitoring provide clear visibility into system performance across all processing components
+**Processing Pipeline Enhancements**: The modular processor design maintains and enhances existing optimizations:
 
-**Modular Architecture Benefits**: The refactored design enables:
-- **Independent Development**: Specialized processors can be developed, tested, and optimized independently without affecting other components
-- **Fault Isolation**: Failures in one processor type (e.g., FFmpeg restart) don't directly impact other processors, enabling graceful degradation
-- **Resource Optimization**: Each processor maintains optimized data structures and access patterns specific to their processing domain
-- **Future Extensibility**: New processor types can be added to the system following the established patterns and interfaces
+- **Specialized Processors**: Each processor class (`FFmpegProcessor`, `TranscriptionProcessor`, `DiarizationProcessor`, `Formatter`) handles specific aspects with optimized interfaces
+- **Independent Optimization**: Processor-specific optimizations without affecting other components
+- **Enhanced Maintainability**: Clear interfaces and responsibilities enable independent development and testing
+- **Resource Efficiency**: Processor-specific buffer pools, zero-copy operations, and specialized caching strategies
 
-This modular architecture enables future enhancements and optimizations without disrupting core functionality, making it a robust platform for real-time speech recognition applications with production-grade performance characteristics and maintainable code organization. 
+**Performance Enhancements**: The unified architecture maintains and enhances performance characteristics:
+
+- **Memory Efficiency**: Pre-allocated buffers per processor type, frozen dataclasses, and processor-specific caching reduce memory pressure
+- **Algorithmic Improvements**: Batch processing in hypothesis buffer management and efficient list operations maintain O(n) complexity
+- **Reliability Enhancements**: Final transcription buffer preservation and processor-specific error recovery ensure completeness
+- **File Processing Optimization**: Real-time simulation for uploaded files maintains processing consistency with live audio
+
+**Architectural Benefits**: The enhanced modular design enables:
+
+- **Development Efficiency**: Server modules and processor classes can be developed, tested, and optimized independently
+- **Fault Isolation**: Failures in specific components (server modules or processors) don't affect other system parts
+- **Resource Optimization**: Specialized data structures and access patterns optimized per component type
+- **Future Extensibility**: New server endpoints and processor types can be added following established patterns
+
+**Integration Excellence**: The system demonstrates sophisticated integration patterns:
+
+- **Server-Processor Coordination**: `server/websocket_handlers.py` coordinates with `processors.py` for session management
+- **Unified File Processing**: `server/file_handlers.py` integrates with `AudioProcessor` for consistent processing behavior
+- **Configuration Propagation**: `server/config.py` settings flow through `app.py` to all processing components
+- **Cross-Module Communication**: Well-defined interfaces between server modules and processing pipeline components
+
+This enhanced modular architecture enables future improvements and optimizations without disrupting core functionality, making AudioInsight a robust platform for real-time speech recognition applications with production-grade performance characteristics, comprehensive API support, and maintainable code organization that scales effectively across different deployment scenarios and processing requirements. 
