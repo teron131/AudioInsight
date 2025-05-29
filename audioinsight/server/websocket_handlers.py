@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ..display_parser import get_display_parser
 from ..logging_config import get_logger
 from ..processors import AudioProcessor
 from .utils import (
@@ -34,7 +35,38 @@ async def handle_websocket_results(
         results_generator: Generator yielding audio processing results
     """
     try:
+        # Get display parser for text refinement
+        display_parser = get_display_parser()
+
         async for response in results_generator:
+            # Apply display text parsing if enabled and if we have lines with text
+            if display_parser.is_enabled() and "lines" in response and response["lines"]:
+                # Parse text for each line at display layer
+                for line in response["lines"]:
+                    if line.get("text") and len(line["text"].strip()) > 10:  # Only parse substantial text
+                        try:
+                            original_text = line["text"]
+                            parsed_text = await display_parser.parse_for_display(original_text)
+                            line["text"] = parsed_text
+
+                            # Add a flag to indicate text was processed (for debugging)
+                            if parsed_text != original_text:
+                                line["_text_parsed"] = True
+
+                        except Exception as e:
+                            logger.warning(f"Display text parsing failed for line: {e}")
+                            # Keep original text on failure
+
+                # Also parse buffer text if available
+                if response.get("buffer_transcription") and len(response["buffer_transcription"].strip()) > 10:
+                    try:
+                        original_buffer = response["buffer_transcription"]
+                        parsed_buffer = await display_parser.parse_for_display(original_buffer)
+                        response["buffer_transcription"] = parsed_buffer
+                    except Exception as e:
+                        logger.warning(f"Display text parsing failed for buffer: {e}")
+                        # Keep original buffer on failure
+
             await websocket.send_json(response)
 
         # Signal completion when generator finishes

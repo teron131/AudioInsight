@@ -8,14 +8,14 @@ AudioInsight implements a sophisticated real-time streaming speech recognition s
 
 The system is organized into the following core modules:
 
-### **`main.py`** - System Initialization and Configuration Management
+### **`audioinsight/main.py`** - System Initialization and Configuration Management
 **Purpose**: Central coordinator and singleton that manages system-wide configuration, model initialization, and component orchestration.
 
 **Key Components**:
 - `AudioInsight` class: Singleton pattern implementation that serves as the main entry point and configuration manager
 - `parse_args()` function: Comprehensive command-line argument parsing with support for model selection, language settings, VAD configuration, buffer trimming options, and LLM summarization parameters
 - Configuration propagation system that distributes settings across all system components
-- Model loading orchestration through integration with `whisper_streaming/whisper_online.py`
+- Model loading orchestration through integration with `audioinsight/whisper_streaming/whisper_online.py`
 
 **Responsibilities**:
 - Parse and validate command-line arguments and configuration options
@@ -25,9 +25,9 @@ The system is organized into the following core modules:
 - Provide web interface HTML content through cached template serving
 - Serve as the central configuration authority for all other system components
 
-**Integration Points**: Called by `server.py` during FastAPI lifespan management, provides configuration to `processors.py` and `whisper_streaming/` modules.
+**Integration Points**: Called by `audioinsight/app.py` during FastAPI lifespan management, provides configuration to `audioinsight/processors.py` and `audioinsight/whisper_streaming/` modules.
 
-### **`processors.py`** - Modular Audio Processing Pipeline and Specialized Processors
+### **`audioinsight/processors.py`** - Modular Audio Processing Pipeline and Specialized Processors
 **Purpose**: Implements a sophisticated multi-stage asynchronous pipeline through specialized processor classes that handle different aspects of real-time audio processing, with a central coordinator managing shared state and inter-processor communication.
 
 **Architectural Overview**: The system has been refactored into a modular design where specialized processor classes handle distinct aspects of audio processing:
@@ -75,7 +75,7 @@ The system is organized into the following core modules:
 **Key Methods**:
 - `process()`: Manages Whisper inference cycles and coordinates with LocalAgreement algorithm
 - `finish_transcription()`: Extracts remaining uncommitted text from transcript buffer during cleanup
-- Integrates with `whisper_streaming/online_asr.py` for streaming transcription processing
+- Integrates with `audioinsight/whisper_streaming/online_asr.py` for streaming transcription processing
 
 **Integration Features**:
 - **Context Management**: Maintains reference to central coordinator for accessing shared timing state (`beg_loop`, `end_buffer`)
@@ -95,7 +95,7 @@ The system is organized into the following core modules:
 **Key Methods**:
 - `process()`: Handles speaker identification processing independently of transcription pipeline with intelligent logging
 - `cleanup()`: Proper resource cleanup for diarization components and WebSocket audio sources
-- Coordinates with `diarization/` module for real-time speaker attribution with enhanced memory management
+- Coordinates with `audioinsight/diarization/` module for real-time speaker attribution with enhanced memory management
 - Manages retrospective speaker-to-token assignment based on temporal overlap with consistent speaker mapping
 
 **Advanced Processing Features**:
@@ -178,14 +178,14 @@ The system is organized into the following core modules:
 - **Watchdog Integration**: Monitors health of all specialized processor tasks with specific recovery procedures
 - **Graceful Degradation**: System continues core transcription even when non-critical components fail
 
-**Integration Points**: Used by `server/websocket_handlers.py` for each WebSocket connection, coordinates with `whisper_streaming/online_asr.py` for transcription, integrates with `diarization/` for speaker identification, provides formatted output to WebSocket clients through modular server architecture.
+**Integration Points**: Used by `audioinsight/server/websocket_handlers.py` for each WebSocket connection, coordinates with `audioinsight/whisper_streaming/online_asr.py` for transcription, integrates with `audioinsight/diarization/` for speaker identification, provides formatted output to WebSocket clients through modular server architecture.
 
-### **`server/`** - Modular FastAPI Server Architecture and Multi-User Connection Handling
+### **`audioinsight/server/`** - Modular FastAPI Server Architecture and Multi-User Connection Handling
 **Purpose**: Modular FastAPI-based web server that provides clear separation of concerns through specialized modules for configuration, file handling, WebSocket management, and utility functions.
 
 **Module Architecture**:
 
-#### **`server/config.py`** - Configuration Management
+#### **`audioinsight/server/config.py`** - Configuration Management
 **Purpose**: Centralized configuration for server settings, CORS policies, and processing parameters.
 
 **Key Components**:
@@ -200,7 +200,7 @@ The system is organized into the following core modules:
 - **Server Configuration**: CORS policies, SSE headers, and connection management
 - **FFmpeg Integration**: Consistent audio processing parameters and probe commands
 
-#### **`server/file_handlers.py`** - File Processing and Upload Management
+#### **`audioinsight/server/file_handlers.py`** - File Processing and Upload Management
 **Purpose**: Comprehensive file upload and processing system supporting multiple response formats and unified processing pipeline integration.
 
 **Key Components**:
@@ -222,7 +222,7 @@ The system is organized into the following core modules:
 - **Resource Management**: Automatic temporary file cleanup and secure file validation
 - **Progress Monitoring**: Real-time progress updates during file processing
 
-#### **`server/websocket_handlers.py`** - WebSocket Connection Management
+#### **`audioinsight/server/websocket_handlers.py`** - WebSocket Connection Management
 **Purpose**: Unified WebSocket handling for both live recording and file upload processing with comprehensive connection lifecycle management.
 
 **Key Components**:
@@ -243,7 +243,7 @@ The system is organized into the following core modules:
 - **Task Coordination**: Coordinated management of results streaming and audio processing tasks
 - **Resource Cleanup**: Automatic cleanup of AudioProcessor instances and temporary files
 
-#### **`server/utils.py`** - Utility Functions and Processing Support
+#### **`audioinsight/server/utils.py`** - Utility Functions and Processing Support
 **Purpose**: Core utility functions for file processing, audio analysis, and streaming simulation.
 
 **Key Functions**:
@@ -266,26 +266,26 @@ The system is organized into the following core modules:
 - **Error Handling**: Comprehensive error detection and recovery procedures
 - **Performance Optimization**: Efficient chunk processing and streaming algorithms
 
-#### **`app.py`** - FastAPI Application Coordination
+#### **`audioinsight/app.py`** - FastAPI Application Coordination
 **Purpose**: Main FastAPI application that coordinates all server modules and provides unified API endpoints.
 
 **Key Components**:
 - Lifespan management with AudioInsight initialization
-- CORS middleware integration using `server.config.CORS_SETTINGS`
-- Endpoint routing to specialized handlers in `server.file_handlers` and `server.websocket_handlers`
+- CORS middleware integration using `audioinsight.server.config.CORS_SETTINGS`
+- Endpoint routing to specialized handlers in `audioinsight.server.file_handlers` and `audioinsight.server.websocket_handlers`
 - SSL/HTTPS configuration for production deployment
 
 **Endpoint Architecture**:
 - `GET /`: Web interface serving using AudioInsight web template
-- `WebSocket /asr`: Unified endpoint handled by `server.websocket_handlers.handle_websocket_connection()`
-- `POST /upload-file`: File preparation handled by `server.file_handlers.handle_file_upload_for_websocket()`
-- `POST /upload`: Direct processing handled by `server.file_handlers.handle_file_upload_and_process()`
-- `POST /upload-stream`: SSE streaming handled by `server.file_handlers.handle_file_upload_stream()`
-- `POST /cleanup-file`: Cleanup handled by `server.file_handlers.handle_temp_file_cleanup()`
+- `WebSocket /asr`: Unified endpoint handled by `audioinsight.server.websocket_handlers.handle_websocket_connection()`
+- `POST /upload-file`: File preparation handled by `audioinsight.server.file_handlers.handle_file_upload_for_websocket()`
+- `POST /upload`: Direct processing handled by `audioinsight.server.file_handlers.handle_file_upload_and_process()`
+- `POST /upload-stream`: SSE streaming handled by `audioinsight.server.file_handlers.handle_file_upload_stream()`
+- `POST /cleanup-file`: Cleanup handled by `audioinsight.server.file_handlers.handle_temp_file_cleanup()`
 
 **Responsibilities**:
 - **Module Coordination**: Integration of specialized server modules with clear separation of concerns
-- **Configuration Management**: Application-level configuration using centralized `server.config` settings
+- **Configuration Management**: Application-level configuration using centralized `audioinsight.server.config` settings
 - **Endpoint Routing**: Clean routing to specialized handlers for different processing modes
 - **Lifecycle Management**: AudioInsight initialization and lifespan management
 - **Security Configuration**: SSL/HTTPS support and CORS policy implementation
@@ -303,12 +303,12 @@ The system is organized into the following core modules:
 - **Lifecycle Management**: Proper connection handling with coordinated shutdown sequences
 - **Load Balancing**: Dynamic resource management with quality trade-offs when necessary
 
-**Integration Points**: Coordinates with `main.py` for AudioInsight initialization, uses `processors.py` AudioProcessor instances per connection, serves web interface from integrated template system, and provides comprehensive API for both real-time and file-based processing.
+**Integration Points**: Coordinates with `audioinsight/main.py` for AudioInsight initialization, uses `audioinsight/processors.py` AudioProcessor instances per connection, serves web interface from integrated template system, and provides comprehensive API for both real-time and file-based processing.
 
-### **`whisper_streaming/`** - Core Streaming Algorithms and Hypothesis Buffer Management
+### **`audioinsight/whisper_streaming/`** - Core Streaming Algorithms and Hypothesis Buffer Management
 **Purpose**: Contains the core streaming algorithms that enable real-time Whisper processing, including the LocalAgreement policy implementation and backend abstraction layer.
 
-#### **`whisper_streaming/online_asr.py`** - LocalAgreement Algorithm and Buffer Management
+#### **`audioinsight/whisper_streaming/online_asr.py`** - LocalAgreement Algorithm and Buffer Management
 **Key Components**:
 - `HypothesisBuffer` class: Implements the sophisticated token validation state machine with three-phase token lifecycle
 - `OnlineASRProcessor` class: Orchestrates streaming workflow with audio buffer management and context injection
@@ -321,7 +321,7 @@ The system is organized into the following core modules:
 - Context injection through `prompt()` method for maintaining conversational coherence
 - Smart buffering with `chunk_completed_sentence()` and `chunk_completed_segment()` for memory management
 
-#### **`whisper_streaming/backends.py`** - Backend Abstraction Layer
+#### **`audioinsight/whisper_streaming/backends.py`** - Backend Abstraction Layer
 **Key Components**:
 - `ASRBase` abstract class: Defines unified interface for all Whisper implementations
 - `FasterWhisperASR` class: Integration with faster-whisper backend for local GPU processing
@@ -333,14 +333,14 @@ The system is organized into the following core modules:
 - Manage model loading, configuration, and inference coordination
 - Support VAD integration and translation task configuration
 
-#### **`whisper_streaming/whisper_online.py`** - Factory Functions and Initialization
+#### **`audioinsight/whisper_streaming/whisper_online.py`** - Factory Functions and Initialization
 **Functions**:
 - `backend_factory()`: Creates appropriate ASR backend based on configuration
 - `online_factory()`: Initializes OnlineASRProcessor or VACOnlineASRProcessor based on VAD settings
 - `warmup_asr()`: Downloads and processes warmup audio to ensure fast first-chunk processing
 - `create_tokenizer()`: Creates Moses sentence tokenizer for supported languages
 
-### **`timed_objects.py`** - Data Structures and Temporal Representations
+### **`audioinsight/timed_objects.py`** - Data Structures and Temporal Representations
 **Purpose**: Defines the fundamental data structures that carry temporal and content information throughout the streaming system.
 
 **Key Classes**:
@@ -365,10 +365,10 @@ The system is organized into the following core modules:
 - **Zero-Offset Early Return**: `with_offset(0)` returns `self` immediately to avoid unnecessary object creation
 - **Memory Efficiency**: Frozen dataclasses use less memory and provide better cache locality
 
-### **`diarization/`** - Speaker Identification and Attribution System
+### **`audioinsight/diarization/`** - Speaker Identification and Attribution System
 **Purpose**: Parallel processing system for real-time speaker identification and attribution using Diart and PyAnnote models with advanced memory management and robust speaker mapping.
 
-#### **`diarization/diarization_online.py`** - Real-Time Speaker Diarization
+#### **`audioinsight/diarization/diarization_online.py`** - Real-Time Speaker Diarization
 
 **Key Components**:
 - `DiartDiarization` class: Main coordinator for speaker identification using Diart pipeline with WebSocket integration
@@ -410,13 +410,60 @@ The system is organized into the following core modules:
 - Provide thread-safe access to speaker segments with automatic cleanup of old data to prevent memory leaks
 - Coordinate with AudioProcessor through specialized DiarizationProcessor interface
 
-### **`llm.py`** - LLM-Based Summarization and Conversation Analysis
+### **`audioinsight/llm/`** - Modular LLM Infrastructure and Conversation Analysis
+**Purpose**: Universal LLM infrastructure providing consistent inference, text parsing, transcription summarization, and conversation analysis across AudioInsight.
+
+#### **`audioinsight/llm/base.py`** - Universal LLM Client
+**Purpose**: Unified LLM client that provides consistent interface across different model providers and backends.
+
+**Key Components**:
+- `UniversalLLM` class: Main coordinator for LLM operations with provider abstraction
+- `LLMConfig` dataclass: Configuration for model selection, API credentials, and inference parameters
+- `LLMResponse` class: Structured response handling with content and metadata
+- `LLMStats` class: Performance tracking and monitoring for LLM operations
+
+**Key Methods**:
+- `invoke()`: Core inference method with structured output support and error handling
+- `with_structured_output()`: Schema-based structured generation using Pydantic models
+- Provider-specific initialization: OpenRouter, OpenAI, Gemini backend support
+- Automatic credential management and API key handling
+
+**Features**:
+- **Provider Abstraction**: Consistent interface across OpenRouter, OpenAI, and Gemini
+- **Structured Output**: Native support for Pydantic schema-based generation
+- **Error Recovery**: Comprehensive error handling with fallback mechanisms
+- **Performance Monitoring**: Built-in statistics tracking and response timing
+- **Configuration Management**: Centralized configuration with environment variable support
+
+#### **`audioinsight/llm/parser.py`** - Text Parsing and Correction
+**Purpose**: Intelligent text parsing and correction system for transcription improvement and formatting.
+
+**Key Components**:
+- `Parser` class: Main text processing coordinator with LLM-based correction
+- `ParserConfig` dataclass: Configuration for parsing behavior and correction parameters
+- `parse_transcript()`: Convenience function for standalone transcript processing
+- Language-aware processing with Chinese and multilingual support
+
+**Key Methods**:
+- `parse_text()`: Core parsing method with context-aware correction
+- `_create_parsing_prompt()`: Dynamic prompt generation based on content and language
+- Error detection and correction with confidence scoring
+- Batch processing support for efficiency
+
+**Features**:
+- **Context-Aware Correction**: Uses conversation context for better correction accuracy
+- **Language Detection**: Automatic language identification and appropriate processing
+- **Confidence Scoring**: Provides confidence metrics for correction suggestions
+- **Batch Processing**: Efficient processing of multiple text segments
+- **Customizable Rules**: Configurable parsing rules and correction parameters
+
+#### **`audioinsight/llm/summarizer.py`** - Conversation Summarization
 **Purpose**: Intelligent conversation monitoring and summarization system that generates summaries based on activity patterns and conversation triggers.
 
 **Key Components**:
-- `LLM` class: Main coordinator for transcription monitoring and summary generation
-- `SummaryTrigger` dataclass: Configuration for when to trigger summarization (idle time, conversation count, text length)
-- `SummaryResponse` class: Structured response from LLM with summary and key points
+- `LLMSummarizer` class: Main coordinator for transcription monitoring and summary generation
+- `LLMTrigger` dataclass: Configuration for when to trigger summarization (idle time, conversation count, text length)
+- Summary response handling with structured output
 - LangChain integration with OpenAI/OpenRouter models for structured output generation
 
 **Key Methods**:
@@ -438,12 +485,50 @@ The system is organized into the following core modules:
 - Maximum text length thresholds
 - Manual force summarization capability
 
-**Integration Points**: Called by `processors.py` to receive transcription updates, provides callbacks for summary delivery to clients.
+#### **`audioinsight/llm/types.py`** - Type Definitions and Data Structures
+**Purpose**: Comprehensive type definitions and data structures for LLM operations.
 
-### **`web/`** - Frontend HTML/JavaScript Interface
+**Key Components**:
+- `LLMConfig`: Configuration dataclass for model settings and API parameters
+- `LLMResponse`: Response wrapper with content, metadata, and error handling
+- `LLMStats`: Performance tracking and monitoring statistics
+- `LLMTrigger`: Trigger configuration for summarization and monitoring
+- `ParserConfig`: Configuration for text parsing and correction parameters
+
+**Type Safety**:
+- **Pydantic Integration**: Type-safe configuration and response handling
+- **Optional Fields**: Flexible configuration with sensible defaults
+- **Validation**: Built-in validation for configuration parameters
+- **Serialization**: JSON-compatible data structures for persistence
+
+#### **`audioinsight/llm/utils.py`** - Utility Functions and Helpers
+**Purpose**: Common utility functions for text processing, language detection, and API management.
+
+**Key Functions**:
+- `contains_chinese()`: Language detection for Chinese text processing
+- `get_api_credentials()`: Centralized API key management and credential handling
+- `s2hk()`: Traditional Chinese conversion using OpenCC
+- `truncate_text()`: Intelligent text truncation with context preservation
+
+**Features**:
+- **Language Processing**: Chinese language detection and conversion utilities
+- **API Management**: Secure credential handling and environment variable management
+- **Text Utilities**: Common text processing functions used across LLM operations
+- **Performance Helpers**: Optimized utility functions for frequent operations
+
+#### **Modular Architecture Benefits**:
+- **Separation of Concerns**: Clear boundaries between inference, parsing, summarization, and utilities
+- **Reusability**: Common LLM infrastructure shared across different AudioInsight components
+- **Maintainability**: Individual modules can be developed and tested independently
+- **Extensibility**: New LLM-based features can be added following established patterns
+- **Type Safety**: Comprehensive type definitions ensure reliable LLM operations
+
+**Integration Points**: Used by `audioinsight/processors.py` for transcription summarization, provides parsing capabilities for text correction, integrates with the main AudioInsight system through `audioinsight/main.py` configuration.
+
+### **`audioinsight/frontend/`** - Frontend HTML/JavaScript Interface
 **Purpose**: Complete web-based user interface for real-time transcription with support for both live recording and file upload.
 
-#### **`web/live_transcription.html`** - Browser-Based Transcription Interface
+#### **`audioinsight/frontend/ui.html`** - Browser-Based Transcription Interface
 **Key Features**:
 - **MediaRecorder API Integration**: Captures browser microphone audio in WebM/Opus format
 - **WebSocket Communication**: Real-time bidirectional communication for audio streaming and result display
@@ -477,7 +562,7 @@ Traditional ASR models like Whisper are designed as encoder-decoder transformers
 
 ### LocalAgreement Policy: The Core Innovation
 
-The system implements the **LocalAgreement-2** streaming policy in `whisper_streaming/online_asr.py`, which solves the output stability problem through a sophisticated hypothesis validation mechanism. The core insight is that when consecutive processing iterations agree on the same tokens, those tokens are likely stable and can be safely committed as final output.
+The system implements the **LocalAgreement-2** streaming policy in `audioinsight/whisper_streaming/online_asr.py`, which solves the output stability problem through a sophisticated hypothesis validation mechanism. The core insight is that when consecutive processing iterations agree on the same tokens, those tokens are likely stable and can be safely committed as final output.
 
 #### **Mathematical Foundation**
 
@@ -495,7 +580,7 @@ C^(t) = C^(t-1) ∪ LongestCommonPrefix(H^(t-1), H^(t))
 
 #### **LocalAgreement-2 Algorithm Implementation**
 
-The core algorithm is implemented in `whisper_streaming/online_asr.py` within the `HypothesisBuffer.flush()` method. **Recent optimizations** have improved performance by using efficient list slicing instead of repeated `pop(0)` operations:
+The core algorithm is implemented in `audioinsight/whisper_streaming/online_asr.py` within the `HypothesisBuffer.flush()` method. **Recent optimizations** have improved performance by using efficient list slicing instead of repeated `pop(0)` operations:
 
 ```python
 def flush(self) -> List[ASRToken]:
@@ -555,7 +640,7 @@ def flush(self) -> List[ASRToken]:
 
 ## Core Architecture: Multi-Layer Streaming System
 
-### 1. Data Structures and Token Management (`timed_objects.py`)
+### 1. Data Structures and Token Management (`audioinsight/timed_objects.py`)
 
 The foundation of the streaming system is built on carefully designed data structures that carry temporal and content information:
 
@@ -565,17 +650,17 @@ The foundation of the streaming system is built on carefully designed data struc
 
 **Transcript and Sentence Classes**: Higher-level aggregations that represent complete thoughts or utterances, used in the buffer trimming and context management systems.
 
-### 2. System Initialization and Configuration (`main.py`)
+### 2. System Initialization and Configuration (`audioinsight/main.py`)
 
-The `AudioInsight` class in `main.py` serves as the central coordinator and singleton that manages:
+The `AudioInsight` class in `audioinsight/main.py` serves as the central coordinator and singleton that manages:
 
-**Model Loading and Backend Selection**: Coordinates with `whisper_streaming/whisper_online.py` to initialize the appropriate Whisper backend (faster-whisper, OpenAI API, etc.) through the `backend_factory()` function.
+**Model Loading and Backend Selection**: Coordinates with `audioinsight/whisper_streaming/whisper_online.py` to initialize the appropriate Whisper backend (faster-whisper, OpenAI API, etc.) through the `backend_factory()` function.
 
 **Configuration Management**: Processes command-line arguments and configuration options, propagating settings throughout the system components including VAD settings, buffer trimming preferences, and model-specific parameters.
 
 **Component Initialization**: Orchestrates the initialization of ASR models, tokenizers, and diarization systems, ensuring proper resource allocation and model warming through the `warmup_asr()` function.
 
-### 3. Hypothesis Buffer Management System (`whisper_streaming/online_asr.py`)
+### 3. Hypothesis Buffer Management System (`audioinsight/whisper_streaming/online_asr.py`)
 
 The **HypothesisBuffer** class is the heart of the streaming mechanism, implementing a sophisticated state machine that manages token validation through three distinct phases:
 
@@ -599,7 +684,7 @@ The `OnlineASRProcessor` class orchestrates the entire streaming workflow:
 
 **Buffer Trimming Logic**: Methods like `chunk_completed_sentence()` and `chunk_completed_segment()` implement intelligent buffer trimming to prevent memory overflow while preserving semantic coherence.
 
-### 4. Modular Audio Processing Pipeline (`processors.py`)
+### 4. Modular Audio Processing Pipeline (`audioinsight/processors.py`)
 
 The `AudioProcessor` class now serves as a central coordinator that orchestrates specialized processor classes, each handling a distinct aspect of the audio processing pipeline:
 
@@ -612,7 +697,7 @@ The `AudioProcessor` class now serves as a central coordinator that orchestrates
 - **Health Monitoring**: Implements timing-based health checks with configurable idle timeouts and automatic restart procedures
 
 **TranscriptionProcessor: Whisper Integration and Hypothesis Management**
-- **Streaming Coordination**: The `process()` method manages Whisper inference cycles and coordinates with the LocalAgreement algorithm in `whisper_streaming/online_asr.py`
+- **Streaming Coordination**: The `process()` method manages Whisper inference cycles and coordinates with the LocalAgreement algorithm in `audioinsight/whisper_streaming/online_asr.py`
 - **Context Management**: Maintains reference to the central coordinator for accessing shared timing state (`beg_loop`, `end_buffer`) for accurate lag calculations
 - **Buffer Finalization**: The `finish_transcription()` method extracts remaining uncommitted text during cleanup to prevent data loss
 - **LLM Integration**: Coordinates with LLM summarization system by forwarding new transcription text with speaker attribution
@@ -669,7 +754,7 @@ The `AudioProcessor` class now serves as a central coordinator that orchestrates
 
 **Watchdog Integration**: The `watchdog()` method monitors health of all specialized processor tasks and implements recovery procedures specific to each processor type.
 
-### 5. WebSocket Server and Connection Management (`server.py`)
+### 5. WebSocket Server and Connection Management (`audioinsight/app.py` + `audioinsight/server/`)
 
 The FastAPI-based server handles multiple concurrent users and WebSocket communication:
 
@@ -679,7 +764,7 @@ The FastAPI-based server handles multiple concurrent users and WebSocket communi
 
 **API Endpoints**: Provides both the WebSocket endpoint for real-time processing and HTTP endpoints for serving the web interface and system status.
 
-### 6. Voice Activity Controller Integration (`whisper_streaming/online_asr.py`)
+### 6. Voice Activity Controller Integration (`audioinsight/whisper_streaming/online_asr.py`)
 
 The `VACOnlineASRProcessor` class wraps the standard processor with intelligent voice activity detection:
 
@@ -689,7 +774,7 @@ The `VACOnlineASRProcessor` class wraps the standard processor with intelligent 
 
 **Utterance Boundary Detection**: Uses silence detection to identify natural speech boundaries, allowing immediate output finalization without waiting for standard agreement cycles.
 
-### 7. Speaker Diarization System (`diarization/`)
+### 7. Speaker Diarization System (`audioinsight/diarization/`)
 
 The diarization subsystem operates in parallel to assign speaker labels:
 
@@ -697,9 +782,9 @@ The diarization subsystem operates in parallel to assign speaker labels:
 
 **Retrospective Attribution**: Assigns speaker labels to committed tokens after transcription is complete, ensuring that speaker identification doesn't impact transcription latency.
 
-**Integration with Results**: The `results_formatter()` method in `processors.py` coordinates transcription and diarization results for unified output.
+**Integration with Results**: The `results_formatter()` method in `audioinsight/processors.py` coordinates transcription and diarization results for unified output.
 
-### 8. Backend Abstraction Layer (`whisper_streaming/backends.py`)
+### 8. Backend Abstraction Layer (`audioinsight/whisper_streaming/backends.py`)
 
 The system supports multiple Whisper implementations through a unified interface:
 
@@ -707,11 +792,11 @@ The system supports multiple Whisper implementations through a unified interface
 
 **FasterWhisperASR and OpenAIAPIASR**: Concrete implementations that handle the specifics of different Whisper backends while maintaining interface compatibility.
 
-**Configuration Propagation**: The `backend_factory()` function in `whisper_streaming/whisper_online.py` applies common configurations (VAD, translation tasks) consistently across backends.
+**Configuration Propagation**: The `backend_factory()` function in `audioinsight/whisper_streaming/whisper_online.py` applies common configurations (VAD, translation tasks) consistently across backends.
 
 ## Memory Management and Performance Optimization
 
-### 1. Efficient Buffer Operations (`processors.py`)
+### 1. Efficient Buffer Operations (`audioinsight/processors.py`)
 
 The modular system implements comprehensive memory optimization strategies across specialized processors:
 
@@ -722,7 +807,7 @@ The modular system implements comprehensive memory optimization strategies acros
 
 **TranscriptionProcessor Optimizations**:
 - **Context Caching**: Maintains efficient access patterns to coordinator state for timing calculations without expensive async state calls
-- **Buffer Coordination**: Integrates with `whisper_streaming/online_asr.py` buffer management for optimal memory usage in hypothesis validation
+- **Buffer Coordination**: Integrates with `audioinsight/whisper_streaming/online_asr.py` buffer management for optimal memory usage in hypothesis validation
 
 **Formatter Optimizations**:
 - **Output Caching**: Reuses formatting structures and applies batch operations for sentence and speaker-based formatting
@@ -733,7 +818,7 @@ The modular system implements comprehensive memory optimization strategies acros
 - **Regex Pre-compilation**: Sentence splitting patterns compiled once and reused across formatting operations
 - **Summary Check Frequency Limiting**: Summary availability checks limited to every 2 seconds with efficient boolean flags (`_has_summaries`, `_last_summary_check`)
 
-### 2. Advanced Buffer Management (`processors.py`)
+### 2. Advanced Buffer Management (`audioinsight/processors.py`)
 
 **Processor-Specific Buffer Strategies**:
 
@@ -752,7 +837,7 @@ The modular system implements comprehensive memory optimization strategies acros
 - **Batch State Updates**: `update_transcription()` and `update_diarization()` methods use batch operations to minimize lock acquisition overhead
 - **Memory Locality**: Related processing operations grouped within specialized classes for better cache performance
 
-### 3. Streaming Algorithm Optimizations (`processors.py` + `whisper_streaming/online_asr.py`)
+### 3. Streaming Algorithm Optimizations (`audioinsight/processors.py` + `audioinsight/whisper_streaming/online_asr.py`)
 
 **Modular Processing Efficiency**:
 
@@ -773,7 +858,7 @@ The modular system implements comprehensive memory optimization strategies acros
 
 ## Error Recovery and Fault Tolerance
 
-### 1. Process Health Monitoring (`processors.py`)
+### 1. Process Health Monitoring (`audioinsight/processors.py`)
 
 **Watchdog System**: The `watchdog()` method continuously monitors task health, FFmpeg responsiveness, and resource utilization, implementing automatic recovery procedures when issues are detected.
 
@@ -789,7 +874,7 @@ The modular system implements comprehensive memory optimization strategies acros
 
 ## Final Transcription and Buffer Text Preservation
 
-### 1. Buffer Text Recovery (`processors.py`)
+### 1. Buffer Text Recovery (`audioinsight/processors.py`)
 
 **Challenge**: When processing ends, uncommitted text in the hypothesis buffer was previously lost during final summary generation, leading to incomplete transcriptions.
 
@@ -827,11 +912,11 @@ This enables monitoring of how much text was successfully committed versus how m
 
 **Thread-Safe Operations**: Buffer text recovery operations are protected by async locks to prevent race conditions during final processing.
 
-## Multi-User Session Management (`server.py` + `processors.py`)
+## Multi-User Session Management (`audioinsight/app.py` + `audioinsight/server/` + `audioinsight/processors.py`)
 
 ### 1. Session Isolation Architecture
 
-**Independent Processor Instantiation**: Each WebSocket connection in `server.py` creates an isolated `AudioProcessor` instance, ensuring complete session isolation and preventing cross-session interference.
+**Independent Processor Instantiation**: Each WebSocket connection in `audioinsight/server/websocket_handlers.py` creates an isolated `AudioProcessor` instance, ensuring complete session isolation and preventing cross-session interference.
 
 **Resource Allocation**: Fair scheduling algorithms prevent any single session from monopolizing system resources, with adaptive allocation based on concurrent session count.
 
@@ -847,10 +932,10 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ### 1. Audio Flow Architecture
 
-**Input Processing**: WebSocket binary data → `server.py` → `processors.py AudioProcessor` → `FFmpegProcessor.process_audio_chunk()` → FFmpeg conversion → PCM buffer → distributed to processing queues
+**Input Processing**: WebSocket binary data → `audioinsight/app.py` → `audioinsight/processors.py AudioProcessor` → `FFmpegProcessor.process_audio_chunk()` → FFmpeg conversion → PCM buffer → distributed to processing queues
 
 **Transcription Pipeline**: 
-- Audio buffer → `FFmpegProcessor.read_audio_data()` → `transcription_queue` → `TranscriptionProcessor.process()` → Whisper inference → `timed_objects.py` ASRToken creation → `HypothesisBuffer` validation → committed tokens
+- Audio buffer → `FFmpegProcessor.read_audio_data()` → `transcription_queue` → `TranscriptionProcessor.process()` → Whisper inference → `audioinsight/timed_objects.py` ASRToken creation → `HypothesisBuffer` validation → committed tokens
 - State updates: `TranscriptionProcessor` → `AudioProcessor.update_transcription()` → shared state management
 
 **Diarization Pipeline**:
@@ -862,7 +947,7 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ### 2. Cross-Module Coordination
 
-**Configuration Flow**: `main.py` → `AudioProcessor` coordinator → specialized processor initialization → runtime parameter propagation to `FFmpegProcessor`, `TranscriptionProcessor`, `DiarizationProcessor`, `Formatter`
+**Configuration Flow**: `audioinsight/main.py` → `AudioProcessor` coordinator → specialized processor initialization → runtime parameter propagation to `FFmpegProcessor`, `TranscriptionProcessor`, `DiarizationProcessor`, `Formatter`
 
 **State Management**: 
 - **Centralized Coordination**: `AudioProcessor` maintains shared state (tokens, buffers, timing) with thread-safe access
@@ -883,22 +968,31 @@ This enables monitoring of how much text was successfully committed versus how m
 
 AudioInsight's codebase represents a sophisticated engineering solution where each module has clearly defined responsibilities that work together to solve the fundamental challenge of real-time speech recognition. The **recent architectural refactoring** has significantly enhanced the system's modularity through both **server-side modularization** and **processing pipeline specialization**, while maintaining system coherence through well-defined interfaces and coordination mechanisms.
 
-The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while the modular `processors.py` orchestrates the complex real-time pipeline through specialized components: `FFmpegProcessor` for audio conversion, `TranscriptionProcessor` for Whisper integration, `DiarizationProcessor` for speaker identification, and `Formatter` for output generation. The central `AudioProcessor` coordinator manages shared state and task orchestration.
+The LocalAgreement algorithm in `audioinsight/whisper_streaming/online_asr.py` provides the theoretical foundation, while the modular `audioinsight/processors.py` orchestrates the complex real-time pipeline through specialized components: `FFmpegProcessor` for audio conversion, `TranscriptionProcessor` for Whisper integration, `DiarizationProcessor` for speaker identification, and `Formatter` for output generation. The central `AudioProcessor` coordinator manages shared state and task orchestration.
 
-**Recent Enhancements**: The system has been significantly improved with advanced resource management and speaker identification capabilities:
+**Recent Enhancements**: The system has been significantly improved with advanced resource management, speaker identification capabilities, and modular LLM infrastructure:
 
 - **Advanced Cleanup System**: Implementation of `force_reset()` method enables aggressive memory clearing and component reinitialization for efficient session reuse without memory leaks
 - **Enhanced Diarization**: DiarizationObserver with automatic segment cleanup, consistent speaker mapping, and thread-safe memory management prevents unbounded growth
 - **Session Management**: Global processor reuse with proper reset procedures enables efficient multi-user handling while maintaining resource isolation
 - **Memory Optimization**: Comprehensive cleanup hierarchy from graceful shutdown to aggressive reset procedures prevents resource leaks across session boundaries
+- **Modular LLM Infrastructure**: Complete separation of LLM operations into `audioinsight/llm/` module with universal client, parsing, summarization, and utility components
 
 **Server Architecture Enhancements**: The system has been significantly improved through comprehensive server modularization:
 
-- **Separation of Concerns**: Clear boundaries between configuration (`server/config.py`), file handling (`server/file_handlers.py`), WebSocket management (`server/websocket_handlers.py`), and utilities (`server/utils.py`)
+- **Separation of Concerns**: Clear boundaries between configuration (`audioinsight/server/config.py`), file handling (`audioinsight/server/file_handlers.py`), WebSocket management (`audioinsight/server/websocket_handlers.py`), and utilities (`audioinsight/server/utils.py`)
 - **Enhanced File Processing**: Multiple processing modes supporting JSON responses, Server-Sent Events, and unified WebSocket processing
 - **Unified Pipeline**: All processing modes (live recording, file upload, streaming) use the same underlying AudioProcessor infrastructure
 - **Improved API Design**: Comprehensive endpoint architecture supporting different client needs and response formats
 - **Resource Management**: Centralized configuration management and secure temporary file handling
+
+**LLM Infrastructure Enhancements**: The new modular LLM system provides:
+
+- **Universal Client**: `audioinsight/llm/base.py` provides consistent interface across OpenRouter, OpenAI, and Gemini
+- **Text Processing**: `audioinsight/llm/parser.py` offers intelligent text parsing and correction with context awareness
+- **Conversation Analysis**: `audioinsight/llm/summarizer.py` provides sophisticated conversation monitoring and summarization
+- **Type Safety**: `audioinsight/llm/types.py` ensures reliable operations with comprehensive type definitions
+- **Utility Support**: `audioinsight/llm/utils.py` provides common functions for language processing and API management
 
 **Processing Pipeline Enhancements**: The modular processor design maintains and enhances existing optimizations:
 
@@ -916,20 +1010,21 @@ The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the t
 
 **Architectural Benefits**: The enhanced modular design enables:
 
-- **Development Efficiency**: Server modules and processor classes can be developed, tested, and optimized independently
-- **Fault Isolation**: Failures in specific components (server modules or processors) don't affect other system parts
+- **Development Efficiency**: Server modules, LLM components, and processor classes can be developed, tested, and optimized independently
+- **Fault Isolation**: Failures in specific components (server modules, LLM operations, or processors) don't affect other system parts
 - **Resource Optimization**: Specialized data structures and access patterns optimized per component type
-- **Future Extensibility**: New server endpoints and processor types can be added following established patterns
-- **Production Scalability**: Advanced cleanup and memory management enable robust multi-user deployment scenarios
+- **Future Extensibility**: New server endpoints, LLM features, and processor types can be added following established patterns
+- **Production Scalability**: Advanced cleanup, memory management, and modular LLM infrastructure enable robust multi-user deployment scenarios
 
 **Integration Excellence**: The system demonstrates sophisticated integration patterns:
 
-- **Server-Processor Coordination**: `server/websocket_handlers.py` coordinates with `processors.py` for session management with advanced cleanup integration
-- **Unified File Processing**: `server/file_handlers.py` integrates with `AudioProcessor` for consistent processing behavior
-- **Configuration Propagation**: `server/config.py` settings flow through `app.py` to all processing components
+- **Server-Processor Coordination**: `audioinsight/server/websocket_handlers.py` coordinates with `audioinsight/processors.py` for session management with advanced cleanup integration
+- **Unified File Processing**: `audioinsight/server/file_handlers.py` integrates with `AudioProcessor` for consistent processing behavior
+- **LLM Integration**: `audioinsight/llm/` modules integrate seamlessly with transcription processing and conversation analysis
+- **Configuration Propagation**: `audioinsight/server/config.py` settings flow through `audioinsight/app.py` to all processing components
 - **Resource Lifecycle Management**: Comprehensive cleanup system coordinates with all components for proper resource management
 
-This enhanced modular architecture with advanced cleanup and diarization capabilities enables future improvements and optimizations without disrupting core functionality, making AudioInsight a robust platform for real-time speech recognition applications with production-grade performance characteristics, comprehensive API support, efficient memory management, and maintainable code organization that scales effectively across different deployment scenarios and processing requirements.
+This enhanced modular architecture with advanced cleanup, diarization capabilities, and universal LLM infrastructure enables future improvements and optimizations without disrupting core functionality, making AudioInsight a robust platform for real-time speech recognition applications with production-grade performance characteristics, comprehensive API support, efficient memory management, modular LLM operations, and maintainable code organization that scales effectively across different deployment scenarios and processing requirements.
 
 ### **Resource Management and Cleanup System** - Advanced Memory Management and Session Lifecycle
 **Purpose**: Comprehensive resource management system that prevents memory leaks, handles graceful shutdowns, and enables efficient session reuse through both incremental cleanup and aggressive reset procedures.
@@ -961,7 +1056,7 @@ This enhanced modular architecture with advanced cleanup and diarization capabil
 #### **Session Management Integration**
 **Purpose**: Enables efficient multi-session handling with resource reuse and memory leak prevention.
 
-**WebSocket Integration** (`server/websocket_handlers.py`):
+**WebSocket Integration** (`audioinsight/server/websocket_handlers.py`):
 - **Global Processor Reuse**: `get_or_create_audio_processor()` reuses single AudioProcessor instance across sessions
 - **Session Isolation**: `force_reset()` called between sessions to ensure clean state without creating new instances
 - **Fallback Handling**: Creates new AudioProcessor instance if reset fails, ensuring service continuity
@@ -1014,4 +1109,4 @@ This enhanced modular architecture with advanced cleanup and diarization capabil
 - **Error Recovery**: Maintains service availability even during component failures or cleanup errors
 - **Resource Efficiency**: Balances memory usage with performance through selective cleanup and component reuse
 
-**Integration Points**: Used by `server/websocket_handlers.py` for session management, coordinates with all processor classes for resource cleanup, integrates with external processes (FFmpeg) and ML models for proper resource deallocation.
+**Integration Points**: Used by `audioinsight/server/websocket_handlers.py` for session management, coordinates with all processor classes for resource cleanup, integrates with external processes (FFmpeg) and ML models for proper resource deallocation.

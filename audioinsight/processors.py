@@ -9,7 +9,7 @@ import ffmpeg
 import numpy as np
 import opencc
 
-from .llm import LLM, LLMTrigger
+from .llm import LLMSummarizer, LLMTrigger
 from .logging_config import get_logger
 from .main import AudioInsight
 from .timed_objects import ASRToken
@@ -86,8 +86,8 @@ class FFmpegProcessor:
 
         # Timing settings
         self.last_ffmpeg_activity = time()
-        self.ffmpeg_health_check_interval = 5
-        self.ffmpeg_max_idle_time = 10
+        self.ffmpeg_health_check_interval = 10  # Less frequent health checks
+        self.ffmpeg_max_idle_time = 30  # Allow much longer idle time before restart
 
         # FFmpeg process
         self.ffmpeg_process = self.start_ffmpeg_decoder()
@@ -241,8 +241,11 @@ class FFmpegProcessor:
                     # Wait longer between retries
                     await asyncio.sleep(1.0 * (attempt + 1))
                 else:
-                    logger.critical("Failed to restart FFmpeg process after all attempts")
-                    raise
+                    logger.error("Maximum retries reached for FFmpeg process - continuing without restart")
+                    return
+
+        logger.warning("All FFmpeg processing attempts failed but continuing")
+        return
 
     async def read_audio_data(self, transcription_queue=None, diarization_queue=None):
         """Read audio data from FFmpeg stdout and process it."""
@@ -256,8 +259,8 @@ class FFmpegProcessor:
                 buffer_size = max(int(32000 * elapsed_time), 4096)
                 beg = current_time
 
-                # Detect idle state much more quickly
-                if current_time - self.last_ffmpeg_activity > self.ffmpeg_max_idle_time:
+                # Detect idle state much more conservatively
+                if current_time - self.last_ffmpeg_activity > 60.0:  # Much longer idle threshold
                     logger.warning(f"FFmpeg process idle for {current_time - self.last_ffmpeg_activity:.2f}s. Restarting...")
                     await self.restart_ffmpeg()
                     beg = time()
@@ -274,24 +277,25 @@ class FFmpegProcessor:
 
                 self.append_to_pcm_buffer(chunk)
 
-                # Process transcription more aggressively - use smaller buffer requirement
-                min_transcription_buffer = max(self.bytes_per_sec // 4, 4096)  # 0.25 seconds minimum or 4KB
+                # OPTIMIZATION: Increase minimum buffer for transcription to reduce processing frequency
+                # Use larger buffer requirement to avoid VAD processing tiny chunks
+                min_transcription_buffer = max(self.bytes_per_sec // 2, 8192)  # 0.5 seconds minimum (increased from 0.25s)
                 if self.pcm_buffer_length >= min_transcription_buffer:
-                    # Only log processing every 10 seconds and make it more concise
+                    # Only log processing every 20 seconds and make it more concise
                     if not hasattr(self, "_ffmpeg_log_counter"):
                         self._ffmpeg_log_counter = 0
                         self._last_processing_log = 0
                     self._ffmpeg_log_counter += 1
 
                     current_log_time = time()
-                    if current_log_time - self._last_processing_log > 10.0:  # Log every 10 seconds, less frequently
+                    if current_log_time - self._last_processing_log > 20.0:  # Log every 20 seconds, less frequently
                         logger.info(f"🎵 Processing: {self._ffmpeg_log_counter} chunks, {self.pcm_buffer_length / self.bytes_per_sec:.1f}s buffered")
                         self._last_processing_log = current_log_time
 
                     if self.pcm_buffer_length > self.max_bytes_per_sec:
                         logger.warning(f"Audio buffer large: {self.pcm_buffer_length / self.bytes_per_sec:.2f}s")
 
-                    # Process audio chunk - take up to max_bytes_per_sec or all available
+                    # Process audio chunk - take larger chunks to reduce Whisper VAD calls
                     bytes_to_process = min(self.pcm_buffer_length, self.max_bytes_per_sec)
                     pcm_array = self.convert_pcm_to_float(self.get_pcm_data(bytes_to_process))
 
@@ -347,7 +351,7 @@ class FFmpegProcessor:
     async def process_audio_chunk(self, message):
         """Process incoming audio data."""
         retry_count = 0
-        max_retries = 2  # Reduce max retries to prevent restart loops
+        max_retries = 1  # Reduce max retries to prevent restart loops
 
         while retry_count < max_retries:
             try:
@@ -367,25 +371,25 @@ class FFmpegProcessor:
 
                 loop = asyncio.get_running_loop()
 
-                # Write operation with more generous timeout after restart
-                write_timeout = 5.0 if retry_count > 0 else 3.0
+                # Write operation with more generous timeout to prevent restarts
+                write_timeout = 10.0 if retry_count > 0 else 8.0  # Much more generous timeouts
                 try:
                     await asyncio.wait_for(loop.run_in_executor(None, lambda: self.ffmpeg_process.stdin.write(message)), timeout=write_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"FFmpeg write timeout ({write_timeout}s), restarting...")
-                    await self.restart_ffmpeg()
-                    retry_count += 1
-                    continue
+                    logger.warning(f"FFmpeg write timeout ({write_timeout}s) - may be processing heavy load")
+                    # Don't restart immediately on timeout - just log and continue
+                    self.last_ffmpeg_activity = time()
+                    return
 
-                # Flush operation with more generous timeout after restart
-                flush_timeout = 3.0 if retry_count > 0 else 2.0
+                # Flush operation with more generous timeout
+                flush_timeout = 6.0 if retry_count > 0 else 4.0  # Much more generous timeouts
                 try:
                     await asyncio.wait_for(loop.run_in_executor(None, self.ffmpeg_process.stdin.flush), timeout=flush_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"FFmpeg flush timeout ({flush_timeout}s), restarting...")
-                    await self.restart_ffmpeg()
-                    retry_count += 1
-                    continue
+                    logger.warning(f"FFmpeg flush timeout ({flush_timeout}s) - may be processing heavy load")
+                    # Don't restart immediately on timeout - just log and continue
+                    self.last_ffmpeg_activity = time()
+                    return
 
                 # Success - update activity time and return
                 self.last_ffmpeg_activity = time()
@@ -397,12 +401,12 @@ class FFmpegProcessor:
 
                 if retry_count < max_retries:
                     await self.restart_ffmpeg()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)  # Longer wait between retries
                 else:
-                    logger.error("Maximum retries reached for FFmpeg process")
+                    logger.error("Maximum retries reached for FFmpeg process - continuing without restart")
                     return
 
-        logger.warning("All FFmpeg processing attempts failed")
+        logger.warning("All FFmpeg processing attempts failed but continuing")
         return
 
     def cleanup(self):
@@ -513,15 +517,15 @@ class TranscriptionProcessor:
                     transcription_queue.task_done()
                     break
 
-                # Only log periodically and make it very concise
+                # OPTIMIZATION: Reduce logging frequency to prevent spam
                 if not hasattr(self, "_transcription_log_counter"):
                     self._transcription_log_counter = 0
                     self._last_chunk_log = 0
                 self._transcription_log_counter += 1
 
-                # Log every 60 seconds instead of 30 seconds, very minimal
+                # Log every 120 seconds instead of 60 seconds for less spam
                 current_log_time = time()
-                if current_log_time - self._last_chunk_log > 60.0:
+                if current_log_time - self._last_chunk_log > 120.0:
                     logger.info(f"🎵 Transcription: {self._transcription_log_counter} chunks processed")
                     self._last_chunk_log = current_log_time
 
@@ -537,11 +541,11 @@ class TranscriptionProcessor:
                 if self.coordinator:
                     transcription_lag_s = max(0.0, time() - self.coordinator.beg_loop - self.coordinator.end_buffer)
 
-                # Only log ASR processing every 20 seconds and make it more concise
+                # OPTIMIZATION: Reduce ASR processing logs significantly
                 if not hasattr(self, "_last_asr_log_time"):
                     self._last_asr_log_time = 0
                 current_time = time()
-                if current_time - self._last_asr_log_time > 20.0:  # Log every 20 seconds
+                if current_time - self._last_asr_log_time > 60.0:  # Log every 60 seconds (increased from 20s)
                     logger.info(f"ASR: buffer={asr_internal_buffer_duration_s:.1f}s, lag={transcription_lag_s:.1f}s")
                     self._last_asr_log_time = current_time
 
@@ -564,7 +568,7 @@ class TranscriptionProcessor:
 
                 await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
 
-                # Update LLM inference processor with new transcription text
+                # Update LLM inference processor asynchronously (non-blocking)
                 if llm and new_tokens:
                     new_text = self.sep.join([t.text for t in new_tokens])
                     # Convert to Traditional Chinese for consistency
@@ -573,7 +577,9 @@ class TranscriptionProcessor:
                     speaker_info = None
                     if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
                         speaker_info = {"speaker": new_tokens[0].speaker}
-                    llm.update_transcription(new_text_converted, speaker_info)
+
+                    # Fire-and-forget async update - don't await, don't block transcription
+                    asyncio.create_task(self._update_llm_async(llm, new_text_converted, speaker_info))
 
                 transcription_queue.task_done()
 
@@ -582,6 +588,15 @@ class TranscriptionProcessor:
                 if "pcm_array" in locals() and pcm_array is not SENTINEL:  # Check if pcm_array was assigned from queue
                     transcription_queue.task_done()
         logger.info("Transcription processor finished.")
+
+    async def _update_llm_async(self, llm, text, speaker_info):
+        """Asynchronously update LLM without blocking transcription."""
+        try:
+            # This runs in background, transcription continues regardless
+            llm.update_transcription(text, speaker_info)
+        except Exception as e:
+            # Log errors but don't let them affect transcription
+            logger.warning(f"LLM update failed (non-critical): {e}")
 
     async def _get_end_buffer(self):
         """Get current end buffer value - to be implemented by coordinator."""
@@ -800,8 +815,8 @@ class AudioProcessor:
 
         # Timing settings - needed for watchdog monitoring
         self.last_ffmpeg_activity = time()
-        self.ffmpeg_health_check_interval = 5
-        self.ffmpeg_max_idle_time = 10
+        self.ffmpeg_health_check_interval = 10  # Less frequent health checks
+        self.ffmpeg_max_idle_time = 30  # Allow much longer idle time before restart
 
         # State management
         self.is_stopping = False
@@ -836,9 +851,28 @@ class AudioProcessor:
         self.watchdog_task = None
         self.all_tasks_for_cleanup = []
 
-        # Initialize LLM inference processor reference as None - will be created on demand
+        # Initialize LLM inference processor early if enabled
         self.llm = None
         self.llm_task = None
+
+        # Initialize LLM if enabled in features
+        if getattr(self.args, "llm_inference", False):
+            logger.info("🔧 Creating LLM processor on initialization")
+            try:
+                trigger_config = LLMTrigger(
+                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
+                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
+                )
+
+                self.llm = LLMSummarizer(
+                    model_id=getattr(self.args, "base_llm", "gpt-4.1-mini"),
+                    trigger_config=trigger_config,
+                )
+                self.llm.add_inference_callback(self._handle_inference_callback)
+                logger.info(f"LLM inference initialized with model: {getattr(self.args, 'base_llm', 'gpt-4.1-mini')}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM inference processor: {e}")
+                self.llm = None
 
         logger.info("🔧 AudioProcessor initialized - components will be created on demand")
 
@@ -985,7 +1019,7 @@ class AudioProcessor:
 
                 # Add summaries if available - optimize by checking flag first and limiting frequency
                 current_time = time()
-                if self._has_summaries or (current_time - self._last_summary_check > 2.0):  # Check every 2 seconds if no summaries for faster appearance
+                if self._has_summaries or (current_time - self._last_summary_check > 5.0):  # OPTIMIZATION: Check every 5 seconds instead of 2
                     self._last_summary_check = current_time
                     async with self.lock:
                         if self.summaries:
@@ -1041,20 +1075,29 @@ class AudioProcessor:
                         async with self.lock:
                             summaries_count = len(getattr(self, "summaries", []))
 
-                        if self.llm and self.llm.accumulated_text.strip() and summaries_count == 0:
-                            logger.info("🔄 Generating final inference (no summaries created during processing)...")
+                        # Always generate a final comprehensive summary from the complete transcript
+                        # This ensures we have a summary of the entire conversation, not just fragments
+                        if self.llm and self.llm.accumulated_text.strip():
+                            if summaries_count == 0:
+                                logger.info("🔄 Generating final inference (no summaries created during processing)...")
+                            else:
+                                logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
+
+                            # Force a final summary of all accumulated text
                             await self.llm.force_inference()
                             # Wait a moment for the callback to be processed
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.2)  # Slightly longer wait for final processing
 
                         # Get updated final state after inference processing
                         final_state = await self.get_current_state()
 
-                        # Format final lines and apply s2hk conversion
+                        # Format final lines and apply refinement and s2hk conversion
                         final_lines_raw = await self.formatter.format_by_speaker(final_state["tokens"], final_state["sep"], final_state["end_attributed_speaker"])
+
+                        # Apply s2hk conversion to output (refined or original)
                         final_lines_converted = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in final_lines_raw]
 
-                        # Include any remaining buffer text in the final response
+                        # Refine and include any remaining buffer text in the final response
                         final_buffer_transcription = s2hk(final_state["buffer_transcription"]) if final_state["buffer_transcription"] else ""
                         final_buffer_diarization = s2hk(final_state["buffer_diarization"]) if final_state["buffer_diarization"] else ""
 
@@ -1079,7 +1122,7 @@ class AudioProcessor:
                         yield final_response
                         return
 
-                await asyncio.sleep(0.1)  # Avoid overwhelming the client
+                await asyncio.sleep(0.2)  # OPTIMIZATION: Increased from 0.1 to reduce client update frequency
 
             except Exception as e:
                 logger.warning(f"Exception in results_formatter: {e}")
@@ -1090,24 +1133,6 @@ class AudioProcessor:
         """Create async tasks for audio processing and result formatting."""
         self.all_tasks_for_cleanup = []  # Reset task list
         processing_tasks_for_watchdog = []
-
-        # Initialize LLM inference processor FIRST if needed - CRITICAL: must happen before transcription task creation
-        if getattr(self.args, "llm_inference", False) and not self.llm:
-            logger.info("🔧 Creating LLM processor on demand")
-            try:
-                trigger_config = LLMTrigger(
-                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
-                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
-                )
-                self.llm = LLM(
-                    model_id=getattr(self.args, "llm_model", "gpt-4.1-mini"),
-                    trigger_config=trigger_config,
-                )
-                self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference initialized on demand with model: {self.args.llm_model}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize LLM inference processor on demand: {e}")
-                self.llm = None
 
         # Initialize components on demand if not already created
         if not self.ffmpeg_processor:

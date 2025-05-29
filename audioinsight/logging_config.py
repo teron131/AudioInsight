@@ -5,7 +5,6 @@ All modules should import get_logger from this module to ensure consistent loggi
 
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 
 # Global variables to store the logging configuration
@@ -14,19 +13,21 @@ _log_filename = None
 
 
 def setup_logging():
-    """Set up logging to both console and file with datetime-based filename."""
+    """Set up logging to both console and file with fixed filename."""
     global _logging_initialized, _log_filename
 
     if _logging_initialized:
         return _log_filename
 
+    # Get the main directory (current working directory)
+    main_dir = Path(os.getcwd())
+
     # Create logs directory if it doesn't exist
-    logs_dir = Path("logs")
+    logs_dir = main_dir / "logs"
     logs_dir.mkdir(exist_ok=True)
 
-    # Create datetime-based filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    _log_filename = logs_dir / f"audioinsight_{timestamp}.log"
+    # Use fixed filename that overwrites previous logs
+    _log_filename = logs_dir / "last_run.log"
 
     # Configure logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", handlers=[logging.FileHandler(_log_filename), logging.StreamHandler()])  # Console output

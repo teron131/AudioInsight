@@ -1,57 +1,22 @@
 import asyncio
-import os
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-import opencc
-from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
 
-from .logging_config import get_logger
-
-load_dotenv()
+from ..logging_config import get_logger
+from .base import UniversalLLM
+from .types import LLMConfig, LLMResponse, LLMStats, LLMTrigger
+from .utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
 
-# Cache OpenCC converter instance to avoid recreation
-_s2hk_converter = None
 
-
-def s2hk(text: str) -> str:
-    """Convert Simplified Chinese to Traditional Chinese with cached converter."""
-    if not text:
-        return text
-
-    global _s2hk_converter
-    if _s2hk_converter is None:
-        _s2hk_converter = opencc.OpenCC("s2hk")
-
-    return _s2hk_converter.convert(text)
-
-
-@dataclass
-class LLMTrigger:
-    """Configuration for when to trigger LLM inference."""
-
-    idle_time_seconds: float = 5.0
-    max_text_length: int = 100000
-    conversation_trigger_count: int = 2  # Trigger after this many conversations (speaker turns)
-
-
-class LLMResponse(BaseModel):
-    """Structured response from the LLM inference."""
-
-    summary: str = Field(description="Concise summary of the transcription")
-    key_points: list[str] = Field(default_factory=list, description="Main points discussed")
-
-
-class LLM:
+class LLMSummarizer:
     """
     LLM-based transcription processor that monitors transcription activity
     and generates inference after periods of inactivity or after a certain number of conversations.
+    Uses the universal LLM client for consistent inference.
     """
 
     def __init__(
@@ -70,18 +35,12 @@ class LLM:
         self.model_id = model_id
         self.trigger_config = trigger_config or LLMTrigger()
 
-        # Initialize LLM
-        api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = "https://openrouter.ai/api/v1" if os.getenv("OPENROUTER_API_KEY") else None
-
-        self.llm = ChatOpenAI(
-            model=model_id,
+        # Initialize universal LLM client
+        llm_config = LLMConfig(
+            model_id=model_id,
             api_key=api_key,
-            base_url=base_url,
         )
-
-        # Create structured LLM for inference responses
-        self.structured_llm = self.llm.with_structured_output(LLMResponse, method="function_calling")
+        self.llm_client = UniversalLLM(llm_config)
 
         # Create prompt template
         self.prompt = ChatPromptTemplate.from_messages(
@@ -134,11 +93,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.is_running = False
         self.inference_callbacks = []
         self.consecutive_idle_checks = 0  # Track consecutive idle periods
-        self.min_idle_checks = 5  # Require 5 consecutive idle checks (5 seconds)
+        self.min_idle_checks = 3  # Require 3 consecutive idle checks (3 seconds) - reduced from 5 for more responsive summaries
 
         # Prevent duplicate inference
-        self.last_inference_time = 0.0  # Track when last inference was generated
-        self.inference_cooldown = 3.0  # Minimum seconds between inference
+        self.last_inference_time = 0.0
+        self.inference_cooldown = 2.0  # Minimum seconds between inference - reduced from 3.0 for more frequent summaries
         self.is_generating_inference = False  # Flag to prevent concurrent inference
 
         # Conversation tracking
@@ -147,13 +106,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.conversation_count_since_last_inference = 0  # Reset after each inference
 
         # Statistics
-        self.stats = {
-            "inference_generated": 0,
-            "total_text_processed": 0,
-            "average_inference_time": 0.0,
-            "inference_by_idle": 0,
-            "inference_by_conversation_count": 0,
-        }
+        self.stats = LLMStats()
 
     def add_inference_callback(self, callback):
         """Add a callback function to be called when inference is generated.
@@ -237,6 +190,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         time_since_activity = current_time - self.last_activity_time
         text_length = len(self.accumulated_text)
 
+        # OPTIMIZATION: Skip if we don't have minimum text length yet
+        if text_length < self.trigger_config.min_text_length:
+            self.consecutive_idle_checks = 0
+            return
+
         # Check if we're truly idle (no new activity for required time)
         if time_since_activity >= 1.0:  # At least 1 second since last activity
             self.consecutive_idle_checks += 1
@@ -253,13 +211,21 @@ Provide a structured summary with key points. Remember to respond in the same la
         is_truly_idle = self.consecutive_idle_checks >= self.min_idle_checks
         has_enough_conversations = self.conversation_count_since_last_inference >= self.trigger_config.conversation_trigger_count
 
-        logger.debug(f"Trigger check: idle={self.consecutive_idle_checks}s, " f"conversations={self.conversation_count_since_last_inference}, " f"new_text={new_text_length} chars, truly_idle={is_truly_idle}, " f"enough_conversations={has_enough_conversations}")
+        # OPTIMIZATION: Increase text length requirements to avoid spam
+        accumulated_length = len(self.accumulated_text)
+        has_enough_text = accumulated_length > 800 and new_text_length > 300  # Increased thresholds
 
-        # Trigger inference if either condition is met, but prioritize conversation count over idle
-        # This prevents both triggers from firing simultaneously
+        logger.debug(f"Trigger check: idle={self.consecutive_idle_checks}s, " f"conversations={self.conversation_count_since_last_inference}, " f"new_text={new_text_length} chars, accumulated={accumulated_length} chars, " f"truly_idle={is_truly_idle}, enough_conversations={has_enough_conversations}, enough_text={has_enough_text}")
+
+        # Trigger inference if any condition is met, prioritizing conversation count > text length > idle
         if has_enough_conversations:
             trigger_reason = "conversation_count"
             logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"conversations={self.conversation_count_since_last_inference}")
+            await self._generate_inference(trigger_reason=trigger_reason)
+            self.consecutive_idle_checks = 0  # Reset after processing
+        elif has_enough_text:
+            trigger_reason = "text_length"
+            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"accumulated={accumulated_length} chars, new={new_text_length} chars")
             await self._generate_inference(trigger_reason=trigger_reason)
             self.consecutive_idle_checks = 0  # Reset after processing
         elif is_truly_idle:
@@ -268,21 +234,21 @@ Provide a structured summary with key points. Remember to respond in the same la
             await self._generate_inference(trigger_reason=trigger_reason)
             self.consecutive_idle_checks = 0  # Reset after processing
         elif self.consecutive_idle_checks > 0 and self.consecutive_idle_checks % 5 == 0:
-            # Log every 5 seconds when we're in idle mode
-            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, conversations={self.conversation_count_since_last_inference}, new_text={new_text_length} chars")
+            # OPTIMIZATION: Log every 5 seconds instead of 3 when we're in idle mode
+            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, conversations={self.conversation_count_since_last_inference}, new_text={new_text_length} chars, accumulated={accumulated_length} chars")
 
     async def _generate_inference(self, trigger_reason: str = "idle"):
         """Generate inference using the LLM.
 
         Args:
-            trigger_reason: Reason for triggering the inference ('idle', 'conversation_count', or 'both')
+            trigger_reason: Reason for triggering the inference ('idle', 'conversation_count', 'forced', or 'both')
         """
         if not self.accumulated_text.strip():
             return
 
-        # Check if we're in cooldown period or already generating
+        # Check if we're in cooldown period or already generating (except for forced inference)
         current_time = time.time()
-        if (current_time - self.last_inference_time) < self.inference_cooldown:
+        if trigger_reason != "forced" and ((current_time - self.last_inference_time) < self.inference_cooldown):
             logger.debug(f"Inference cooldown active: {current_time - self.last_inference_time:.1f}s < {self.inference_cooldown}s")
             return
 
@@ -293,47 +259,55 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.is_generating_inference = True
 
         try:
-            # Get only the new text since last inference
-            if self.last_processed_text:
-                # Find where the last processed text ends in the current accumulated text
-                last_inference_end = self.accumulated_text.find(self.last_processed_text)
-                if last_inference_end != -1:
-                    last_inference_end += len(self.last_processed_text)
-                    text_to_process = self.accumulated_text[last_inference_end:].strip()
-                    if not text_to_process:
-                        logger.debug("No new text to process")
-                        return
-                else:
-                    # If we can't find the overlap, process the recent portion
-                    text_to_process = self.accumulated_text[-self.trigger_config.max_text_length :].strip()
+            # For forced inference (final summary), process the entire accumulated text
+            # For regular inference, get only the new text since last inference
+            if trigger_reason == "forced":
+                # Process entire accumulated text for comprehensive final summary
+                text_to_process = self.accumulated_text.strip()
+                logger.info(f"Processing entire accumulated text for final comprehensive summary: {len(text_to_process)} chars")
             else:
-                text_to_process = self.accumulated_text
+                # Regular incremental processing logic
+                if self.last_processed_text:
+                    # Find where the last processed text ends in the current accumulated text
+                    last_inference_end = self.accumulated_text.find(self.last_processed_text)
+                    if last_inference_end != -1:
+                        last_inference_end += len(self.last_processed_text)
+                        text_to_process = self.accumulated_text[last_inference_end:].strip()
+                        if not text_to_process:
+                            logger.debug("No new text to process")
+                            return
+                    else:
+                        # If we can't find the overlap, process the recent portion
+                        text_to_process = self.accumulated_text[-self.trigger_config.max_text_length :].strip()
+                else:
+                    text_to_process = self.accumulated_text
 
             # Truncate if too long
             if len(text_to_process) > self.trigger_config.max_text_length:
-                text_to_process = text_to_process[-self.trigger_config.max_text_length :]
+                text_to_process = truncate_text(text_to_process, self.trigger_config.max_text_length)
                 logger.info(f"Truncated text to {self.trigger_config.max_text_length} characters")
 
             start_time = time.time()
-            logger.info(f"Generating inference for {len(text_to_process)} chars of new content...")
+            if trigger_reason == "forced":
+                logger.info(f"Generating comprehensive final inference for {len(text_to_process)} chars...")
+            else:
+                logger.info(f"Generating inference for {len(text_to_process)} chars of new content...")
 
             # Prepare context information
             lines = text_to_process.split("\n")
             has_speakers = "[Speaker" in text_to_process
             duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
 
-            # Create chain and invoke
-            chain = self.prompt | self.structured_llm
-            response: LLMResponse = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: chain.invoke(
-                    {
-                        "transcription": text_to_process,
-                        "duration": duration_estimate,
-                        "has_speakers": has_speakers,
-                        "num_lines": len(lines),
-                    }
-                ),
+            # Generate structured response using universal LLM client
+            response: LLMResponse = await self.llm_client.invoke_structured(
+                self.prompt,
+                {
+                    "transcription": text_to_process,
+                    "duration": duration_estimate,
+                    "has_speakers": has_speakers,
+                    "num_lines": len(lines),
+                },
+                LLMResponse,
             )
 
             generation_time = time.time() - start_time
@@ -343,22 +317,7 @@ Provide a structured summary with key points. Remember to respond in the same la
             response.key_points = [s2hk(point) for point in response.key_points]
 
             # Update statistics
-            self.stats["inference_generated"] += 1
-            self.stats["total_text_processed"] += len(text_to_process)
-
-            # Track trigger reason statistics
-            if trigger_reason == "idle":
-                self.stats["inference_by_idle"] += 1
-            elif trigger_reason == "conversation_count":
-                self.stats["inference_by_conversation_count"] += 1
-            else:  # "both"
-                self.stats["inference_by_idle"] += 1
-                self.stats["inference_by_conversation_count"] += 1
-
-            # Update average time
-            prev_avg = self.stats["average_inference_time"]
-            count = self.stats["inference_generated"]
-            self.stats["average_inference_time"] = (prev_avg * (count - 1) + generation_time) / count
+            self.stats.record_inference(trigger_reason, generation_time, len(text_to_process))
 
             self.last_inference = response
             self.last_inference_time = current_time  # Update last inference time
@@ -373,18 +332,20 @@ Provide a structured summary with key points. Remember to respond in the same la
                 except Exception as e:
                     logger.error(f"Error in inference callback: {e}")
 
-            # Reset conversation count after processing
-            self.conversation_count_since_last_inference = 0
-            logger.debug(f"Reset conversation count to 0 after processing")
+            # Reset conversation count after processing (except for forced inference to avoid affecting ongoing monitoring)
+            if trigger_reason != "forced":
+                self.conversation_count_since_last_inference = 0
+                logger.debug(f"Reset conversation count to 0 after processing")
 
-            # Update the last processed text to include what we just processed
-            # Keep a rolling buffer to allow for new inferences of additional content
-            self.last_processed_text = self.accumulated_text
-
-            # Keep the most recent text in buffer (last 5000 chars) to maintain context
-            if len(self.accumulated_text) > 5000:
-                self.accumulated_text = self.accumulated_text[-5000:]
+            # Update the last processed text to include what we just processed (except for forced inference)
+            if trigger_reason != "forced":
+                # Keep a rolling buffer to allow for new inferences of additional content
                 self.last_processed_text = self.accumulated_text
+
+                # Keep the most recent text in buffer (last 5000 chars) to maintain context
+                if len(self.accumulated_text) > 5000:
+                    self.accumulated_text = self.accumulated_text[-5000:]
+                    self.last_processed_text = self.accumulated_text
 
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
@@ -401,7 +362,7 @@ Provide a structured summary with key points. Remember to respond in the same la
 
     def get_stats(self) -> Dict[str, Any]:
         """Get inference statistics."""
-        return self.stats.copy()
+        return self.stats.to_dict()
 
     async def force_inference(self) -> Optional[LLMResponse]:
         """Force generate a inference of current accumulated text."""
