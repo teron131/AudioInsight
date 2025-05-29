@@ -21,7 +21,7 @@ _DEFAULT_CONFIG = {
     },
     "processing": {
         "min_chunk_size": 0.5,
-        "buffer_trimming": "sentence",
+        "buffer_trimming": "segment",
         "buffer_trimming_sec": 15.0,
         "vac_chunk_size": 0.04,
     },
@@ -304,9 +304,23 @@ class AudioInsight:
     def _load_diarization(self):
         """Lazy loading of diarization models."""
         try:
+            from diart import SpeakerDiarizationConfig
+
             from .diarization.diarization_online import DiartDiarization
 
-            self.diarization = DiartDiarization()
+            # Very conservative configuration for high confidence diarization only
+            config = SpeakerDiarizationConfig(
+                step=2.0,  # Even slower processing = higher accuracy (was 1.0)
+                latency=2.0,  # Allow more latency for better decisions (was 1.0)
+                tau_active=0.8,  # Very high voice activity threshold = only strong voices (was 0.7)
+                rho_update=0.05,  # Very low update rate = extremely stable speakers (was 0.1)
+                delta_new=3.0,  # Very high threshold = very resistant to new speakers (was 1.8)
+                gamma=15,  # Much higher gamma = very stable clustering (was 8)
+                beta=30,  # Much higher beta = very stable processing (was 20)
+                max_speakers=3,  # Conservative speaker limit (was 4)
+            )
+
+            self.diarization = DiartDiarization(config=config)
         except Exception as e:
             logging.error(f"Failed to load diarization models: {e}")
             raise

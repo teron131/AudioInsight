@@ -190,17 +190,61 @@ async def stream_chunks_realtime(
     return total_elapsed
 
 
-def validate_file_type(content_type: str, allowed_types: set) -> bool:
-    """Validate if file type is allowed.
+def validate_file_type(content_type: str, allowed_types: set, filename: str = None) -> bool:
+    """Validate if file type is allowed (very permissive - let FFmpeg handle format validation).
 
     Args:
         content_type: MIME type of the file
-        allowed_types: Set of allowed MIME types
+        allowed_types: Set of allowed MIME types (used for reference but not strictly enforced)
+        filename: Optional filename for extension-based validation
 
     Returns:
         True if file type is allowed, False otherwise
     """
-    return content_type in allowed_types
+    # Normalize MIME types
+    normalized_type = content_type.lower().strip()
+
+    # Block obviously problematic file types
+    blocked_types = {
+        "text/plain",
+        "text/html",
+        "text/css",
+        "text/javascript",
+        "application/javascript",
+        "application/json",
+        "application/xml",
+        "application/pdf",
+        "application/msword",
+        "application/vnd.ms-excel",
+        "application/zip",
+        "application/x-executable",
+        "application/x-sh",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/svg+xml",
+    }
+
+    # Block obviously non-audio extensions
+    if filename:
+        filename_lower = filename.lower()
+        blocked_extensions = {".txt", ".html", ".css", ".js", ".json", ".xml", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".sh", ".bat", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".bmp", ".tiff", ".py", ".cpp", ".java", ".php", ".rb", ".go", ".rs", ".c", ".h"}
+
+        for ext in blocked_extensions:
+            if filename_lower.endswith(ext):
+                return False
+
+    # Block the obviously problematic MIME types
+    if normalized_type in blocked_types:
+        return False
+
+    # For everything else, be permissive and let FFmpeg handle it
+    # This includes:
+    # - All audio/* types (standard and variants)
+    # - video/mp4 (for M4A files)
+    # - application/octet-stream (generic binary uploads)
+    # - Any other type that might be audio but misidentified
+    return True
 
 
 def log_progress(audio_progress: float, duration: float, elapsed: float) -> None:

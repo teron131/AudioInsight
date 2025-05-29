@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Audio Transcription</title>
+    <title>AudioInsight</title>
     <style>
         body {
             font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
@@ -1157,12 +1157,17 @@
                 let speakerLabel = "";
                 if (item.speaker === -2) {
                     speakerLabel = `<span class="silence">Silence<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker == 0 && !isFinalizing) {
-                    speakerLabel = `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
                 } else if (item.speaker == -1) {
                     speakerLabel = `<span id="speaker">Speaker 1<span id='timeInfo'>${timeInfo}</span></span>`;
-                } else if (item.speaker !== -1 && item.speaker !== 0) {
-                    speakerLabel = `<span id="speaker">Speaker ${item.speaker}<span id='timeInfo'>${timeInfo}</span></span>`;
+                } else if (item.speaker >= 0) {
+                    // Add 1 to speaker number so speaker 0 becomes "Speaker 1", speaker 1 becomes "Speaker 2", etc.
+                    const displaySpeaker = item.speaker + 1;
+                    speakerLabel = `<span id="speaker">Speaker ${displaySpeaker}<span id='timeInfo'>${timeInfo}</span></span>`;
+                    
+                    // Add processing indicator for speaker 0 when still processing
+                    if (item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
+                        speakerLabel += `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
+                    }
                 }
 
                 let currentLineText = item.text || "";

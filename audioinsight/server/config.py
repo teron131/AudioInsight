@@ -1,6 +1,7 @@
 from typing import Set
 
 # Audio file type validation
+# Note: The validate_file_type function normalizes MIME types and handles variants like audio/x-m4a
 ALLOWED_AUDIO_TYPES: Set[str] = {
     "audio/mpeg",
     "audio/mp3",

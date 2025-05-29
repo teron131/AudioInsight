@@ -2,17 +2,17 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-@dataclass(frozen=True)
+@dataclass
 class TimedText:
     start: Optional[float]
     end: Optional[float]
     text: Optional[str] = ""
-    speaker: Optional[int] = -1
+    speaker: Optional[int] = 0
     probability: Optional[float] = None
     is_dummy: Optional[bool] = False
 
 
-@dataclass(frozen=True)
+@dataclass
 class ASRToken(TimedText):
     def with_offset(self, offset: float) -> "ASRToken":
         """Return a new token with the time offset added."""
@@ -26,16 +26,16 @@ class ASRToken(TimedText):
         return ASRToken(start, end, self.text, self.speaker, self.probability, self.is_dummy)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Sentence(TimedText):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass
 class Transcript(TimedText):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass
 class SpeakerSegment(TimedText):
     pass

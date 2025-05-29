@@ -226,25 +226,58 @@ class FFmpegProcessor:
 
                 self.append_to_pcm_buffer(chunk)
 
-                # Send to diarization if enabled
-                if self.args.diarization and diarization_queue:
-                    await diarization_queue.put(self.convert_pcm_to_float(self.get_pcm_data(buffer_size)).copy())
+                # Process transcription more aggressively - use smaller buffer requirement
+                min_transcription_buffer = max(self.bytes_per_sec // 4, 4096)  # 0.25 seconds minimum or 4KB
+                if self.pcm_buffer_length >= min_transcription_buffer:
+                    # Only log processing occasionally to reduce spam
+                    if not hasattr(self, "_ffmpeg_log_counter"):
+                        self._ffmpeg_log_counter = 0
+                    self._ffmpeg_log_counter += 1
+                    if self._ffmpeg_log_counter % 20 == 0:  # Log every 20 processing cycles
+                        logger.debug(f"📊 Processing transcription: buffer_size={self.pcm_buffer_length} bytes ({self.pcm_buffer_length / self.bytes_per_sec:.2f}s)")
 
-                # Process when enough data
-                if self.pcm_buffer_length >= self.bytes_per_sec:
                     if self.pcm_buffer_length > self.max_bytes_per_sec:
                         logger.warning(f"Audio buffer too large: {self.pcm_buffer_length / self.bytes_per_sec:.2f}s. " f"Consider using a smaller model.")
 
-                    # Process audio chunk
-                    pcm_array = self.convert_pcm_to_float(self.get_pcm_data(self.max_bytes_per_sec))
+                    # Process audio chunk - take up to max_bytes_per_sec or all available
+                    bytes_to_process = min(self.pcm_buffer_length, self.max_bytes_per_sec)
+                    pcm_array = self.convert_pcm_to_float(self.get_pcm_data(bytes_to_process))
 
-                    # Send to transcription if enabled
+                    # Send to transcription if enabled (remove frequent debug log)
                     if self.args.transcription and transcription_queue:
                         await transcription_queue.put(pcm_array.copy())
+
+                    # Send to diarization if enabled - use larger chunks less frequently to prevent backlog
+                    if self.args.diarization and diarization_queue:
+                        # Only send to diarization every 2 seconds worth of audio to prevent queue overload
+                        if not hasattr(self, "_diarization_chunk_buffer"):
+                            self._diarization_chunk_buffer = []
+                            self._diarization_buffer_size = 0
+
+                        self._diarization_chunk_buffer.append(pcm_array.copy())
+                        self._diarization_buffer_size += len(pcm_array)
+
+                        # Send larger chunks (2 seconds worth) to diarization to reduce processing frequency
+                        diarization_chunk_threshold = self.bytes_per_sec * 2  # 2 seconds of audio
+                        if self._diarization_buffer_size >= diarization_chunk_threshold:
+                            # Check queue size to prevent overload
+                            if diarization_queue.qsize() < 5:  # Limit queue to 5 items (10 seconds of audio)
+                                # Concatenate buffered chunks
+                                combined_audio = np.concatenate(self._diarization_chunk_buffer)
+                                await diarization_queue.put(combined_audio)
+                                logger.debug(f"🔊 Sent {len(combined_audio)} samples to diarization queue (2s chunk)")
+                            else:
+                                logger.warning(f"🚫 Diarization queue full ({diarization_queue.qsize()} items), skipping chunk to prevent delay")
+
+                            # Reset buffer regardless of whether we sent data
+                            self._diarization_chunk_buffer = []
+                            self._diarization_buffer_size = 0
 
                     # Sleep if no processing is happening
                     if not self.args.transcription and not self.args.diarization:
                         await asyncio.sleep(0.1)
+                else:
+                    logger.debug(f"⏳ Waiting for more audio: current_buffer={self.pcm_buffer_length} bytes, need={min_transcription_buffer} bytes ({self.pcm_buffer_length / self.bytes_per_sec:.2f}s / {min_transcription_buffer / self.bytes_per_sec:.2f}s)")
 
             except Exception as e:
                 logger.warning(f"Exception in ffmpeg_stdout_reader: {e}")
@@ -350,6 +383,8 @@ class TranscriptionProcessor:
         if self.online:
             self.sep = self.online.asr.sep
 
+        logger.info("🎙️ Transcription processor started and ready to process audio")
+
         while True:
             try:
                 pcm_array = await transcription_queue.get()
@@ -357,6 +392,16 @@ class TranscriptionProcessor:
                     logger.debug("Transcription processor received sentinel. Finishing.")
                     transcription_queue.task_done()
                     break
+
+                logger.debug(f"🎵 Transcription processor received audio chunk: {len(pcm_array)} samples")
+
+                # Only log periodically to reduce spam (every 10 chunks or so)
+                if not hasattr(self, "_transcription_log_counter"):
+                    self._transcription_log_counter = 0
+                self._transcription_log_counter += 1
+
+                if self._transcription_log_counter % 10 == 0:
+                    logger.debug(f"🎵 Transcription processor: processed {self._transcription_log_counter} chunks")
 
                 if not self.online:  # Should not happen if queue is used
                     logger.warning("Transcription processor: self.online not initialized.")
@@ -370,7 +415,13 @@ class TranscriptionProcessor:
                 if self.coordinator:
                     transcription_lag_s = max(0.0, time() - self.coordinator.beg_loop - self.coordinator.end_buffer)
 
-                logger.info(f"ASR processing: internal_buffer={asr_internal_buffer_duration_s:.2f}s, " f"lag={transcription_lag_s:.2f}s.")
+                # Only log ASR processing every few seconds to reduce spam
+                if not hasattr(self, "_last_asr_log_time"):
+                    self._last_asr_log_time = 0
+                current_time = time()
+                if current_time - self._last_asr_log_time > 3.0:  # Log every 3 seconds
+                    logger.info(f"ASR processing: internal_buffer={asr_internal_buffer_duration_s:.2f}s, lag={transcription_lag_s:.2f}s.")
+                    self._last_asr_log_time = current_time
 
                 # Process transcription
                 self.online.insert_audio_chunk(pcm_array)
@@ -378,6 +429,8 @@ class TranscriptionProcessor:
 
                 if new_tokens:
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
+                    # Only log when we actually get new tokens (meaningful events)
+                    logger.debug(f"🎙️ Generated {len(new_tokens)} new tokens: '{new_tokens[0].text[:30]}...'")
 
                 # Get buffer information
                 _buffer = self.online.get_buffer()
@@ -536,14 +589,14 @@ class Formatter:
                     # Determine speaker (use most common speaker in the sentence) - optimize speaker detection
                     if self.args.diarization:
                         # Filter valid speakers once
-                        valid_speakers = [t.speaker for t in sent_tokens if t.speaker not in {-1, 0}]
+                        valid_speakers = [t.speaker for t in sent_tokens if t.speaker not in {-1} and t.speaker is not None]
                         if valid_speakers:
                             # Use most frequent speaker with optimized counting
                             speaker = max(set(valid_speakers), key=valid_speakers.count)
                         else:
                             speaker = sent_tokens[0].speaker
                     else:
-                        speaker = 1  # Default speaker when no diarization
+                        speaker = 0  # Default speaker when no diarization (UI will show "Speaker 1")
 
                     # Create line for this sentence
                     line = {"speaker": speaker, "text": sent_text, "beg": format_time(sent_tokens[0].start), "end": format_time(sent_tokens[-1].end), "diff": 0}  # Not used in sentence mode
@@ -562,18 +615,28 @@ class Formatter:
         last_end_diarized = 0
         undiarized_text = []
 
+        # Debug logging to understand token flow - only log occasionally to reduce spam
+        if tokens and not hasattr(self, "_format_log_counter"):
+            self._format_log_counter = 0
+        if tokens:
+            self._format_log_counter += 1
+            if self._format_log_counter % 50 == 0:  # Log every 50 formatting operations
+                logger.debug(f"🔤 Formatting {len(tokens)} tokens. End attributed speaker: {end_attributed_speaker}")
+
         # Process each token
         for token in tokens:
             speaker = token.speaker
 
             # Handle diarization - optimize with set membership checks
             if self.args.diarization:
-                speaker_in_invalid_set = speaker in {-1, 0}
+                speaker_in_invalid_set = speaker in {-1} or speaker is None
                 if speaker_in_invalid_set and token.end >= end_attributed_speaker:
+                    # Keep collecting undiarized text but also display it temporarily
                     undiarized_text.append(token.text)
-                    continue
+                    # Assign a temporary positive speaker ID for display purposes
+                    speaker = 0  # Use Speaker 0 as default for undiarized tokens (UI will show "Speaker 1")
                 elif speaker_in_invalid_set and token.end < end_attributed_speaker:
-                    speaker = previous_speaker
+                    speaker = previous_speaker if previous_speaker >= 0 else 0
                 if not speaker_in_invalid_set:
                     last_end_diarized = max(token.end, last_end_diarized)
 
@@ -700,7 +763,7 @@ class AudioProcessor:
         """Placeholder token when no transcription is available."""
         async with self.lock:
             current_time = time() - self.beg_loop
-            self.tokens.append(ASRToken(start=current_time, end=current_time + 1, text=".", speaker=-1, is_dummy=True))
+            self.tokens.append(ASRToken(start=current_time, end=current_time + 1, text=".", speaker=0, is_dummy=True))
 
     async def _handle_inference_callback(self, inference_response, transcription_text):
         """Handle callback when a inference result is generated."""
@@ -798,7 +861,7 @@ class AudioProcessor:
                 if self.args.diarization:
                     # Collect any undiarized tokens
                     for token in tokens:
-                        if (token.speaker in [-1, 0]) and token.end >= end_attributed_speaker:
+                        if (token.speaker in [-1] or token.speaker is None) and token.end >= end_attributed_speaker:
                             undiarized_text.append(token.text)
 
                 if undiarized_text:
@@ -810,7 +873,7 @@ class AudioProcessor:
 
                 # Create response object with s2hk conversion applied to final output
                 if not lines:
-                    lines = [{"speaker": 1, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
+                    lines = [{"speaker": 0, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
 
                 # Apply s2hk conversion to final output only (reduces latency) - optimize with list comprehension
                 final_lines = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in lines]

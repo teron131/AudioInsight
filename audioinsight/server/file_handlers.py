@@ -38,7 +38,7 @@ async def handle_file_upload_for_websocket(file: UploadFile) -> Dict:
         HTTPException: If file validation or processing fails
     """
     # Validate file type
-    if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES):
+    if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES, file.filename):
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. " f"Supported types: {', '.join(ALLOWED_AUDIO_TYPES)}")
 
     logger.info(f"Uploading file for WebSocket processing: {file.filename} ({file.content_type})")
@@ -81,7 +81,7 @@ async def handle_file_upload_and_process(file: UploadFile) -> Dict:
         HTTPException: If file validation or processing fails
     """
     # Validate file type
-    if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES):
+    if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES, file.filename):
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}. " f"Supported types: {', '.join(ALLOWED_AUDIO_TYPES)}")
 
     logger.info(f"Processing uploaded file: {file.filename} ({file.content_type})")
@@ -146,7 +146,7 @@ async def handle_file_upload_stream(file: UploadFile) -> StreamingResponse:
         temp_file_path = None
         try:
             # Validate file type
-            if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES):
+            if not validate_file_type(file.content_type, ALLOWED_AUDIO_TYPES, file.filename):
                 yield f"event: error\ndata: {{'error': 'Unsupported file type: {file.content_type}'}}\n\n"
                 return
 

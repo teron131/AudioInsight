@@ -140,9 +140,51 @@ class DiartDiarization:
         """
         segments = self.observer.get_segments()
 
+        # Create speaker mapping to ensure first speaker is always labeled as 0 (UI will display as "Speaker 1")
+        speaker_mapping = {}
+        next_speaker_id = 0  # Start from 0, not 1, since UI adds +1 for display
+
+        # Sort segments by start time to process chronologically
+        sorted_segments = sorted(segments, key=lambda s: s.start)
+
+        # Debug logging: Show all detected speakers
+        unique_speakers = set()
+        for segment in sorted_segments:
+            original_speaker = segment.speaker
+            unique_speakers.add(original_speaker)
+
+            # Map speakers consistently - first detected gets ID 0 (UI will show as "Speaker 1")
+            if original_speaker not in speaker_mapping:
+                speaker_mapping[original_speaker] = next_speaker_id
+                next_speaker_id += 1
+
+        logger.debug(f"🎤 Speaker assignment: {len(segments)} segments, {len(unique_speakers)} unique speakers")
+        if speaker_mapping:
+            logger.debug(f"🎤 Speaker mapping: {speaker_mapping}")
+
+        if len(sorted_segments) > 0:
+            logger.debug(f"🎤 Recent segments:")
+            for segment in sorted_segments[-3:]:  # Show last 3 segments
+                mapped_id = speaker_mapping.get(segment.speaker, 0)
+                ui_display_id = mapped_id + 1  # What UI will display
+                logger.debug(f"   {segment.speaker} -> ID {mapped_id} (UI: Speaker {ui_display_id}): {segment.start:.2f}s-{segment.end:.2f}s")
+
+        tokens_updated = 0
         for token in tokens:
-            for segment in segments:
+            original_speaker = token.speaker
+            for segment in sorted_segments:
                 if not (segment.end <= token.start or segment.start >= token.end):
-                    token.speaker = extract_number(segment.speaker) + 1
+                    # Use consistent speaker mapping starting from 0 (UI will add +1 for display)
+                    new_speaker = speaker_mapping.get(segment.speaker, 0)
+                    if token.speaker != new_speaker:
+                        token.speaker = new_speaker
+                        tokens_updated += 1
+                        ui_display_id = new_speaker + 1  # What UI will display
+                        logger.debug(f"🔄 Updated token '{token.text}' ({token.start:.2f}s) from speaker {original_speaker} to {new_speaker} (UI: Speaker {ui_display_id})")
                     end_attributed_speaker = max(token.end, end_attributed_speaker)
+                    break  # Found a match, move to next token
+
+        if tokens_updated > 0:
+            logger.debug(f"🎯 Updated {tokens_updated} tokens with speaker assignments")
+
         return end_attributed_speaker
