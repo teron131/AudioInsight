@@ -985,7 +985,7 @@ class AudioProcessor:
 
                 # Add summaries if available - optimize by checking flag first and limiting frequency
                 current_time = time()
-                if self._has_summaries or (current_time - self._last_summary_check > 10.0):  # Check every 10 seconds if no summaries
+                if self._has_summaries or (current_time - self._last_summary_check > 2.0):  # Check every 2 seconds if no summaries for faster appearance
                     self._last_summary_check = current_time
                     async with self.lock:
                         if self.summaries:
@@ -1087,9 +1087,27 @@ class AudioProcessor:
                 await asyncio.sleep(0.5)  # Back off on error
 
     async def create_tasks(self):
-        """Create and start processing tasks."""
-        self.all_tasks_for_cleanup = []
+        """Create async tasks for audio processing and result formatting."""
+        self.all_tasks_for_cleanup = []  # Reset task list
         processing_tasks_for_watchdog = []
+
+        # Initialize LLM inference processor FIRST if needed - CRITICAL: must happen before transcription task creation
+        if getattr(self.args, "llm_inference", False) and not self.llm:
+            logger.info("🔧 Creating LLM processor on demand")
+            try:
+                trigger_config = LLMTrigger(
+                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
+                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
+                )
+                self.llm = LLM(
+                    model_id=getattr(self.args, "llm_model", "gpt-4.1-mini"),
+                    trigger_config=trigger_config,
+                )
+                self.llm.add_inference_callback(self._handle_inference_callback)
+                logger.info(f"LLM inference initialized on demand with model: {self.args.llm_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM inference processor on demand: {e}")
+                self.llm = None
 
         # Initialize components on demand if not already created
         if not self.ffmpeg_processor:
@@ -1097,7 +1115,7 @@ class AudioProcessor:
             self.ffmpeg_processor = FFmpegProcessor(self.args)
             self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
 
-        # Initialize transcription components if needed
+        # Initialize transcription components if needed - NOW WITH CORRECT LLM REFERENCE
         if self.args.transcription:
             if not self.transcription_processor:
                 logger.info("🔧 Creating transcription processor on demand")
@@ -1107,6 +1125,7 @@ class AudioProcessor:
             if not self.transcription_queue:
                 self.transcription_queue = asyncio.Queue()
 
+            # FIXED: Now self.llm is properly initialized before creating transcription task
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
             self.all_tasks_for_cleanup.append(self.transcription_task)
             processing_tasks_for_watchdog.append(self.transcription_task)
@@ -1129,25 +1148,7 @@ class AudioProcessor:
         self.all_tasks_for_cleanup.append(self.ffmpeg_reader_task)
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
 
-        # Initialize LLM inference processor if needed
-        if getattr(self.args, "llm_inference", False) and not self.llm:
-            logger.info("🔧 Creating LLM processor on demand")
-            try:
-                trigger_config = LLMTrigger(
-                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
-                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
-                )
-                self.llm = LLM(
-                    model_id=getattr(self.args, "llm_model", "gpt-4.1-mini"),
-                    trigger_config=trigger_config,
-                )
-                self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference initialized on demand with model: {self.args.llm_model}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize LLM inference processor on demand: {e}")
-                self.llm = None
-
-        # Start LLM inference processor monitoring if enabled
+        # Start LLM inference processor monitoring if enabled - AFTER initialization
         if self.llm:
             self.llm_task = asyncio.create_task(self.llm.start_monitoring())
             self.all_tasks_for_cleanup.append(self.llm_task)
