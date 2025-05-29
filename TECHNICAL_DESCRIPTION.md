@@ -90,24 +90,38 @@ The system is organized into the following core modules:
 - **State Synchronization**: Thread-safe coordination with central AudioProcessor state management
 
 #### **DiarizationProcessor: Speaker Identification Pipeline**  
-**Purpose**: Handles speaker identification processing independently of transcription pipeline to avoid latency impact.
+**Purpose**: Handles speaker identification processing independently of transcription pipeline to avoid latency impact with enhanced logging and memory management.
 
 **Key Methods**:
-- `process()`: Handles speaker identification processing independently of transcription pipeline
-- Coordinates with `diarization/` module for real-time speaker attribution
-- Manages retrospective speaker-to-token assignment based on temporal overlap
+- `process()`: Handles speaker identification processing independently of transcription pipeline with intelligent logging
+- `cleanup()`: Proper resource cleanup for diarization components and WebSocket audio sources
+- Coordinates with `diarization/` module for real-time speaker attribution with enhanced memory management
+- Manages retrospective speaker-to-token assignment based on temporal overlap with consistent speaker mapping
+
+**Advanced Processing Features**:
+- **Intelligent Logging**: Reduces log spam with 120-second intervals for processing updates while maintaining visibility
+- **Chunk Processing Tracking**: Monitors processed chunks for performance analysis and debugging
+- **Error Recovery**: Comprehensive exception handling that maintains processing continuity
+- **Queue Management**: Proper queue coordination with task_done() calls and SENTINEL handling
 
 **Asynchronous Architecture**:
 - **Independent Processing**: Operates on separate processing queue to avoid blocking primary transcription
-- **Retrospective Attribution**: Assigns speaker labels to committed tokens after transcription completion
-- **State Coordination**: Coordinates with central AudioProcessor through callback functions for token state access
-- **Temporal Analysis**: Uses timing overlap analysis for accurate speaker-to-token attribution
+- **Retrospective Attribution**: Assigns speaker labels to committed tokens after transcription completion using enhanced temporal overlap analysis
+- **State Coordination**: Coordinates with central AudioProcessor through callback functions (`get_state_callback`, `update_callback`) for efficient token state access
+- **Memory Management**: Integrates with DiarizationObserver's automatic segment cleanup to prevent memory accumulation
+
+**Enhanced Integration**:
+- **Callback Architecture**: Uses `get_state_callback()` and `update_callback()` for efficient communication with AudioProcessor coordinator
+- **Thread-Safe Operations**: Coordinates with DiarizationObserver's thread-safe segment management
+- **Resource Cleanup**: Proper cleanup of WebSocketAudioSource and diarization observers through `cleanup()` method
+- **Performance Monitoring**: Logs processing statistics for system health monitoring
 
 **Responsibilities**:
-- **Parallel Processing**: Speaker identification runs concurrently without affecting transcription latency
-- **Retrospective Attribution**: Speaker label assignment after transcription completion ensures optimal timing
-- **Resource Independence**: Maintains separate processing queue and state management for speaker identification
-- **Cleanup Management**: Processor-specific resource cleanup and state management
+- **Parallel Processing**: Speaker identification runs concurrently without affecting transcription latency with optimized logging
+- **Retrospective Attribution**: Speaker label assignment after transcription completion ensures optimal timing with consistent numbering
+- **Resource Independence**: Maintains separate processing queue and state management for speaker identification with proper cleanup
+- **Memory Management**: Coordinates with DiarizationObserver's automatic memory cleanup to prevent unbounded growth
+- **Error Isolation**: Handles diarization failures gracefully without impacting core transcription functionality
 
 #### **Formatter: Result Aggregation and Output Generation**
 **Purpose**: Handles intelligent formatting of transcription and diarization results with multiple segmentation strategies.
@@ -352,26 +366,49 @@ The system is organized into the following core modules:
 - **Memory Efficiency**: Frozen dataclasses use less memory and provide better cache locality
 
 ### **`diarization/`** - Speaker Identification and Attribution System
-**Purpose**: Parallel processing system for real-time speaker identification and attribution using Diart and PyAnnote models.
+**Purpose**: Parallel processing system for real-time speaker identification and attribution using Diart and PyAnnote models with advanced memory management and robust speaker mapping.
 
 #### **`diarization/diarization_online.py`** - Real-Time Speaker Diarization
+
 **Key Components**:
-- `DiartDiarization` class: Main coordinator for speaker identification using Diart pipeline
-- `DiarizationObserver` class: Observer pattern implementation for collecting speaker segments
-- `WebSocketAudioSource` class: Custom audio source for streaming audio data to diarization pipeline
+- `DiartDiarization` class: Main coordinator for speaker identification using Diart pipeline with WebSocket integration
+- `DiarizationObserver` class: Observer pattern implementation for collecting speaker segments with thread-safe memory management
+- `WebSocketAudioSource` class: Custom audio source for streaming audio data to diarization pipeline with controlled lifecycle management
 
 **Key Methods**:
-- `diarize()`: Processes PCM audio chunks for speaker identification
-- `assign_speakers_to_tokens()`: Retrospectively assigns speaker labels to transcribed tokens based on temporal overlap
-- `DiarizationObserver.on_next()`: Collects speaker segments and maintains temporal speaker model
+- `diarize()`: Processes PCM audio chunks for speaker identification with automatic memory cleanup
+- `assign_speakers_to_tokens()`: Retrospectively assigns speaker labels to transcribed tokens based on temporal overlap with consistent speaker mapping starting from ID 0
+- `DiarizationObserver.on_next()`: Collects speaker segments and maintains temporal speaker model with thread-safe operations
+- `DiarizationObserver.clear_old_segments()`: Automatic memory management that removes segments older than 30 seconds to prevent memory overflow
 - Threading synchronization for concurrent processing without blocking transcription
+
+**Advanced Features**:
+
+**Memory Management and Performance**:
+- **Automatic Segment Cleanup**: `clear_old_segments()` method automatically removes speaker segments older than 30 seconds during each processing cycle
+- **Thread-Safe Operations**: All segment operations protected by `segment_lock` to ensure data consistency across concurrent access
+- **Memory Efficiency**: Maintains sliding window of recent speaker activity without accumulating unbounded historical data
+- **Processing Time Tracking**: Tracks `processed_time` to coordinate segment cleanup with current audio timeline
+
+**Robust Speaker Attribution**:
+- **Consistent Speaker Mapping**: Creates stable speaker ID mapping where first detected speaker always gets ID 0 (displayed as "Speaker 1" in UI)
+- **Temporal Overlap Analysis**: Uses precise timing overlap between speaker segments and transcribed tokens for accurate attribution
+- **Retrospective Processing**: Speaker labels assigned after transcription completion to ensure optimal timing accuracy
+- **Debugging and Monitoring**: Comprehensive logging shows speaker mapping, recent segments, and token update statistics
+
+**Integration Architecture**:
+- **WebSocketAudioSource**: Custom audio source that integrates streaming audio data into Diart pipeline with controlled lifecycle
+- **Observer Pattern**: Asynchronous collection of diarization results without blocking main processing pipeline
+- **Threading Coordination**: Independent processing thread prevents diarization from impacting transcription latency
+- **Resource Management**: Proper cleanup and close operations for audio sources and processing pipelines
 
 **Responsibilities**:
 - Process audio independently of transcription pipeline to avoid latency impact
-- Maintain temporal model of speaker activity across the streaming session
-- Assign speaker labels to committed tokens based on timing overlap analysis
-- Handle PyAnnote model integration and speaker segment extraction
-- Provide thread-safe access to speaker segments with automatic cleanup of old data
+- Maintain temporal model of speaker activity with automatic memory management across streaming sessions
+- Assign speaker labels to committed tokens based on timing overlap analysis with consistent numbering
+- Handle PyAnnote model integration and speaker segment extraction with robust error handling
+- Provide thread-safe access to speaker segments with automatic cleanup of old data to prevent memory leaks
+- Coordinate with AudioProcessor through specialized DiarizationProcessor interface
 
 ### **`llm.py`** - LLM-Based Summarization and Conversation Analysis
 **Purpose**: Intelligent conversation monitoring and summarization system that generates summaries based on activity patterns and conversation triggers.
@@ -528,9 +565,9 @@ The foundation of the streaming system is built on carefully designed data struc
 
 **Transcript and Sentence Classes**: Higher-level aggregations that represent complete thoughts or utterances, used in the buffer trimming and context management systems.
 
-### 2. System Initialization and Configuration (`core.py`)
+### 2. System Initialization and Configuration (`main.py`)
 
-The `AudioInsight` class in `core.py` serves as the central coordinator and singleton that manages:
+The `AudioInsight` class in `main.py` serves as the central coordinator and singleton that manages:
 
 **Model Loading and Backend Selection**: Coordinates with `whisper_streaming/whisper_online.py` to initialize the appropriate Whisper backend (faster-whisper, OpenAI API, etc.) through the `backend_factory()` function.
 
@@ -582,8 +619,8 @@ The `AudioProcessor` class now serves as a central coordinator that orchestrates
 
 **DiarizationProcessor: Speaker Identification Pipeline**
 - **Independent Processing**: Operates asynchronously to avoid blocking primary transcription pipeline, with dedicated processing queue
-- **Retrospective Attribution**: The `process()` method assigns speaker labels to committed tokens after transcription completion using temporal overlap analysis
-- **State Coordination**: Coordinates with central AudioProcessor through callback functions to access current token state and update speaker attribution
+- **Retrospective Attribution**: The `process()` method assigns speaker labels to committed tokens after transcription completion using enhanced temporal overlap analysis
+- **State Coordination**: Coordinates with central AudioProcessor through callback functions (`get_state_callback`, `update_callback`) for efficient token state access
 
 **Formatter: Result Aggregation and Output Generation**
 - **Sentence-Based Formatting**: The `format_by_sentences()` method uses integrated tokenizers for intelligent sentence boundary detection and grouping
@@ -736,7 +773,7 @@ The modular system implements comprehensive memory optimization strategies acros
 
 ## Error Recovery and Fault Tolerance
 
-### 1. Process Health Monitoring (`audio_processor.py`)
+### 1. Process Health Monitoring (`processors.py`)
 
 **Watchdog System**: The `watchdog()` method continuously monitors task health, FFmpeg responsiveness, and resource utilization, implementing automatic recovery procedures when issues are detected.
 
@@ -752,7 +789,7 @@ The modular system implements comprehensive memory optimization strategies acros
 
 ## Final Transcription and Buffer Text Preservation
 
-### 1. Buffer Text Recovery (`audio_processor.py`)
+### 1. Buffer Text Recovery (`processors.py`)
 
 **Challenge**: When processing ends, uncommitted text in the hypothesis buffer was previously lost during final summary generation, leading to incomplete transcriptions.
 
@@ -794,7 +831,7 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ### 1. Session Isolation Architecture
 
-**Independent Processor Instantiation**: Each WebSocket connection in `server.py` creates an isolated `AudioProcessor` instance with dedicated resources, preventing cross-session interference.
+**Independent Processor Instantiation**: Each WebSocket connection in `server.py` creates an isolated `AudioProcessor` instance, ensuring complete session isolation and preventing cross-session interference.
 
 **Resource Allocation**: Fair scheduling algorithms prevent any single session from monopolizing system resources, with adaptive allocation based on concurrent session count.
 
@@ -848,6 +885,13 @@ AudioInsight's codebase represents a sophisticated engineering solution where ea
 
 The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the theoretical foundation, while the modular `processors.py` orchestrates the complex real-time pipeline through specialized components: `FFmpegProcessor` for audio conversion, `TranscriptionProcessor` for Whisper integration, `DiarizationProcessor` for speaker identification, and `Formatter` for output generation. The central `AudioProcessor` coordinator manages shared state and task orchestration.
 
+**Recent Enhancements**: The system has been significantly improved with advanced resource management and speaker identification capabilities:
+
+- **Advanced Cleanup System**: Implementation of `force_reset()` method enables aggressive memory clearing and component reinitialization for efficient session reuse without memory leaks
+- **Enhanced Diarization**: DiarizationObserver with automatic segment cleanup, consistent speaker mapping, and thread-safe memory management prevents unbounded growth
+- **Session Management**: Global processor reuse with proper reset procedures enables efficient multi-user handling while maintaining resource isolation
+- **Memory Optimization**: Comprehensive cleanup hierarchy from graceful shutdown to aggressive reset procedures prevents resource leaks across session boundaries
+
 **Server Architecture Enhancements**: The system has been significantly improved through comprehensive server modularization:
 
 - **Separation of Concerns**: Clear boundaries between configuration (`server/config.py`), file handling (`server/file_handlers.py`), WebSocket management (`server/websocket_handlers.py`), and utilities (`server/utils.py`)
@@ -876,12 +920,98 @@ The LocalAgreement algorithm in `whisper_streaming/online_asr.py` provides the t
 - **Fault Isolation**: Failures in specific components (server modules or processors) don't affect other system parts
 - **Resource Optimization**: Specialized data structures and access patterns optimized per component type
 - **Future Extensibility**: New server endpoints and processor types can be added following established patterns
+- **Production Scalability**: Advanced cleanup and memory management enable robust multi-user deployment scenarios
 
 **Integration Excellence**: The system demonstrates sophisticated integration patterns:
 
-- **Server-Processor Coordination**: `server/websocket_handlers.py` coordinates with `processors.py` for session management
+- **Server-Processor Coordination**: `server/websocket_handlers.py` coordinates with `processors.py` for session management with advanced cleanup integration
 - **Unified File Processing**: `server/file_handlers.py` integrates with `AudioProcessor` for consistent processing behavior
 - **Configuration Propagation**: `server/config.py` settings flow through `app.py` to all processing components
-- **Cross-Module Communication**: Well-defined interfaces between server modules and processing pipeline components
+- **Resource Lifecycle Management**: Comprehensive cleanup system coordinates with all components for proper resource management
 
-This enhanced modular architecture enables future improvements and optimizations without disrupting core functionality, making AudioInsight a robust platform for real-time speech recognition applications with production-grade performance characteristics, comprehensive API support, and maintainable code organization that scales effectively across different deployment scenarios and processing requirements. 
+This enhanced modular architecture with advanced cleanup and diarization capabilities enables future improvements and optimizations without disrupting core functionality, making AudioInsight a robust platform for real-time speech recognition applications with production-grade performance characteristics, comprehensive API support, efficient memory management, and maintainable code organization that scales effectively across different deployment scenarios and processing requirements.
+
+### **Resource Management and Cleanup System** - Advanced Memory Management and Session Lifecycle
+**Purpose**: Comprehensive resource management system that prevents memory leaks, handles graceful shutdowns, and enables efficient session reuse through both incremental cleanup and aggressive reset procedures.
+
+**Key Components**:
+
+#### **AudioProcessor Cleanup Hierarchy**
+**Purpose**: Multi-level cleanup system that handles different scenarios from graceful shutdown to aggressive memory clearing.
+
+**Cleanup Methods**:
+- `cleanup()`: Standard graceful cleanup for normal session termination with resource preservation
+- `force_reset()`: Aggressive memory clearing and component reinitialization for fresh sessions without memory leaks
+- Component-specific cleanup: Individual processor cleanup methods with resource-specific procedures
+
+**Standard Cleanup (`cleanup()` method)**:
+- **LLM Coordination**: Stops LLM inference processor first to generate final summaries before shutdown
+- **Task Cancellation**: Cancels all processing tasks with proper exception handling and resource wait procedures
+- **Processor Cleanup**: Calls specialized cleanup methods for FFmpeg, diarization, and transcription processors
+- **Resource Deallocation**: Ensures proper cleanup of external processes, file handles, and memory buffers
+
+**Aggressive Force Reset (`force_reset()` method)**:
+- **Immediate Task Termination**: Aggressively cancels all tasks without waiting for graceful completion
+- **Queue Clearing**: Empties all processing queues (transcription, diarization) with proper task_done() calls
+- **Memory Buffer Clearing**: Clears all tokens, transcription buffers, and state variables under async lock protection
+- **Component Nullification**: Sets all processor references to None to ensure garbage collection
+- **State Reset**: Resets timing variables, flags, and task references for clean session restart
+- **On-Demand Reinitialization**: Components recreated only when needed to avoid unnecessary resource allocation
+
+#### **Session Management Integration**
+**Purpose**: Enables efficient multi-session handling with resource reuse and memory leak prevention.
+
+**WebSocket Integration** (`server/websocket_handlers.py`):
+- **Global Processor Reuse**: `get_or_create_audio_processor()` reuses single AudioProcessor instance across sessions
+- **Session Isolation**: `force_reset()` called between sessions to ensure clean state without creating new instances
+- **Fallback Handling**: Creates new AudioProcessor instance if reset fails, ensuring service continuity
+- **Graceful Degradation**: Handles reset failures by falling back to full instance recreation
+
+**Resource Pooling Benefits**:
+- **Performance Optimization**: Reusing AudioProcessor instances avoids expensive model reloading and initialization
+- **Memory Efficiency**: Force reset clears memory without deallocating core resources like model weights
+- **Connection Handling**: Enables rapid session transitions for multiple concurrent users
+- **Scalability**: Efficient resource management enables better concurrent session handling
+
+#### **Component-Specific Cleanup**
+**Purpose**: Specialized cleanup procedures tailored to each processor type's resource requirements.
+
+**FFmpegProcessor Cleanup**:
+- **Process Termination**: Aggressive FFmpeg process termination with stdin/stdout/stderr closure
+- **Buffer Clearing**: Clears PCM buffers and pre-allocated numpy arrays
+- **File Handle Cleanup**: Ensures no leaked file descriptors from audio processing pipes
+- **Threading Coordination**: Synchronous cleanup in thread executor to avoid blocking async operations
+
+**DiarizationProcessor Cleanup**:
+- **Audio Source Closure**: Properly closes WebSocketAudioSource to stop diarization pipeline
+- **Observer Cleanup**: Clears speaker segments and stops observer processing threads
+- **Model Resource Cleanup**: Ensures PyAnnote and Diart models release GPU/CPU resources properly
+
+**TranscriptionProcessor Cleanup**:
+- **Buffer Finalization**: Extracts remaining uncommitted text before cleanup to prevent data loss
+- **Model State Preservation**: Maintains Whisper model state for potential reuse while clearing processing state
+- **Context Cleanup**: Clears hypothesis buffers and LocalAgreement state machines
+
+#### **Error Recovery and Fault Tolerance**
+**Purpose**: Robust error handling that maintains service availability during cleanup failures.
+
+**Graceful Failure Handling**:
+- **Exception Isolation**: Individual component cleanup failures don't prevent other components from cleaning up
+- **Fallback Procedures**: Automatic fallback to full instance recreation if selective cleanup fails
+- **Resource Leak Prevention**: Comprehensive try-catch blocks ensure resources are freed even during cleanup errors
+- **State Consistency**: Maintains consistent system state even when partial cleanup procedures fail
+
+**Memory Leak Prevention**:
+- **Reference Clearing**: Explicit nullification of object references to ensure garbage collection
+- **Circular Reference Breaking**: Careful cleanup of callbacks and coordinator references
+- **Buffer Management**: Explicit clearing of all audio buffers and temporary data structures
+- **Task Reference Cleanup**: Clears all asyncio task references to prevent task accumulation
+
+**Responsibilities**:
+- **Session Lifecycle Management**: Coordinates complete session setup, processing, and teardown procedures
+- **Memory Optimization**: Prevents memory leaks while maintaining performance through intelligent resource reuse
+- **Multi-User Support**: Enables efficient concurrent session handling through proper resource isolation and cleanup
+- **Error Recovery**: Maintains service availability even during component failures or cleanup errors
+- **Resource Efficiency**: Balances memory usage with performance through selective cleanup and component reuse
+
+**Integration Points**: Used by `server/websocket_handlers.py` for session management, coordinates with all processor classes for resource cleanup, integrates with external processes (FFmpeg) and ML models for proper resource deallocation.
