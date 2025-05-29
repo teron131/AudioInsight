@@ -19,6 +19,10 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
+# Global audio processor to reuse between connections
+_global_audio_processor = None
+_processor_lock = asyncio.Lock()
+
 
 async def handle_websocket_results(
     websocket: WebSocket,
@@ -99,7 +103,7 @@ async def handle_websocket_connection(websocket: WebSocket) -> None:
     Args:
         websocket: WebSocket connection
     """
-    audio_processor = AudioProcessor()
+    audio_processor = await get_or_create_audio_processor()
 
     await websocket.accept()
     logger.info("WebSocket connection opened.")
@@ -199,3 +203,50 @@ async def _cleanup_websocket_connection(
 
     await audio_processor.cleanup()
     logger.info("WebSocket endpoint cleaned up successfully.")
+
+
+async def get_or_create_audio_processor() -> AudioProcessor:
+    """Get or create a clean AudioProcessor instance.
+
+    This function ensures we reuse the same processor instance but reset it between sessions
+    to prevent memory leaks while maintaining performance.
+    """
+    global _global_audio_processor
+
+    async with _processor_lock:
+        if _global_audio_processor is None:
+            logger.info("🔧 Creating new AudioProcessor instance")
+            _global_audio_processor = AudioProcessor()
+        else:
+            # Reset the existing processor for a fresh session
+            logger.info("🔄 Resetting existing AudioProcessor for new session")
+            try:
+                await _global_audio_processor.force_reset()
+            except Exception as e:
+                logger.warning(f"Error during processor reset, creating new instance: {e}")
+                # If reset fails, create a completely new instance
+                try:
+                    await _global_audio_processor.cleanup()
+                except:
+                    pass
+                _global_audio_processor = AudioProcessor()
+
+        return _global_audio_processor
+
+
+async def cleanup_global_processor():
+    """Clean up the global audio processor completely.
+
+    This should be called when the server is shutting down or for complete cleanup.
+    """
+    global _global_audio_processor
+
+    async with _processor_lock:
+        if _global_audio_processor is not None:
+            logger.info("🧹 Cleaning up global AudioProcessor")
+            try:
+                await _global_audio_processor.cleanup()
+            except Exception as e:
+                logger.warning(f"Error during global processor cleanup: {e}")
+            finally:
+                _global_audio_processor = None

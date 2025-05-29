@@ -150,51 +150,101 @@ class FFmpegProcessor:
 
     def start_ffmpeg_decoder(self):
         """Start FFmpeg process for WebM to PCM conversion."""
-        return ffmpeg.input("pipe:0", format="webm").output("pipe:1", format="s16le", acodec="pcm_s16le", ac=self.channels, ar=self.sample_rate_str).run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+        try:
+            # Close any existing stdout/stderr before creating new process
+            if hasattr(self, "ffmpeg_process") and self.ffmpeg_process:
+                try:
+                    if self.ffmpeg_process.stdout and not self.ffmpeg_process.stdout.closed:
+                        self.ffmpeg_process.stdout.close()
+                    if self.ffmpeg_process.stderr and not self.ffmpeg_process.stderr.closed:
+                        self.ffmpeg_process.stderr.close()
+                except:
+                    pass
+
+            # Create new FFmpeg process with explicit error handling
+            process = ffmpeg.input("pipe:0", format="webm").output("pipe:1", format="s16le", acodec="pcm_s16le", ac=self.channels, ar=self.sample_rate_str).run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=True)  # Suppress FFmpeg output to avoid buffer issues
+
+            # Verify the process started correctly
+            if process.poll() is not None:
+                raise RuntimeError("FFmpeg process failed to start")
+
+            return process
+
+        except Exception as e:
+            logger.error(f"Failed to start FFmpeg process: {e}")
+            raise
 
     async def restart_ffmpeg(self):
         """Restart the FFmpeg process after failure."""
         logger.warning("Restarting FFmpeg process...")
 
+        # Force cleanup of existing process more aggressively
         if self.ffmpeg_process:
             try:
-                # we check if process is still running
+                # Close stdin immediately to signal shutdown
+                if self.ffmpeg_process.stdin and not self.ffmpeg_process.stdin.closed:
+                    try:
+                        self.ffmpeg_process.stdin.close()
+                    except:
+                        pass
+
+                # Close stdout and stderr
+                if self.ffmpeg_process.stdout and not self.ffmpeg_process.stdout.closed:
+                    try:
+                        self.ffmpeg_process.stdout.close()
+                    except:
+                        pass
+
+                if self.ffmpeg_process.stderr and not self.ffmpeg_process.stderr.closed:
+                    try:
+                        self.ffmpeg_process.stderr.close()
+                    except:
+                        pass
+
+                # Terminate the process if it's still running
                 if self.ffmpeg_process.poll() is None:
                     logger.info("Terminating existing FFmpeg process")
-                    self.ffmpeg_process.stdin.close()
                     self.ffmpeg_process.terminate()
 
-                    # wait for termination with timeout
+                    # Wait for termination with timeout
                     try:
-                        await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_process.wait), timeout=5.0)
+                        await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_process.wait), timeout=3.0)
                     except asyncio.TimeoutError:
                         logger.warning("FFmpeg process did not terminate, killing forcefully")
                         self.ffmpeg_process.kill()
-                        await asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_process.wait)
+                        try:
+                            await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_process.wait), timeout=2.0)
+                        except asyncio.TimeoutError:
+                            logger.error("FFmpeg process could not be killed")
+
             except Exception as e:
                 logger.error(f"Error during FFmpeg process termination: {e}")
-                logger.error(traceback.format_exc())
 
-        # we start new process
-        try:
-            logger.info("Starting new FFmpeg process")
-            self.ffmpeg_process = self.start_ffmpeg_decoder()
-            self.pcm_buffer_length = 0  # Reset buffer length for new process
-            self.last_ffmpeg_activity = time()
-            logger.info("FFmpeg process restarted successfully")
-        except Exception as e:
-            logger.error(f"Failed to restart FFmpeg process: {e}")
-            logger.error(traceback.format_exc())
-            # try again after 5s
-            await asyncio.sleep(5)
+        # Clear the reference
+        self.ffmpeg_process = None
+
+        # Wait a moment before restarting to ensure cleanup
+        await asyncio.sleep(0.5)
+
+        # Start new process with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
+                logger.info(f"Starting new FFmpeg process (attempt {attempt + 1}/{max_retries})")
                 self.ffmpeg_process = self.start_ffmpeg_decoder()
                 self.pcm_buffer_length = 0  # Reset buffer length for new process
                 self.last_ffmpeg_activity = time()
-                logger.info("FFmpeg process restarted successfully on second attempt")
-            except Exception as e2:
-                logger.critical(f"Failed to restart FFmpeg process on second attempt: {e2}")
-                logger.critical(traceback.format_exc())
+                logger.info("FFmpeg process restarted successfully")
+                return
+
+            except Exception as e:
+                logger.error(f"Failed to restart FFmpeg process (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    # Wait longer between retries
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                else:
+                    logger.critical("Failed to restart FFmpeg process after all attempts")
+                    raise
 
     async def read_audio_data(self, transcription_queue=None, diarization_queue=None):
         """Read audio data from FFmpeg stdout and process it."""
@@ -295,7 +345,7 @@ class FFmpegProcessor:
     async def process_audio_chunk(self, message):
         """Process incoming audio data."""
         retry_count = 0
-        max_retries = 3
+        max_retries = 2  # Reduce max retries to prevent restart loops
 
         # Log periodic heartbeats showing ongoing audio proc
         current_time = time()
@@ -305,27 +355,43 @@ class FFmpegProcessor:
 
         while retry_count < max_retries:
             try:
+                # Check if FFmpeg process is available and healthy
                 if not self.ffmpeg_process or not hasattr(self.ffmpeg_process, "stdin") or self.ffmpeg_process.poll() is not None:
                     logger.warning("FFmpeg process not available, restarting...")
                     await self.restart_ffmpeg()
+                    retry_count += 1
+                    continue
+
+                # Check if stdin is still open
+                if self.ffmpeg_process.stdin.closed:
+                    logger.warning("FFmpeg stdin is closed, restarting...")
+                    await self.restart_ffmpeg()
+                    retry_count += 1
+                    continue
 
                 loop = asyncio.get_running_loop()
+
+                # Write operation with more generous timeout after restart
+                write_timeout = 5.0 if retry_count > 0 else 3.0
                 try:
-                    await asyncio.wait_for(loop.run_in_executor(None, lambda: self.ffmpeg_process.stdin.write(message)), timeout=2.0)
+                    await asyncio.wait_for(loop.run_in_executor(None, lambda: self.ffmpeg_process.stdin.write(message)), timeout=write_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning("FFmpeg write operation timed out, restarting...")
+                    logger.warning(f"FFmpeg write operation timed out after {write_timeout}s, restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
                     continue
 
+                # Flush operation with more generous timeout after restart
+                flush_timeout = 3.0 if retry_count > 0 else 2.0
                 try:
-                    await asyncio.wait_for(loop.run_in_executor(None, self.ffmpeg_process.stdin.flush), timeout=2.0)
+                    await asyncio.wait_for(loop.run_in_executor(None, self.ffmpeg_process.stdin.flush), timeout=flush_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning("FFmpeg flush operation timed out, restarting...")
+                    logger.warning(f"FFmpeg flush operation timed out after {flush_timeout}s, restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
                     continue
 
+                # Success - update activity time and return
                 self.last_ffmpeg_activity = time()
                 return
 
@@ -338,28 +404,88 @@ class FFmpegProcessor:
                     await asyncio.sleep(0.5)
                 else:
                     logger.error("Maximum retries reached for FFmpeg process")
-                    await self.restart_ffmpeg()
+                    # Don't restart again here - let the next call handle it
                     return
+
+        logger.warning("All FFmpeg processing attempts failed, giving up on this chunk")
+        return
 
     def cleanup(self):
         """Clean up FFmpeg resources."""
-        if self.ffmpeg_process:
-            if self.ffmpeg_process.stdin and not self.ffmpeg_process.stdin.closed:
-                try:
-                    self.ffmpeg_process.stdin.close()
-                except Exception as e:
-                    logger.warning(f"Error closing ffmpeg stdin during cleanup: {e}")
+        logger.info("Starting FFmpeg cleanup...")
 
-            # Wait for ffmpeg process to terminate
-            if self.ffmpeg_process.poll() is None:  # Check if process is still running
-                logger.info("Waiting for FFmpeg process to terminate...")
-                try:
-                    self.ffmpeg_process.wait(timeout=5.0)  # 5s timeout
-                except Exception as e:  # subprocess.TimeoutExpired is not directly caught by asyncio.wait_for with run_in_executor
-                    logger.warning(f"FFmpeg did not terminate gracefully, killing. Error: {e}")
-                    self.ffmpeg_process.kill()
-                    self.ffmpeg_process.wait()  # Wait for kill
-            logger.info("FFmpeg process terminated.")
+        if self.ffmpeg_process:
+            try:
+                # Close all file descriptors first
+                if self.ffmpeg_process.stdin and not self.ffmpeg_process.stdin.closed:
+                    try:
+                        self.ffmpeg_process.stdin.close()
+                        logger.debug("FFmpeg stdin closed")
+                    except Exception as e:
+                        logger.warning(f"Error closing ffmpeg stdin during cleanup: {e}")
+
+                if self.ffmpeg_process.stdout and not self.ffmpeg_process.stdout.closed:
+                    try:
+                        self.ffmpeg_process.stdout.close()
+                        logger.debug("FFmpeg stdout closed")
+                    except Exception as e:
+                        logger.warning(f"Error closing ffmpeg stdout during cleanup: {e}")
+
+                if self.ffmpeg_process.stderr and not self.ffmpeg_process.stderr.closed:
+                    try:
+                        self.ffmpeg_process.stderr.close()
+                        logger.debug("FFmpeg stderr closed")
+                    except Exception as e:
+                        logger.warning(f"Error closing ffmpeg stderr during cleanup: {e}")
+
+                # Terminate the process if it's still running
+                if self.ffmpeg_process.poll() is None:
+                    logger.info("Terminating FFmpeg process during cleanup...")
+                    try:
+                        self.ffmpeg_process.terminate()
+                        # Wait for termination with timeout
+                        try:
+                            self.ffmpeg_process.wait(timeout=3.0)
+                            logger.debug("FFmpeg process terminated gracefully")
+                        except:  # subprocess.TimeoutExpired and other exceptions
+                            logger.warning("FFmpeg did not terminate gracefully, killing forcefully")
+                            self.ffmpeg_process.kill()
+                            try:
+                                self.ffmpeg_process.wait(timeout=2.0)
+                                logger.debug("FFmpeg process killed successfully")
+                            except:
+                                logger.error("FFmpeg process could not be killed")
+                    except Exception as e:
+                        logger.warning(f"Error terminating FFmpeg process during cleanup: {e}")
+                else:
+                    logger.debug("FFmpeg process already terminated")
+
+            except Exception as e:
+                logger.error(f"Error during FFmpeg process cleanup: {e}")
+            finally:
+                # Always clear the reference
+                self.ffmpeg_process = None
+
+        # Clear all memory buffers aggressively
+        if hasattr(self, "pcm_buffer"):
+            self.pcm_buffer = bytearray(self.max_buffer_size)
+            self.pcm_buffer_length = 0
+
+        # Clear pre-allocated arrays
+        if hasattr(self, "_temp_int16_array"):
+            self._temp_int16_array.fill(0)
+        if hasattr(self, "_temp_float32_array"):
+            self._temp_float32_array.fill(0)
+
+        # Clear any diarization buffers
+        if hasattr(self, "_diarization_chunk_buffer"):
+            self._diarization_chunk_buffer.clear()
+            self._diarization_buffer_size = 0
+
+        # Reset timing
+        self.last_ffmpeg_activity = time()
+
+        logger.info("FFmpeg cleanup completed successfully")
 
 
 class TranscriptionProcessor:
@@ -696,25 +822,15 @@ class AudioProcessor:
         self._has_summaries = False  # Efficient flag to track summary availability
         self._last_summary_check = 0  # Timestamp of last summary check
 
-        # Initialize specialized processors
-        self.ffmpeg_processor = FFmpegProcessor(self.args)
-        # Sync FFmpeg activity timing
-        self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
+        # Initialize processor references as None - will be created on demand
+        self.ffmpeg_processor = None
         self.transcription_processor = None
         self.diarization_processor = None
         self.formatter = Formatter(self.args)
 
-        # Initialize transcription processor if enabled
-        if self.args.transcription:
-            self.transcription_processor = TranscriptionProcessor(self.args, models.asr, models.tokenizer, coordinator=self)
-
-        # Initialize diarization processor if enabled
-        if self.args.diarization:
-            self.diarization_processor = DiarizationProcessor(self.args, models.diarization)
-
-        # Processing queues
-        self.transcription_queue = asyncio.Queue() if self.args.transcription else None
-        self.diarization_queue = asyncio.Queue() if self.args.diarization else None
+        # Processing queues - will be created on demand
+        self.transcription_queue = None
+        self.diarization_queue = None
 
         # Task references
         self.transcription_task = None
@@ -723,25 +839,11 @@ class AudioProcessor:
         self.watchdog_task = None
         self.all_tasks_for_cleanup = []
 
-        # Initialize LLM inference processor if enabled
+        # Initialize LLM inference processor reference as None - will be created on demand
         self.llm = None
         self.llm_task = None
-        if getattr(self.args, "llm_inference", False):
-            try:
-                trigger_config = LLMTrigger(
-                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
-                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
-                )
-                self.llm = LLM(
-                    model_id=getattr(self.args, "llm_model", "gpt-4.1-mini"),
-                    trigger_config=trigger_config,
-                )
-                # Add callback to handle inference results
-                self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference enabled with model: {self.args.llm_model}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize LLM inference processor: {e}")
-                self.llm = None
+
+        logger.info("🔧 AudioProcessor initialized - components will be created on demand")
 
     async def update_transcription(self, new_tokens, buffer, end_buffer, full_transcription, sep):
         """Thread-safe update of transcription with new data."""
@@ -992,12 +1094,36 @@ class AudioProcessor:
         self.all_tasks_for_cleanup = []
         processing_tasks_for_watchdog = []
 
-        if self.args.transcription and self.transcription_processor:
+        # Initialize components on demand if not already created
+        if not self.ffmpeg_processor:
+            logger.info("🔧 Creating FFmpeg processor on demand")
+            self.ffmpeg_processor = FFmpegProcessor(self.args)
+            self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
+
+        # Initialize transcription components if needed
+        if self.args.transcription:
+            if not self.transcription_processor:
+                logger.info("🔧 Creating transcription processor on demand")
+                models = AudioInsight()
+                self.transcription_processor = TranscriptionProcessor(self.args, models.asr, models.tokenizer, coordinator=self)
+
+            if not self.transcription_queue:
+                self.transcription_queue = asyncio.Queue()
+
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
             self.all_tasks_for_cleanup.append(self.transcription_task)
             processing_tasks_for_watchdog.append(self.transcription_task)
 
-        if self.args.diarization and self.diarization_processor:
+        # Initialize diarization components if needed
+        if self.args.diarization:
+            if not self.diarization_processor:
+                logger.info("🔧 Creating diarization processor on demand")
+                models = AudioInsight()
+                self.diarization_processor = DiarizationProcessor(self.args, models.diarization)
+
+            if not self.diarization_queue:
+                self.diarization_queue = asyncio.Queue()
+
             self.diarization_task = asyncio.create_task(self.diarization_processor.process(self.diarization_queue, self.get_current_state, self.update_diarization))
             self.all_tasks_for_cleanup.append(self.diarization_task)
             processing_tasks_for_watchdog.append(self.diarization_task)
@@ -1005,6 +1131,24 @@ class AudioProcessor:
         self.ffmpeg_reader_task = asyncio.create_task(self.ffmpeg_processor.read_audio_data(self.transcription_queue, self.diarization_queue))
         self.all_tasks_for_cleanup.append(self.ffmpeg_reader_task)
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
+
+        # Initialize LLM inference processor if needed
+        if getattr(self.args, "llm_inference", False) and not self.llm:
+            logger.info("🔧 Creating LLM processor on demand")
+            try:
+                trigger_config = LLMTrigger(
+                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
+                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
+                )
+                self.llm = LLM(
+                    model_id=getattr(self.args, "llm_model", "gpt-4.1-mini"),
+                    trigger_config=trigger_config,
+                )
+                self.llm.add_inference_callback(self._handle_inference_callback)
+                logger.info(f"LLM inference initialized on demand with model: {self.args.llm_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM inference processor on demand: {e}")
+                self.llm = None
 
         # Start LLM inference processor monitoring if enabled
         if self.llm:
@@ -1076,6 +1220,106 @@ class AudioProcessor:
             self.diarization_processor.cleanup()
 
         logger.info("AudioProcessor cleanup complete.")
+
+    async def force_reset(self):
+        """Force reset all resources and clear memory for a fresh session.
+
+        This is more aggressive than cleanup() and ensures no memory leaks between sessions.
+        """
+        logger.info("🧹 Starting force reset of AudioProcessor...")
+
+        # Stop everything aggressively
+        self.is_stopping = True
+
+        # Cancel all tasks immediately
+        for task in self.all_tasks_for_cleanup:
+            if task and not task.done():
+                task.cancel()
+
+        # Wait for tasks to complete cancellation
+        if self.all_tasks_for_cleanup:
+            try:
+                await asyncio.gather(*[t for t in self.all_tasks_for_cleanup if t], return_exceptions=True)
+            except Exception as e:
+                logger.warning(f"Error waiting for task cancellation: {e}")
+
+        # Clear all queues aggressively
+        if self.transcription_queue:
+            while not self.transcription_queue.empty():
+                try:
+                    self.transcription_queue.get_nowait()
+                    self.transcription_queue.task_done()
+                except:
+                    break
+
+        if self.diarization_queue:
+            while not self.diarization_queue.empty():
+                try:
+                    self.diarization_queue.get_nowait()
+                    self.diarization_queue.task_done()
+                except:
+                    break
+
+        # Force cleanup all processors with proper cleanup
+        if self.ffmpeg_processor:
+            try:
+                # Ensure FFmpeg cleanup happens synchronously and completely
+                await asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_processor.cleanup)
+                # Wait a moment for cleanup to complete
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"Error cleaning up FFmpeg processor: {e}")
+            self.ffmpeg_processor = None
+
+        if self.transcription_processor:
+            self.transcription_processor = None
+
+        if self.diarization_processor:
+            try:
+                self.diarization_processor.cleanup()
+            except Exception as e:
+                logger.warning(f"Error cleaning up diarization processor: {e}")
+            self.diarization_processor = None
+
+        if self.llm:
+            try:
+                await self.llm.stop_monitoring()
+            except Exception as e:
+                logger.warning(f"Error stopping LLM monitoring: {e}")
+            self.llm = None
+
+        # Clear all memory buffers and state
+        async with self.lock:
+            self.tokens.clear()
+            self.buffer_transcription = ""
+            self.buffer_diarization = ""
+            self.full_transcription = ""
+            self.end_buffer = 0
+            self.end_attributed_speaker = 0
+            self.last_response_content = ""
+            if hasattr(self, "summaries"):
+                self.summaries.clear()
+            self._has_summaries = False
+
+        # Clear task references
+        self.transcription_task = None
+        self.diarization_task = None
+        self.ffmpeg_reader_task = None
+        self.watchdog_task = None
+        self.llm_task = None
+        self.all_tasks_for_cleanup.clear()
+
+        # Reset queues to None - will be recreated on demand
+        self.transcription_queue = None
+        self.diarization_queue = None
+
+        # Reset timing and state flags
+        self.beg_loop = time()
+        self.is_stopping = False
+
+        # DO NOT re-initialize components here - let them be created on demand
+        # This avoids the FFmpeg restart loop issue
+        logger.info("🧹 Force reset completed - components will be re-initialized on demand")
 
     async def process_audio(self, message):
         """Process incoming audio data."""

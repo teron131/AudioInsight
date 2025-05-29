@@ -14,7 +14,10 @@ from .server.file_handlers import (
     handle_file_upload_stream,
     handle_temp_file_cleanup,
 )
-from .server.websocket_handlers import handle_websocket_connection
+from .server.websocket_handlers import (
+    cleanup_global_processor,
+    handle_websocket_connection,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -97,6 +100,35 @@ async def cleanup_temp_file(file_path: str):
     This endpoint allows the client to request cleanup of temporary files.
     """
     return await handle_temp_file_cleanup(file_path)
+
+
+@app.post("/cleanup-session")
+async def cleanup_session():
+    """Force cleanup of all audio processing resources.
+
+    This endpoint clears all memory, resets processors, and prepares for a fresh session.
+    Useful to prevent memory leaks between file uploads or when the UI is refreshed.
+    """
+    global kit
+    try:
+        # First, clean up the global audio processor
+        await cleanup_global_processor()
+        logger.info("🧹 Global audio processor cleaned up")
+
+        # Reset the AudioInsight singleton instance to clear all cached state
+        if kit:
+            kit.reset_instance()
+
+        # Re-initialize with same arguments to ensure fresh state
+        args = parse_args()
+        kit = AudioInsight(**vars(args))
+
+        logger.info("🧹 Session cleanup completed - all resources reset")
+        return {"status": "success", "message": "Session cleaned up successfully"}
+
+    except Exception as e:
+        logger.error(f"Error during session cleanup: {e}")
+        return {"status": "error", "message": f"Cleanup failed: {str(e)}"}
 
 
 def main():
