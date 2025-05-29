@@ -8,7 +8,7 @@ AudioInsight implements a sophisticated real-time streaming speech recognition s
 
 The system is organized into the following core modules:
 
-### **`core.py`** - System Initialization and Configuration Management
+### **`main.py`** - System Initialization and Configuration Management
 **Purpose**: Central coordinator and singleton that manages system-wide configuration, model initialization, and component orchestration.
 
 **Key Components**:
@@ -25,7 +25,7 @@ The system is organized into the following core modules:
 - Provide web interface HTML content through cached template serving
 - Serve as the central configuration authority for all other system components
 
-**Integration Points**: Called by `server.py` during FastAPI lifespan management, provides configuration to `audio_processor.py` and `whisper_streaming/` modules.
+**Integration Points**: Called by `server.py` during FastAPI lifespan management, provides configuration to `processors.py` and `whisper_streaming/` modules.
 
 ### **`processors.py`** - Modular Audio Processing Pipeline and Specialized Processors
 **Purpose**: Implements a sophisticated multi-stage asynchronous pipeline through specialized processor classes that handle different aspects of real-time audio processing, with a central coordinator managing shared state and inter-processor communication.
@@ -303,7 +303,7 @@ The system is organized into the following core modules:
 - **Lifecycle Management**: Proper connection handling with coordinated shutdown sequences
 - **Load Balancing**: Dynamic resource management with quality trade-offs when necessary
 
-**Integration Points**: Coordinates with `core.py` for AudioInsight initialization, uses `processors.py` AudioProcessor instances per connection, serves web interface from integrated template system, and provides comprehensive API for both real-time and file-based processing.
+**Integration Points**: Coordinates with `main.py` for AudioInsight initialization, uses `processors.py` AudioProcessor instances per connection, serves web interface from integrated template system, and provides comprehensive API for both real-time and file-based processing.
 
 ### **`whisper_streaming/`** - Core Streaming Algorithms and Hypothesis Buffer Management
 **Purpose**: Contains the core streaming algorithms that enable real-time Whisper processing, including the LocalAgreement policy implementation and backend abstraction layer.
@@ -438,7 +438,7 @@ The system is organized into the following core modules:
 - Maximum text length thresholds
 - Manual force summarization capability
 
-**Integration Points**: Called by `audio_processor.py` to receive transcription updates, provides callbacks for summary delivery to clients.
+**Integration Points**: Called by `processors.py` to receive transcription updates, provides callbacks for summary delivery to clients.
 
 ### **`web/`** - Frontend HTML/JavaScript Interface
 **Purpose**: Complete web-based user interface for real-time transcription with support for both live recording and file upload.
@@ -697,7 +697,7 @@ The diarization subsystem operates in parallel to assign speaker labels:
 
 **Retrospective Attribution**: Assigns speaker labels to committed tokens after transcription is complete, ensuring that speaker identification doesn't impact transcription latency.
 
-**Integration with Results**: The `results_formatter()` method in `audio_processor.py` coordinates transcription and diarization results for unified output.
+**Integration with Results**: The `results_formatter()` method in `processors.py` coordinates transcription and diarization results for unified output.
 
 ### 8. Backend Abstraction Layer (`whisper_streaming/backends.py`)
 
@@ -827,7 +827,7 @@ This enables monitoring of how much text was successfully committed versus how m
 
 **Thread-Safe Operations**: Buffer text recovery operations are protected by async locks to prevent race conditions during final processing.
 
-## Multi-User Session Management (`server.py` + `audio_processor.py`)
+## Multi-User Session Management (`server.py` + `processors.py`)
 
 ### 1. Session Isolation Architecture
 
@@ -862,7 +862,7 @@ This enables monitoring of how much text was successfully committed versus how m
 
 ### 2. Cross-Module Coordination
 
-**Configuration Flow**: `core.py` → `AudioProcessor` coordinator → specialized processor initialization → runtime parameter propagation to `FFmpegProcessor`, `TranscriptionProcessor`, `DiarizationProcessor`, `Formatter`
+**Configuration Flow**: `main.py` → `AudioProcessor` coordinator → specialized processor initialization → runtime parameter propagation to `FFmpegProcessor`, `TranscriptionProcessor`, `DiarizationProcessor`, `Formatter`
 
 **State Management**: 
 - **Centralized Coordination**: `AudioProcessor` maintains shared state (tokens, buffers, timing) with thread-safe access
