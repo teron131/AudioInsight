@@ -39,7 +39,7 @@ _DEFAULT_CONFIG = {
     },
     "llm": {
         "fast_llm": "google/gemini-flash-1.5-8b",
-        "base_llm": "gpt-4.1-mini",
+        "base_llm": "openai/gpt-4.1-mini",
         "llm_trigger_time": 5.0,
         "llm_conversation_trigger": 2,
     },
@@ -91,7 +91,7 @@ def _get_argument_parser() -> ArgumentParser:
     llm_group = parser.add_argument_group("LLM Inference Configuration")
     llm_group.add_argument("--llm-inference", action="store_true", default=_DEFAULT_CONFIG["features"]["llm_inference"], help="Enable LLM-based transcription inference after periods of inactivity.")
     llm_group.add_argument("--fast-llm", type=str, default=_DEFAULT_CONFIG["llm"]["fast_llm"], help="Fast LLM model to use for text parsing and quick operations (default: google/gemini-flash-1.5-8b).")
-    llm_group.add_argument("--base-llm", type=str, default=_DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model to use for summarization and complex operations (default: gpt-4.1-mini).")
+    llm_group.add_argument("--base-llm", type=str, default=_DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model to use for summarization and complex operations (default: openai/gpt-4.1-mini).")
     llm_group.add_argument("--llm-trigger-time", type=float, default=_DEFAULT_CONFIG["llm"]["llm_trigger_time"], help="Time in seconds after which to trigger inference when no new transcription is received (default: 5.0).")
     llm_group.add_argument("--llm-conversation-trigger", type=int, default=_DEFAULT_CONFIG["llm"]["llm_conversation_trigger"], help="Number of conversations (speaker turns) after which to trigger inference (default: 2).")
 

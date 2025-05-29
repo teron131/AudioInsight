@@ -29,8 +29,25 @@ def setup_logging():
     # Use fixed filename that overwrites previous logs
     _log_filename = logs_dir / "last_run.log"
 
-    # Configure logging
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", handlers=[logging.FileHandler(_log_filename), logging.StreamHandler()])  # Console output
+    # Clear the log file by truncating it
+    if _log_filename.exists():
+        _log_filename.unlink()  # Delete the file
+    _log_filename.touch()  # Create an empty file
+
+    # Get the root logger and clear any existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+
+    # Configure logging with mode='a' after clearing the file
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=[
+            logging.FileHandler(_log_filename, mode="a"),  # Append mode
+            logging.StreamHandler(),  # Console output
+        ],
+        force=True,  # Force reconfiguration
+    )
 
     # Set specific log levels for different modules
     logging.getLogger("audioinsight").setLevel(logging.INFO)

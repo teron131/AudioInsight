@@ -865,11 +865,11 @@ class AudioProcessor:
                 )
 
                 self.llm = LLMSummarizer(
-                    model_id=getattr(self.args, "base_llm", "gpt-4.1-mini"),
+                    model_id=getattr(self.args, "base_llm", "openai/gpt-4.1-mini"),
                     trigger_config=trigger_config,
                 )
                 self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference initialized with model: {getattr(self.args, 'base_llm', 'gpt-4.1-mini')}")
+                logger.info(f"LLM inference initialized with model: {getattr(self.args, 'base_llm', 'openai/gpt-4.1-mini')}")
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM inference processor: {e}")
                 self.llm = None
@@ -1085,8 +1085,29 @@ class AudioProcessor:
 
                             # Force a final summary of all accumulated text
                             await self.llm.force_inference()
-                            # Wait a moment for the callback to be processed
-                            await asyncio.sleep(0.2)  # Slightly longer wait for final processing
+
+                            # Wait for the final inference to complete and be processed by the callback
+                            # Poll for up to 10 seconds to ensure the summary is added
+                            max_wait_time = 10.0
+                            poll_interval = 0.5
+                            waited_time = 0.0
+                            initial_summary_count = summaries_count
+
+                            while waited_time < max_wait_time:
+                                await asyncio.sleep(poll_interval)
+                                waited_time += poll_interval
+
+                                # Check if new summary was added
+                                async with self.lock:
+                                    current_summary_count = len(getattr(self, "summaries", []))
+
+                                if current_summary_count > initial_summary_count:
+                                    logger.info(f"✅ Final summary a~dded after {waited_time:.1f}s wait")
+                                    break
+
+                                if waited_time >= max_wait_time:
+                                    logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
+                                    break
 
                         # Get updated final state after inference processing
                         final_state = await self.get_current_state()

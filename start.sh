@@ -14,8 +14,8 @@ echo "Starting audioinsight server..."
 
 audioinsight-server \
     --backend faster-whisper \
-    --model large-v3-turbo \
-    --base-llm "gpt-4.1-mini" \
+    --model tiny \
+    --base-llm "openai/gpt-4.1-mini" \
     --llm-trigger-time 5.0 \
     --fast-llm "google/gemini-flash-1.5-8b" \
     # --diarization

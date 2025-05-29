@@ -164,7 +164,7 @@ audioinsight-server \
   --diarization \
   --llm-inference \
   --fast-llm "google/gemini-flash-1.5-8b" \
-  --base-llm "gpt-4.1-mini" \
+  --base-llm "openai/gpt-4.1-mini" \
   --host 0.0.0.0 \
   --port 8001
 ```
@@ -206,7 +206,7 @@ kit = AudioInsight(
     diarization=True,
     llm_inference=True,
     fast_llm="google/gemini-flash-1.5-8b",
-    base_llm="gpt-4.1-mini"
+    base_llm="openai/gpt-4.1-mini"
 )
 
 @app.get("/")
@@ -257,7 +257,7 @@ async def llm_transcript_analysis():
     
     # Configure LLM for summarization
     summarizer_config = LLMConfig(
-        model="gpt-4.1-mini",
+        model="openai/gpt-4.1-mini",
         provider="openai",
         temperature=0.1
     )
@@ -358,9 +358,11 @@ async def upload_file_stream(file: UploadFile):
 |-----------|-------------|---------|
 | `--llm-inference` | Enable LLM-based transcript analysis | `True` |
 | `--fast-llm` | Fast LLM model for text parsing | `google/gemini-flash-1.5-8b` |
-| `--base-llm` | Base LLM model for summarization | `gpt-4.1-mini` |
+| `--base-llm` | Base LLM model for summarization | `openai/gpt-4.1-mini` |
 | `--llm-trigger-time` | Idle time before LLM analysis (seconds) | `5.0` |
 | `--llm-conversation-trigger` | Speaker turns before analysis | `2` |
+
+> **Note:** If you are using OpenRouter, follow the format `model_name/model_id` for the model ID, e.g. `openai/openai/gpt-4.1-mini`.
 
 ### Server Configuration
 
@@ -484,7 +486,7 @@ docker run --gpus all -p 8001:8001 \
   --language auto \
   --llm-inference \
   --fast-llm "google/gemini-flash-1.5-8b" \
-  --base-llm "gpt-4.1-mini"
+  --base-llm "openai/gpt-4.1-mini"
 ```
 
 ### Build Arguments
@@ -532,7 +534,7 @@ export GOOGLE_API_KEY="your-google-key"
 # Model configurations
 export WHISPER_MODEL="large-v3-turbo"
 export FAST_LLM_MODEL="google/gemini-flash-1.5-8b"
-export BASE_LLM_MODEL="gpt-4.1-mini"
+export BASE_LLM_MODEL="openai/gpt-4.1-mini"
 ```
 
 ### Process Management

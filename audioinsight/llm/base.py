@@ -47,7 +47,7 @@ class UniversalLLM:
             self._llm = ChatOpenAI(
                 model=self.config.model_id,
                 api_key=api_key,
-                base_url=base_url,
+                base_url=base_url if "/" in self.config.model_id else None,
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 timeout=self.config.timeout,

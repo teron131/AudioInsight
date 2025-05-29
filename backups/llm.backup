@@ -57,14 +57,14 @@ class LLM:
 
     def __init__(
         self,
-        model_id: str = "gpt-4.1-mini",
+        model_id: str = "openai/gpt-4.1-mini",
         api_key: Optional[str] = None,
         trigger_config: Optional[LLMTrigger] = None,
     ):
         """Initialize the LLM inference processor.
 
         Args:
-            model_id: The model ID to use (defaults to gpt-4.1-mini)
+            model_id: The model ID to use (defaults to openai/gpt-4.1-mini)
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """

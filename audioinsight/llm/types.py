@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class LLMConfig:
     """Base configuration for LLM operations."""
 
-    model_id: str = "gpt-4.1-mini"
+    model_id: str = "openai/gpt-4.1-mini"
     api_key: Optional[str] = None
     temperature: float = 0.0
     max_tokens: Optional[int] = None
@@ -29,7 +29,7 @@ class LLMTrigger:
 class ParserConfig:
     """Configuration for the text parser."""
 
-    model_id: str = "gpt-4o-mini"  # Default to a faster model for text parsing
+    model_id: str = "google/gemini-flash-1.5-8b"  # Default to a faster model for text parsing
     chunk_size: int = 2000  # Process text in chunks of this size
     overlap_size: int = 200  # Overlap between chunks to maintain context
 
