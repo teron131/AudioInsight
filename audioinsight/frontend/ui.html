@@ -871,7 +871,8 @@
                                 currentLines.slice(), // Current completed lines
                                 "", // No diarization buffer for uploads
                                 data.buffer || "", // Current buffer
-                                0, 0, false // Not finalizing
+                                0, 0, false, // Not finalizing
+                                data.diarization_enabled || false // Diarization enabled flag
                             );
                         }
                         break;
@@ -888,7 +889,7 @@
                         statusText.textContent = "File processed successfully in real-time!";
                         
                         // Final render to clean up any remaining buffer content
-                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true);
+                        renderLinesWithBuffer(currentLines, "", "", 0, 0, true, false);
                         
                         setTimeout(() => {
                             isProcessingFile = false;
@@ -992,7 +993,7 @@
                 }));
                 
                 // Render all transcription at once
-                renderLinesWithBuffer(lines, "", "", 0, 0, true);
+                renderLinesWithBuffer(lines, "", "", 0, 0, true, false);
             }
         }
         
@@ -1028,7 +1029,10 @@
                                     lastReceivedData.lines || [],
                                     lastReceivedData.buffer_diarization || "",
                                     lastReceivedData.buffer_transcription || "",
-                                    0, 0, true // isFinalizing = true
+                                    0, // No more lag
+                                    0, // No more lag
+                                    true, // isFinalizing = true
+                                    lastReceivedData.diarization_enabled || false // Diarization enabled flag
                                 );
                             }
                         }
@@ -1067,7 +1071,8 @@
                                 lastReceivedData.buffer_transcription || "",
                                 0, // No more lag
                                 0, // No more lag
-                                true // isFinalizing = true
+                                true, // isFinalizing = true
+                                lastReceivedData.diarization_enabled || false // Diarization enabled flag
                             );
                         }
                         
@@ -1131,7 +1136,8 @@
                         buffer_transcription = "", 
                         buffer_diarization = "",
                         remaining_time_transcription = 0,
-                        remaining_time_diarization = 0
+                        remaining_time_diarization = 0,
+                        diarization_enabled = false
                     } = data;
                     
                     renderLinesWithBuffer(
@@ -1140,14 +1146,15 @@
                         buffer_transcription, 
                         remaining_time_diarization,
                         remaining_time_transcription,
-                        false // isFinalizing = false for normal updates
+                        false, // isFinalizing = false for normal updates
+                        diarization_enabled // Pass diarization enabled flag
                     );
                 };
             });
         }
 
         // Render transcript function (same as original)
-        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false) {
+        function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false, diarization_enabled = false) {
             const linesHtml = lines.map((item, idx) => {
                 let timeInfo = "";
                 if (item.beg !== undefined && item.end !== undefined) {
@@ -1164,8 +1171,8 @@
                     const displaySpeaker = item.speaker + 1;
                     speakerLabel = `<span id="speaker">Speaker ${displaySpeaker}<span id='timeInfo'>${timeInfo}</span></span>`;
                     
-                    // Add processing indicator for speaker 0 when still processing
-                    if (item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
+                    // Only add processing indicator for speaker 0 when diarization is enabled and still processing
+                    if (diarization_enabled && item.speaker == 0 && !isFinalizing && remaining_time_diarization > 0) {
                         speakerLabel += `<span class='loading'><span class="spinner"></span><span id='timeInfo'>${remaining_time_diarization} second(s) of audio are undergoing diarization</span></span>`;
                     }
                 }
@@ -1177,7 +1184,8 @@
                         if (remaining_time_transcription > 0) {
                              speakerLabel += `<span class="label_transcription"><span class="spinner"></span>Transcription lag <span id='timeInfo'>${remaining_time_transcription}s</span></span>`;
                         }
-                        if (buffer_diarization && remaining_time_diarization > 0) {
+                        // Only show diarization lag if diarization is enabled
+                        if (diarization_enabled && buffer_diarization && remaining_time_diarization > 0) {
                              speakerLabel += `<span class="label_diarization"><span class="spinner"></span>Diarization lag<span id='timeInfo'>${remaining_time_diarization}s</span></span>`;
                         }
                     }

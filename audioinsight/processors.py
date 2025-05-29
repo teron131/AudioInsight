@@ -803,8 +803,9 @@ class AudioProcessor:
             if self.end_buffer > 0:
                 remaining_transcription = max(0, round(current_time - self.beg_loop - self.end_buffer, 2))
 
+            # Only calculate remaining_diarization if diarization is enabled
             remaining_diarization = 0
-            if self.tokens:
+            if self.args.diarization and self.tokens:
                 latest_end = max(self.end_buffer, self.tokens[-1].end if self.tokens else 0)
                 remaining_diarization = max(0, round(latest_end - self.end_attributed_speaker, 2))
 
@@ -881,7 +882,7 @@ class AudioProcessor:
                 final_buffer_transcription = s2hk(buffer_transcription) if buffer_transcription else buffer_transcription
                 final_buffer_diarization = s2hk(buffer_diarization) if buffer_diarization else buffer_diarization
 
-                response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"]}
+                response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"], "diarization_enabled": self.args.diarization}
 
                 # Add summaries if available - optimize by checking flag first and limiting frequency
                 current_time = time()
@@ -959,7 +960,7 @@ class AudioProcessor:
                         final_buffer_diarization = s2hk(final_state["buffer_diarization"]) if final_state["buffer_diarization"] else ""
 
                         # Create final response with remaining buffer text included
-                        final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0}
+                        final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0, "diarization_enabled": self.args.diarization}
 
                         # Add existing summaries
                         async with self.lock:
