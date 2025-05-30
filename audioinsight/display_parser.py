@@ -1,21 +1,7 @@
-#!/usr/bin/env python3
-"""
-Display Text Parser - Standalone parser for frontend display enhancement.
-
-This module provides text parsing functionality that works INDEPENDENTLY from
-the transcription pipeline, ensuring smooth data transfer while allowing
-optional text refinement for display purposes.
-
-IMPORTANT: This parser is completely separate from transcription processing.
-It only processes text that is already transcribed for display enhancement.
-The transcription pipeline is never affected or blocked by this parser.
-"""
-
-import asyncio
 import time
 from typing import Any, Dict, Optional
 
-from .llm import Parser, ParserConfig
+from .llm import DisplayParserStats, LRUCache, Parser, ParserConfig
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -36,25 +22,22 @@ class DisplayParser:
     - Graceful fallback to original text
     """
 
-    def __init__(self, config: Optional[ParserConfig] = None):
+    def __init__(self, config: Optional[ParserConfig] = None, cache_size: int = 100):
         """Initialize the display text parser.
 
         Args:
             config: Optional configuration for the text parser
+            cache_size: Maximum number of items to cache
         """
         self.config = config or ParserConfig()
         self.parser = None  # Created on demand
         self.enabled = False
-        self.parse_cache = {}  # Cache parsed results
-        self.cache_max_size = 100
 
-        # Performance tracking
-        self.stats = {
-            "texts_parsed": 0,
-            "cache_hits": 0,
-            "total_parse_time": 0.0,
-            "average_parse_time": 0.0,
-        }
+        # Use the new LRU cache utility
+        self.parse_cache = LRUCache(max_size=cache_size)
+
+        # Use the new standardized statistics
+        self.stats = DisplayParserStats()
 
     def enable(self, enabled: bool = True):
         """Enable or disable the display parser.
@@ -91,9 +74,10 @@ class DisplayParser:
 
         # Check cache first
         text_hash = hash(text)
-        if text_hash in self.parse_cache:
-            self.stats["cache_hits"] += 1
-            return self.parse_cache[text_hash]
+        cache_hit, cached_result = self.parse_cache.get(text_hash)
+        if cache_hit:
+            self.stats.record_cache_hit()
+            return cached_result
 
         # Skip parsing for very short text
         if len(text.strip()) < 20:
@@ -109,18 +93,11 @@ class DisplayParser:
             parsed_text = await self.parser.parse_text(text)
             parse_time = time.time() - start_time
 
-            # Update statistics
-            self.stats["texts_parsed"] += 1
-            self.stats["total_parse_time"] += parse_time
-            self.stats["average_parse_time"] = self.stats["total_parse_time"] / self.stats["texts_parsed"]
+            # Update statistics using the new class
+            self.stats.record_parsing(parse_time)
 
-            # Cache result (with size limit)
-            if len(self.parse_cache) >= self.cache_max_size:
-                # Remove oldest entry
-                oldest_key = next(iter(self.parse_cache))
-                del self.parse_cache[oldest_key]
-
-            self.parse_cache[text_hash] = parsed_text
+            # Cache result using the new LRU cache
+            self.parse_cache.put(text_hash, parsed_text)
 
             logger.debug(f"Display text parsed in {parse_time:.2f}s: {len(text)} -> {len(parsed_text)} chars")
             return parsed_text
@@ -135,12 +112,25 @@ class DisplayParser:
         Returns:
             dict: Statistics about parsing performance
         """
-        return self.stats.copy()
+        stats_dict = self.stats.to_dict()
+        # Add cache-specific information
+        stats_dict.update(
+            {
+                "cache_size": self.parse_cache.size(),
+                "cache_max_size": self.parse_cache.max_size,
+            }
+        )
+        return stats_dict
 
     def clear_cache(self):
         """Clear the parsing cache."""
         self.parse_cache.clear()
         logger.info("Display text parser cache cleared")
+
+    @property
+    def cache_max_size(self) -> int:
+        """Get maximum cache size for backward compatibility."""
+        return self.parse_cache.max_size
 
 
 # Global instance for easy access

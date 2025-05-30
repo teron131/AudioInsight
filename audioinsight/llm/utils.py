@@ -48,27 +48,68 @@ def get_api_credentials() -> tuple[Optional[str], Optional[str]]:
     return api_key, base_url
 
 
-def truncate_text(text: str, max_length: int) -> str:
-    """Truncate text to a maximum length, preserving as much content as possible.
+def truncate_text(text: str, max_length: int = 1000) -> str:
+    """Truncate text to a maximum length.
 
     Args:
         text: Text to truncate
-        max_length: Maximum allowed length
+        max_length: Maximum length of the text
 
     Returns:
-        str: Truncated text
+        str: Truncated text with ellipsis if needed
     """
     if len(text) <= max_length:
         return text
+    return text[: max_length - 3] + "..."
 
-    # Try to truncate at sentence boundaries
-    truncated = text[:max_length]
 
-    # Look for sentence endings near the truncation point
-    for punct in ["。", ".", "！", "!", "？", "?", "\n"]:
-        last_punct = truncated.rfind(punct)
-        if last_punct > max_length * 0.8:  # Only if we don't lose too much content
-            return truncated[: last_punct + 1]
+class LRUCache:
+    """Simple LRU (Least Recently Used) cache implementation."""
 
-    # If no good break point, just truncate
-    return truncated
+    def __init__(self, max_size: int = 100):
+        self.max_size = max_size
+        self.cache = {}
+        self.access_order = []
+
+    def get(self, key) -> tuple[bool, any]:
+        """Get item from cache.
+
+        Returns:
+            tuple: (found, value) where found is bool and value is the cached item or None
+        """
+        if key in self.cache:
+            # Move to end (most recently used)
+            self.access_order.remove(key)
+            self.access_order.append(key)
+            return True, self.cache[key]
+        return False, None
+
+    def put(self, key, value):
+        """Put item in cache."""
+        if key in self.cache:
+            # Update existing item
+            self.cache[key] = value
+            self.access_order.remove(key)
+            self.access_order.append(key)
+        else:
+            # Add new item
+            if len(self.cache) >= self.max_size:
+                # Remove least recently used
+                oldest = self.access_order.pop(0)
+                del self.cache[oldest]
+
+            self.cache[key] = value
+            self.access_order.append(key)
+
+    def clear(self):
+        """Clear all items from cache."""
+        self.cache.clear()
+        self.access_order.clear()
+
+    def size(self) -> int:
+        """Get current cache size."""
+        return len(self.cache)
+
+    def max_size_reached(self) -> bool:
+        """Check if cache has reached maximum size."""
+        return len(self.cache) >= self.max_size

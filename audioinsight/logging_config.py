@@ -1,8 +1,3 @@
-"""
-Centralized logging configuration for AudioInsight.
-All modules should import get_logger from this module to ensure consistent logging.
-"""
-
 import logging
 import os
 from pathlib import Path

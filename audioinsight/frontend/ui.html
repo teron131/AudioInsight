@@ -852,12 +852,13 @@
 
         .buffer_transcription {
             color: var(--geist-muted-foreground);
-            opacity: 0.6;
+            opacity: 0.8;
             margin-left: 4px;
-            font-style: italic;
+            font-style: normal;
             background: var(--geist-background-2);
             padding: 2px 4px;
             border-radius: 4px;
+            font-weight: 500;
         }
 
         .spinner {
@@ -1013,6 +1014,7 @@
         let audioStream = null;
         let websocket = null;
         let isProcessingFile = false;
+        let currentTranscriptData = null;
 
         // Get server URL
         const getServerUrl = () => {
@@ -1102,12 +1104,10 @@
             
             keywordsContainer.innerHTML = '<span class="keyword-tag">relevant</span><span class="keyword-tag highlighted">keywords</span><span class="keyword-tag">here</span>';
             
-            // Clear any stored transcript data for export
+            // Clear any stored transcript data for export and reset timestamp tracking
             window.currentTranscriptData = null;
+            currentTranscriptData = null;
         }
-
-        // Store transcript data for export functionality
-        let currentTranscriptData = null;
 
         // Export transcript functionality
         async function exportTranscript(format = 'txt') {
@@ -1284,6 +1284,13 @@
         // Handle WebSocket messages with proper transcript rendering
         function handleWebSocketMessage(data) {
             try {
+                // Check if this is a completion or finalization signal
+                const isCompleting = data.type === 'ready_to_stop' || 
+                                   data.status === 'completed' || 
+                                   data.type === 'final' ||
+                                   data.type === 'completion' ||
+                                   (data.final === true);
+                
                 // Handle transcript data using proper renderLinesWithBuffer function
                 if (data.type === 'transcription' || data.lines) {
                     const { 
@@ -1295,13 +1302,16 @@
                         diarization_enabled = false
                     } = data;
                     
-                    // Store transcript data for export functionality
+                    // Store transcript data for both export functionality and real-time timestamp updates
                     currentTranscriptData = {
                         lines: lines,
                         buffer_transcription: buffer_transcription,
                         buffer_diarization: buffer_diarization,
+                        remaining_time_transcription: remaining_time_transcription,
+                        remaining_time_diarization: remaining_time_diarization,
                         diarization_enabled: diarization_enabled,
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        isFinalizing: isCompleting
                     };
                     
                     renderLinesWithBuffer(
@@ -1310,7 +1320,7 @@
                         buffer_transcription, 
                         remaining_time_diarization,
                         remaining_time_transcription,
-                        false, 
+                        isCompleting, // Pass the finalization state
                         diarization_enabled 
                     );
                 }
@@ -1330,7 +1340,7 @@
                     }
                 }
                 
-                // Handle completion signals
+                // Handle completion signals and finalize transcript
                 if (data.type === 'ready_to_stop' || data.status === 'completed') {
                     if (isRecording) {
                         showStatusWithHealth('Live transcription completed', 'success');
@@ -1353,12 +1363,39 @@
             }
         }
 
-        // Render transcript with proper speaker and buffer handling (from backup.html)
+        // Helper function to parse time string to seconds
+        function parseTimeToSeconds(timeStr) {
+            if (typeof timeStr !== 'string' || !timeStr.includes(':')) {
+                return 0;
+            }
+            const parts = timeStr.split(':').map(Number);
+            if (parts.length === 3) {
+                return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            } else if (parts.length === 2) {
+                return parts[0] * 60 + parts[1];
+            }
+            return 0;
+        }
+
+        // Helper function to format seconds to time string
+        function formatSecondsToTime(seconds) {
+            if (isNaN(seconds) || seconds < 0) {
+                return '0:00:00';
+            }
+            
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Enhanced render function with real-time timestamp updates for current speaker
         function renderLinesWithBuffer(lines, buffer_diarization, buffer_transcription, remaining_time_diarization, remaining_time_transcription, isFinalizing = false, diarization_enabled = false) {
             const linesHtml = lines.map((item, idx) => {
                 let timeInfo = "";
                 if (item.beg !== undefined && item.end !== undefined) {
-                    timeInfo = ` ${formatTime(item.beg)} - ${formatTime(item.end)}`;
+                    timeInfo = ` ${item.beg} - ${item.end}`;
                 }
 
                 let speakerLabel = "";
@@ -1376,6 +1413,7 @@
 
                 let currentLineText = item.text || "";
 
+                // Handle buffer text for the last line
                 if (idx === lines.length - 1) { 
                     if (!isFinalizing) {
                         if (remaining_time_transcription > 0) {
@@ -1386,17 +1424,24 @@
                         }
                     }
 
+                    // Handle diarization buffer - only commit when explicitly finalizing
                     if (buffer_diarization) {
                         if (isFinalizing) {
+                            // Commit buffer as final text only when explicitly finalizing
                             currentLineText += (currentLineText.length > 0 && buffer_diarization.trim().length > 0 ? " " : "") + buffer_diarization.trim();
                         } else {
+                            // Show as buffer with improved styling
                             currentLineText += `<span class="buffer_diarization">${buffer_diarization}</span>`;
                         }
                     }
+                    
+                    // Handle transcription buffer - only commit when explicitly finalizing
                     if (buffer_transcription) {
                         if (isFinalizing) {
+                            // Commit buffer as final text only when explicitly finalizing
                             currentLineText += (currentLineText.length > 0 && buffer_transcription.trim().length > 0 ? " " : "") + buffer_transcription.trim();
                         } else {
+                            // Show as buffer with improved styling
                             currentLineText += `<span class="buffer_transcription">${buffer_transcription}</span>`;
                         }
                     }
@@ -1410,23 +1455,6 @@
             transcriptArea.innerHTML = linesHtml;
             if (linesHtml) {
                 transcriptArea.classList.add('has-content');
-            }
-        }
-
-        // Helper function to format time properly with hours, minutes, and seconds
-        function formatTime(seconds) {
-            if (isNaN(seconds) || seconds < 0) {
-                return '0:00';
-            }
-            
-            const hours = Math.floor(seconds / 3600);
-            const mins = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            
-            if (hours > 0) {
-                return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            } else {
-                return `${mins}:${secs.toString().padStart(2, '0')}`;
             }
         }
 

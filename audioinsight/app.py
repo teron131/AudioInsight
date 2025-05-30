@@ -1,5 +1,6 @@
 import time
 from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, WebSocket
@@ -27,6 +28,46 @@ logger = get_logger(__name__)
 
 # Global AudioInsight kit instance
 kit = None
+
+
+# =============================================================================
+# API Helper Functions
+# =============================================================================
+
+
+def success_response(message: str, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+    """Create a standardized success response."""
+    response = {
+        "status": "success",
+        "message": message,
+    }
+
+    if data:
+        response.update(data)
+
+    response.update(kwargs)
+    return response
+
+
+def error_response(message: str, error: Optional[Exception] = None, log_error: bool = True, **kwargs) -> Dict[str, Any]:
+    """Create a standardized error response."""
+    if log_error and error:
+        logger.error(f"{message}: {error}")
+    elif log_error:
+        logger.error(message)
+
+    response = {
+        "status": "error",
+        "message": message,
+    }
+
+    response.update(kwargs)
+    return response
+
+
+def handle_api_exception(operation: str, error: Exception) -> Dict[str, Any]:
+    """Handle API exceptions with consistent logging and response format."""
+    return error_response(message=f"Error {operation}: {str(error)}", error=error, log_error=True)
 
 
 @asynccontextmanager
@@ -148,58 +189,47 @@ async def cleanup_session():
 
 @app.post("/api/display-parser/enable")
 async def enable_display_parser(enabled: bool = True):
-    """Enable or disable display text parsing.
-
-    Args:
-        enabled: Whether to enable text parsing at display layer
-
-    Returns:
-        Status of the operation
-    """
+    """Enable or disable display text parsing."""
     try:
         display_parser = get_display_parser()
         display_parser.enable(enabled)
 
         status = "enabled" if enabled else "disabled"
-        logger.info(f"Display text parser {status} via API")
-
-        return {"status": "success", "message": f"Display text parser {status}", "enabled": enabled, "stats": display_parser.get_stats()}
+        return success_response(message=f"Display text parser {status}", enabled=enabled, stats=display_parser.get_stats())
     except Exception as e:
-        logger.error(f"Error toggling display parser: {e}")
-        return {"status": "error", "message": f"Error toggling display parser: {str(e)}", "enabled": False}
+        return handle_api_exception("toggling display parser", e)
 
 
 @app.get("/api/display-parser/status")
 async def get_display_parser_status():
-    """Get current status and statistics of display text parser.
-
-    Returns:
-        Display parser status and statistics
-    """
+    """Get current status and statistics of display text parser."""
     try:
         display_parser = get_display_parser()
 
-        return {"status": "success", "enabled": display_parser.is_enabled(), "stats": display_parser.get_stats(), "config": {"model_id": display_parser.config.model_id if display_parser.config else "gpt-4o-mini", "cache_size": len(display_parser.parse_cache), "cache_max_size": display_parser.cache_max_size}}
+        return success_response(
+            message="Display parser status retrieved",
+            enabled=display_parser.is_enabled(),
+            stats=display_parser.get_stats(),
+            config={
+                "model_id": display_parser.config.model_id if display_parser.config else "gpt-4o-mini",
+                "cache_size": display_parser.parse_cache.size(),
+                "cache_max_size": display_parser.cache_max_size,
+            },
+        )
     except Exception as e:
-        logger.error(f"Error getting display parser status: {e}")
-        return {"status": "error", "message": f"Error getting display parser status: {str(e)}", "enabled": False}
+        return handle_api_exception("getting display parser status", e)
 
 
 @app.post("/api/display-parser/clear-cache")
 async def clear_display_parser_cache():
-    """Clear the display text parser cache.
-
-    Returns:
-        Status of the operation
-    """
+    """Clear the display text parser cache."""
     try:
         display_parser = get_display_parser()
         display_parser.clear_cache()
 
-        return {"status": "success", "message": "Display text parser cache cleared", "stats": display_parser.get_stats()}
+        return success_response(message="Display text parser cache cleared", stats=display_parser.get_stats())
     except Exception as e:
-        logger.error(f"Error clearing display parser cache: {e}")
-        return {"status": "error", "message": f"Error clearing display parser cache: {str(e)}"}
+        return handle_api_exception("clearing display parser cache", e)
 
 
 # =============================================================================

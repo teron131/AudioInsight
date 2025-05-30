@@ -12,8 +12,17 @@ It includes:
 from .base import UniversalLLM
 from .parser import Parser, parse_transcript
 from .summarizer import LLMSummarizer
-from .types import LLMConfig, LLMResponse, LLMStats, LLMTrigger, ParserConfig
-from .utils import contains_chinese, get_api_credentials, s2hk, truncate_text
+from .types import (
+    BaseStats,
+    DisplayParserStats,
+    LLMConfig,
+    LLMResponse,
+    LLMStats,
+    LLMTrigger,
+    ParserConfig,
+    ParserStats,
+)
+from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
     # Core classes
@@ -26,11 +35,16 @@ __all__ = [
     "LLMStats",
     "LLMTrigger",
     "ParserConfig",
+    # Statistics classes
+    "BaseStats",
+    "ParserStats",
+    "DisplayParserStats",
     # Utilities
     "contains_chinese",
     "get_api_credentials",
     "s2hk",
     "truncate_text",
+    "LRUCache",
     # Convenience functions
     "parse_transcript",
 ]

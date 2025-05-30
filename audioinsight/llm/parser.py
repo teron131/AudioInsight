@@ -6,7 +6,7 @@ from langchain.prompts import ChatPromptTemplate
 
 from ..logging_config import get_logger
 from .base import UniversalLLM
-from .types import LLMConfig, ParserConfig
+from .types import LLMConfig, ParserConfig, ParserStats
 from .utils import contains_chinese, s2hk
 
 logger = get_logger(__name__)
@@ -20,14 +20,14 @@ class Parser:
 
     def __init__(
         self,
-        model_id: str = "gpt-4o-mini",
+        model_id: str = "google/gemini-flash-1.5-8b",
         api_key: Optional[str] = None,
         config: Optional[ParserConfig] = None,
     ):
         """Initialize the text parser.
 
         Args:
-            model_id: The model ID to use (defaults to gpt-4o-mini for faster processing)
+            model_id: The model ID to use (defaults to google/gemini-flash-1.5-8b for faster processing)
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
@@ -46,31 +46,19 @@ class Parser:
             [
                 (
                     "system",
-                    """You are an expert subtitle editor. Your task is to refine a sequence of piecemeal subtitle derived from transcription. These subtitle may contain typos and lack proper punctuation.
-
-Follow the guidelines below to ensure high-quality subtitle:
-1. Make minimal contextual changes.
-2. Only make contextual changes if you are highly confident.
-3. Add punctuation appropriately.
+                    """Refine a sequence of piecemeal subtitle derived from transcription.
+- Make minimal contextual changes.
+- Only fix typos if you are highly confident.
+- Add punctuation appropriately.
 
 IMPORTANT: Always respond in the same language and script as the input text.""",
                 ),
-                (
-                    "human",
-                    """Original Subtitle: {text}
-
-Refined Subtitle:""",
-                ),
+                ("human", "{text}"),
             ]
         )
 
-        # Statistics
-        self.stats = {
-            "texts_processed": 0,
-            "total_chars_processed": 0,
-            "average_processing_time": 0.0,
-            "chunks_processed": 0,
-        }
+        # Statistics using the new standardized class
+        self.stats = ParserStats()
 
     async def parse_text(self, text: str) -> str:
         """Parse and correct a text string.
@@ -85,28 +73,24 @@ Refined Subtitle:""",
             return text
 
         start_time = time.time()
+        chunks_used = 0
 
         try:
             # If text is short enough, process in one go
             if len(text) <= self.config.chunk_size:
                 corrected_text = await self._process_chunk(text)
+                chunks_used = 1
             else:
                 # Process in chunks for longer text
-                corrected_text = await self._process_in_chunks(text)
+                corrected_text, chunks_used = await self._process_in_chunks(text)
 
             # Apply s2hk conversion to ensure Traditional Chinese output if input was Chinese
             if contains_chinese(corrected_text):
                 corrected_text = s2hk(corrected_text)
 
-            # Update statistics
+            # Update statistics using the new class
             processing_time = time.time() - start_time
-            self.stats["texts_processed"] += 1
-            self.stats["total_chars_processed"] += len(text)
-
-            # Update average processing time
-            prev_avg = self.stats["average_processing_time"]
-            count = self.stats["texts_processed"]
-            self.stats["average_processing_time"] = (prev_avg * (count - 1) + processing_time) / count
+            self.stats.record_processing(processing_time, len(text), chunks_used)
 
             logger.info(f"Parsed text in {processing_time:.2f}s: {len(text)} -> {len(corrected_text)} chars")
             return corrected_text
@@ -125,17 +109,16 @@ Refined Subtitle:""",
             str: The corrected text directly
         """
         result = await self.llm_client.invoke_text(self.prompt, {"text": text})
-        self.stats["chunks_processed"] += 1
         return result
 
-    async def _process_in_chunks(self, text: str) -> str:
+    async def _process_in_chunks(self, text: str) -> tuple[str, int]:
         """Process long text in overlapping chunks.
 
         Args:
             text: The full text to process
 
         Returns:
-            str: The complete corrected text
+            tuple: (corrected_text, chunks_used)
         """
         chunks = self._split_into_chunks(text)
         corrected_chunks = []
@@ -146,7 +129,8 @@ Refined Subtitle:""",
             corrected_chunks.append(corrected_chunk)
 
         # Merge chunks, handling overlaps
-        return self._merge_chunks(corrected_chunks, text)
+        merged_text = self._merge_chunks(corrected_chunks, text)
+        return merged_text, len(chunks)
 
     def _split_into_chunks(self, text: str) -> list[str]:
         """Split text into overlapping chunks.
@@ -221,7 +205,7 @@ Refined Subtitle:""",
         Returns:
             dict: Dictionary of processing statistics
         """
-        return self.stats.copy()
+        return self.stats.to_dict()
 
 
 # Convenience function for quick text parsing
