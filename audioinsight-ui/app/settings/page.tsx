@@ -1,488 +1,561 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AudioInsightAPI, ConfigurationPreset, LLMStatus, ModelStatus, ProcessingParameters, UploadedFile } from '@/lib/api';
+import { AlertCircle, Brain, CheckCircle, FileText, RefreshCw, Settings, TestTube, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState({
-    // Model Configuration
-    model: "base",
-    backend: "faster-whisper",
-    language: "auto",
-    task: "transcribe",
+  const [api] = useState(() => new AudioInsightAPI());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-    // Processing Configuration
-    warmupFile: "",
-    minChunkSize: 1.0,
-    bufferTrimming: "sentence",
-    bufferTrimmingSec: 15.0,
-    vacChunkSize: 0.04,
+  // State for different sections
+  const [modelsStatus, setModelsStatus] = useState<ModelStatus | null>(null);
+  const [processingParams, setProcessingParams] = useState<ProcessingParameters | null>(null);
+  const [presets, setPresets] = useState<Record<string, ConfigurationPreset>>({});
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null);
 
-    // Feature Configuration
-    confidenceValidation: false,
-    diarization: false, // Default to false
-    noTranscription: false,
-    vac: true,
-    noVad: false,
-
-    // LLM Configuration
-    llmInference: true,
-    fastLlm: "google/gemini-flash-1.5-8b",
-    baseLlm: "openai/gpt-4o-mini",
-    llmTriggerTime: 5.0,
-    llmConversationTrigger: 2,
-
-    // General Settings
-    apiKey: "",
-    autoScroll: true,
-    darkMode: false,
-  })
-
-  // Load settings from localStorage on component mount
+  // Load initial data
   useEffect(() => {
-    const savedSettings = localStorage.getItem("audioinsight-settings")
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings)
-        setSettings((prev) => ({ ...prev, ...parsed }))
-      } catch (error) {
-        console.error("Failed to parse saved settings:", error)
-      }
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        loadModelsStatus(),
+        loadProcessingParameters(),
+        loadPresets(),
+        loadUploadedFiles(),
+        loadLLMStatus(),
+      ]);
+    } catch (err) {
+      setError(`Failed to load data: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
     }
-  }, [])
+  };
 
-  const handleSave = () => {
-    // Save to localStorage
-    localStorage.setItem("audioinsight-settings", JSON.stringify(settings))
+  const loadModelsStatus = async () => {
+    try {
+      const status = await api.getModelsStatus();
+      setModelsStatus(status);
+    } catch (err) {
+      console.error('Failed to load models status:', err);
+    }
+  };
 
-    // Dispatch custom event to notify other components
-    window.dispatchEvent(new CustomEvent("settings-updated", { detail: settings }))
+  const loadProcessingParameters = async () => {
+    try {
+      const params = await api.getProcessingParameters();
+      setProcessingParams(params);
+    } catch (err) {
+      console.error('Failed to load processing parameters:', err);
+    }
+  };
 
-    console.log("Saving settings:", settings)
-    alert("Settings saved successfully!")
-  }
+  const loadPresets = async () => {
+    try {
+      const presetsData = await api.getConfigurationPresets();
+      setPresets(presetsData);
+    } catch (err) {
+      console.error('Failed to load presets:', err);
+    }
+  };
 
-  const updateSetting = (key: string, value: any) => {
-    setSettings((prev) => ({ ...prev, [key]: value }))
-  }
+  const loadUploadedFiles = async () => {
+    try {
+      const files = await api.getUploadedFiles();
+      setUploadedFiles(files);
+    } catch (err) {
+      console.error('Failed to load uploaded files:', err);
+    }
+  };
+
+  const loadLLMStatus = async () => {
+    try {
+      const status = await api.getLLMStatus();
+      setLLMStatus(status);
+    } catch (err) {
+      console.error('Failed to load LLM status:', err);
+    }
+  };
+
+  const showSuccess = (message: string) => {
+    setSuccess(message);
+    setTimeout(() => setSuccess(null), 3000);
+  };
+
+  const showError = (message: string) => {
+    setError(message);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handleReloadModels = async (modelType: 'all' | 'asr' | 'diarization') => {
+    try {
+      setLoading(true);
+      const reloaded = await api.reloadModels(modelType);
+      showSuccess(`Reloaded models: ${reloaded.join(', ')}`);
+      await loadModelsStatus();
+    } catch (err) {
+      showError(`Failed to reload models: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyPreset = async (presetName: string) => {
+    try {
+      setLoading(true);
+      const result = await api.applyConfigurationPreset(presetName);
+      showSuccess(`Applied preset: ${result.preset}`);
+      await loadProcessingParameters();
+    } catch (err) {
+      showError(`Failed to apply preset: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteFile = async (filePath: string) => {
+    try {
+      await api.deleteUploadedFile(filePath);
+      showSuccess('File deleted successfully');
+      await loadUploadedFiles();
+    } catch (err) {
+      showError(`Failed to delete file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCleanupFiles = async () => {
+    try {
+      setLoading(true);
+      const deletedFiles = await api.cleanupOldFiles(24);
+      showSuccess(`Cleaned up ${deletedFiles.length} old files`);
+      await loadUploadedFiles();
+    } catch (err) {
+      showError(`Failed to cleanup files: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestLLM = async () => {
+    try {
+      setLoading(true);
+      const result = await api.testLLMConnection();
+      showSuccess(`LLM test successful: ${result.model} (${result.response_time.toFixed(2)}s)`);
+    } catch (err) {
+      showError(`LLM test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusBadge = (status: boolean, readyStatus?: boolean) => {
+    if (readyStatus === false) {
+      return <Badge variant="destructive">Not Ready</Badge>;
+    }
+    return status ? <Badge variant="default">Loaded</Badge> : <Badge variant="secondary">Not Loaded</Badge>;
+  };
 
   return (
-    <div className="container mx-auto px-6 py-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-gray-800">AudioInsight Configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-8">
-            {/* Model Configuration */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-medium text-gray-800">Model Configuration</h3>
-                <Badge variant="outline" className="text-xs">
-                  Core
-                </Badge>
-              </div>
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">AudioInsight Settings</h1>
+          <p className="text-muted-foreground">Manage models, processing parameters, and system configuration</p>
+        </div>
+        <Button onClick={loadAllData} disabled={loading}>
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          Refresh All
+        </Button>
+      </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="model" className="text-sm font-medium text-gray-700">
-                    Whisper Model
-                  </Label>
-                  <Select value={settings.model} onValueChange={(value) => updateSetting("model", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="tiny.en">tiny.en</SelectItem>
-                      <SelectItem value="tiny">tiny</SelectItem>
-                      <SelectItem value="base.en">base.en</SelectItem>
-                      <SelectItem value="base">base</SelectItem>
-                      <SelectItem value="small.en">small.en</SelectItem>
-                      <SelectItem value="small">small</SelectItem>
-                      <SelectItem value="medium.en">medium.en</SelectItem>
-                      <SelectItem value="medium">medium</SelectItem>
-                      <SelectItem value="large-v1">large-v1</SelectItem>
-                      <SelectItem value="large-v2">large-v2</SelectItem>
-                      <SelectItem value="large-v3">large-v3</SelectItem>
-                      <SelectItem value="large">large</SelectItem>
-                      <SelectItem value="large-v3-turbo">large-v3-turbo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500">Size of the Whisper model to use</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="backend" className="text-sm font-medium text-gray-700">
-                    Backend
-                  </Label>
-                  <Select value={settings.backend} onValueChange={(value) => updateSetting("backend", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select backend" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="faster-whisper">faster-whisper</SelectItem>
-                      <SelectItem value="whisper_timestamped">whisper_timestamped</SelectItem>
-                      <SelectItem value="mlx-whisper">mlx-whisper</SelectItem>
-                      <SelectItem value="openai-api">openai-api</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500">Whisper processing backend</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="language" className="text-sm font-medium text-gray-700">
-                    Language
-                  </Label>
-                  <Input
-                    id="language"
-                    value={settings.language}
-                    onChange={(e) => updateSetting("language", e.target.value)}
-                    placeholder="auto, en, de, cs..."
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Source language code or 'auto' for detection</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="task" className="text-sm font-medium text-gray-700">
-                    Task
-                  </Label>
-                  <Select value={settings.task} onValueChange={(value) => updateSetting("task", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select task" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="transcribe">Transcribe</SelectItem>
-                      <SelectItem value="translate">Translate</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500">Transcribe or translate audio</p>
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Processing Configuration */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-medium text-gray-800">Processing Configuration</h3>
-                <Badge variant="outline" className="text-xs">
-                  Performance
-                </Badge>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="warmup-file" className="text-sm font-medium text-gray-700">
-                    Warmup File Path
-                  </Label>
-                  <Input
-                    id="warmup-file"
-                    value={settings.warmupFile}
-                    onChange={(e) => updateSetting("warmupFile", e.target.value)}
-                    placeholder="/path/to/warmup.wav"
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Audio file to warm up Whisper for faster first chunk</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="min-chunk-size" className="text-sm font-medium text-gray-700">
-                    Min Chunk Size (seconds)
-                  </Label>
-                  <Input
-                    id="min-chunk-size"
-                    type="number"
-                    step="0.1"
-                    value={settings.minChunkSize}
-                    onChange={(e) => updateSetting("minChunkSize", Number.parseFloat(e.target.value))}
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Minimum audio chunk size for processing</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="buffer-trimming" className="text-sm font-medium text-gray-700">
-                    Buffer Trimming Strategy
-                  </Label>
-                  <Select
-                    value={settings.bufferTrimming}
-                    onValueChange={(value) => updateSetting("bufferTrimming", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select strategy" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sentence">Sentence</SelectItem>
-                      <SelectItem value="segment">Segment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500">How to trim the audio buffer</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="buffer-trimming-sec" className="text-sm font-medium text-gray-700">
-                    Buffer Trimming Threshold (seconds)
-                  </Label>
-                  <Input
-                    id="buffer-trimming-sec"
-                    type="number"
-                    step="0.1"
-                    value={settings.bufferTrimmingSec}
-                    onChange={(e) => updateSetting("bufferTrimmingSec", Number.parseFloat(e.target.value))}
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Buffer length threshold for trimming</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="vac-chunk-size" className="text-sm font-medium text-gray-700">
-                    VAC Chunk Size (seconds)
-                  </Label>
-                  <Input
-                    id="vac-chunk-size"
-                    type="number"
-                    step="0.01"
-                    value={settings.vacChunkSize}
-                    onChange={(e) => updateSetting("vacChunkSize", Number.parseFloat(e.target.value))}
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Voice activity controller sample size</p>
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Feature Configuration */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-medium text-gray-800">Feature Configuration</h3>
-                <Badge variant="outline" className="text-xs">
-                  Features
-                </Badge>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                  <div>
-                    <Label htmlFor="confidence-validation" className="text-sm font-medium text-gray-700">
-                      Confidence Validation
-                    </Label>
-                    <p className="text-xs text-gray-500">Faster transcription, less accurate punctuation</p>
-                  </div>
-                  <Switch
-                    id="confidence-validation"
-                    checked={settings.confidenceValidation}
-                    onCheckedChange={(checked) => updateSetting("confidenceValidation", checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                  <div>
-                    <Label htmlFor="diarization" className="text-sm font-medium text-gray-700">
-                      Speaker Diarization
-                    </Label>
-                    <p className="text-xs text-gray-500">Identify and separate different speakers</p>
-                  </div>
-                  <Switch
-                    id="diarization"
-                    checked={settings.diarization}
-                    onCheckedChange={(checked) => updateSetting("diarization", checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                  <div>
-                    <Label htmlFor="vac" className="text-sm font-medium text-gray-700">
-                      Voice Activity Controller
-                    </Label>
-                    <p className="text-xs text-gray-500">Recommended. Requires torch</p>
-                  </div>
-                  <Switch
-                    id="vac"
-                    checked={settings.vac}
-                    onCheckedChange={(checked) => updateSetting("vac", checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                  <div>
-                    <Label htmlFor="no-vad" className="text-sm font-medium text-gray-700">
-                      Disable VAD
-                    </Label>
-                    <p className="text-xs text-gray-500">Turn off voice activity detection</p>
-                  </div>
-                  <Switch
-                    id="no-vad"
-                    checked={settings.noVad}
-                    onCheckedChange={(checked) => updateSetting("noVad", checked)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* LLM Configuration */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-medium text-gray-800">LLM Inference Configuration</h3>
-                <Badge variant="outline" className="text-xs">
-                  AI Analysis
-                </Badge>
-              </div>
-
-              <div className="flex items-center justify-between space-x-2 border p-4 rounded-md mb-4">
-                <div>
-                  <Label htmlFor="llm-inference" className="text-sm font-medium text-gray-700">
-                    Enable LLM Inference
-                  </Label>
-                  <p className="text-xs text-gray-500">AI-based analysis after periods of inactivity</p>
-                </div>
-                <Switch
-                  id="llm-inference"
-                  checked={settings.llmInference}
-                  onCheckedChange={(checked) => updateSetting("llmInference", checked)}
-                />
-              </div>
-
-              {settings.llmInference && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fast-llm" className="text-sm font-medium text-gray-700">
-                      Fast LLM Model
-                    </Label>
-                    <Input
-                      id="fast-llm"
-                      value={settings.fastLlm}
-                      onChange={(e) => updateSetting("fastLlm", e.target.value)}
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-gray-500">For text parsing and quick operations</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="base-llm" className="text-sm font-medium text-gray-700">
-                      Base LLM Model
-                    </Label>
-                    <Input
-                      id="base-llm"
-                      value={settings.baseLlm}
-                      onChange={(e) => updateSetting("baseLlm", e.target.value)}
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-gray-500">For summarization and complex operations</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="llm-trigger-time" className="text-sm font-medium text-gray-700">
-                      LLM Trigger Time (seconds)
-                    </Label>
-                    <Input
-                      id="llm-trigger-time"
-                      type="number"
-                      step="0.1"
-                      value={settings.llmTriggerTime}
-                      onChange={(e) => updateSetting("llmTriggerTime", Number.parseFloat(e.target.value))}
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-gray-500">Time after which to trigger inference</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="llm-conversation-trigger" className="text-sm font-medium text-gray-700">
-                      Conversation Trigger Count
-                    </Label>
-                    <Input
-                      id="llm-conversation-trigger"
-                      type="number"
-                      value={settings.llmConversationTrigger}
-                      onChange={(e) => updateSetting("llmConversationTrigger", Number.parseInt(e.target.value))}
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-gray-500">Speaker turns after which to trigger inference</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* General Settings */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-medium text-gray-800">General Settings</h3>
-                <Badge variant="outline" className="text-xs">
-                  UI/UX
-                </Badge>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="api-key" className="text-sm font-medium text-gray-700">
-                    OpenAI API Key
-                  </Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    value={settings.apiKey}
-                    onChange={(e) => updateSetting("apiKey", e.target.value)}
-                    placeholder="sk-..."
-                    className="text-sm"
-                  />
-                  <p className="text-xs text-gray-500">Your API key for OpenAI services</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                    <div>
-                      <Label htmlFor="auto-scroll" className="text-sm font-medium text-gray-700">
-                        Auto-Scroll Transcription
-                      </Label>
-                      <p className="text-xs text-gray-500">Automatically scroll as text appears</p>
-                    </div>
-                    <Switch
-                      id="auto-scroll"
-                      checked={settings.autoScroll}
-                      onCheckedChange={(checked) => updateSetting("autoScroll", checked)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between space-x-2 border p-4 rounded-md">
-                    <div>
-                      <Label htmlFor="dark-mode" className="text-sm font-medium text-gray-700">
-                        Dark Mode
-                      </Label>
-                      <p className="text-xs text-gray-500">Toggle dark theme</p>
-                    </div>
-                    <Switch
-                      id="dark-mode"
-                      checked={settings.darkMode}
-                      onCheckedChange={(checked) => updateSetting("darkMode", checked)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-6 flex justify-end space-x-3">
-              <Button variant="outline" onClick={() => window.location.reload()}>
-                Reset to Defaults
-              </Button>
-              <Button onClick={handleSave}>Save Configuration</Button>
+      {error && (
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2 text-destructive">
+              <AlertCircle className="w-4 h-4" />
+              <span>{error}</span>
             </div>
           </CardContent>
         </Card>
-      </div>
+      )}
+
+      {success && (
+        <Card className="border-green-500">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2 text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              <span>{success}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Tabs defaultValue="models" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="models">Models</TabsTrigger>
+          <TabsTrigger value="processing">Processing</TabsTrigger>
+          <TabsTrigger value="presets">Presets</TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+          <TabsTrigger value="llm">LLM</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="models" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="w-5 h-5" />
+                <span>Model Status</span>
+              </CardTitle>
+              <CardDescription>Current status of all loaded models</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {modelsStatus && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">ASR Model</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Status:</span>
+                          {getStatusBadge(modelsStatus.asr.loaded, modelsStatus.asr.ready)}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Model:</span>
+                          <span className="text-sm font-mono">{modelsStatus.asr.model_name}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Backend:</span>
+                          <span className="text-sm">{modelsStatus.asr.backend}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Language:</span>
+                          <span className="text-sm">{modelsStatus.asr.language}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">Diarization</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Status:</span>
+                          {getStatusBadge(modelsStatus.diarization.loaded, modelsStatus.diarization.ready)}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Enabled:</span>
+                          <span className="text-sm">{modelsStatus.diarization.enabled ? 'Yes' : 'No'}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">LLM Models</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Inference:</span>
+                          <span className="text-sm">{modelsStatus.llm.inference_enabled ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Fast Model:</span>
+                          <span className="text-xs font-mono">{modelsStatus.llm.fast_model}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Base Model:</span>
+                          <span className="text-xs font-mono">{modelsStatus.llm.base_model}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="flex space-x-2">
+                    <Button 
+                      onClick={() => handleReloadModels('all')} 
+                      disabled={loading}
+                      variant="outline"
+                    >
+                      Reload All Models
+                    </Button>
+                    <Button 
+                      onClick={() => handleReloadModels('asr')} 
+                      disabled={loading}
+                      variant="outline"
+                    >
+                      Reload ASR
+                    </Button>
+                    <Button 
+                      onClick={() => handleReloadModels('diarization')} 
+                      disabled={loading}
+                      variant="outline"
+                    >
+                      Reload Diarization
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="processing" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="w-5 h-5" />
+                <span>Processing Parameters</span>
+              </CardTitle>
+              <CardDescription>Configure audio processing settings</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {processingParams && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="min_chunk_size">Min Chunk Size (seconds)</Label>
+                    <Input
+                      id="min_chunk_size"
+                      type="number"
+                      step="0.1"
+                      value={processingParams.min_chunk_size}
+                      onChange={(e) => setProcessingParams(prev => prev ? { ...prev, min_chunk_size: parseFloat(e.target.value) } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="buffer_trimming_sec">Buffer Trimming (seconds)</Label>
+                    <Input
+                      id="buffer_trimming_sec"
+                      type="number"
+                      step="0.1"
+                      value={processingParams.buffer_trimming_sec}
+                      onChange={(e) => setProcessingParams(prev => prev ? { ...prev, buffer_trimming_sec: parseFloat(e.target.value) } : null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="language">Language</Label>
+                    <Select value={processingParams.language} onValueChange={(value) => setProcessingParams(prev => prev ? { ...prev, language: value } : null)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select language" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto Detect</SelectItem>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="es">Spanish</SelectItem>
+                        <SelectItem value="fr">French</SelectItem>
+                        <SelectItem value="de">German</SelectItem>
+                        <SelectItem value="zh">Chinese</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="task">Task</Label>
+                    <Select value={processingParams.task} onValueChange={(value) => setProcessingParams(prev => prev ? { ...prev, task: value } : null)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select task" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="transcribe">Transcribe</SelectItem>
+                        <SelectItem value="translate">Translate</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="vad_enabled"
+                      checked={processingParams.vad_enabled}
+                      onCheckedChange={(checked) => setProcessingParams(prev => prev ? { ...prev, vad_enabled: checked } : null)}
+                    />
+                    <Label htmlFor="vad_enabled">Voice Activity Detection</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="vac_enabled"
+                      checked={processingParams.vac_enabled}
+                      onCheckedChange={(checked) => setProcessingParams(prev => prev ? { ...prev, vac_enabled: checked } : null)}
+                    />
+                    <Label htmlFor="vac_enabled">Voice Activity Controller</Label>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="presets" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="w-5 h-5" />
+                <span>Configuration Presets</span>
+              </CardTitle>
+              <CardDescription>Quick configuration presets for different use cases</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(presets).map(([key, preset]) => (
+                  <Card key={key} className="cursor-pointer hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg">{preset.name}</CardTitle>
+                      <CardDescription>{preset.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleApplyPreset(key)}
+                        disabled={loading}
+                        className="w-full"
+                      >
+                        Apply Preset
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="files" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-5 h-5" />
+                  <span>File Management</span>
+                </div>
+                <Button onClick={handleCleanupFiles} disabled={loading} variant="outline">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Cleanup Old Files
+                </Button>
+              </CardTitle>
+              <CardDescription>Manage uploaded audio files</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {uploadedFiles.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No uploaded files found</p>
+              ) : (
+                <div className="space-y-2">
+                  {uploadedFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium">{file.filename}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {api.formatBytes(file.size)} • {api.formatTimestamp(file.created)}
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => handleDeleteFile(file.path)}
+                        size="sm"
+                        variant="destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="llm" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Brain className="w-5 h-5" />
+                  <span>LLM Status</span>
+                </div>
+                <Button onClick={handleTestLLM} disabled={loading} variant="outline">
+                  <TestTube className="w-4 h-4 mr-2" />
+                  Test Connection
+                </Button>
+              </CardTitle>
+              <CardDescription>LLM processing status and configuration</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {llmStatus && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Display Parser</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Status:</span>
+                        {llmStatus.display_parser.enabled ? 
+                          <Badge variant="default">Enabled</Badge> : 
+                          <Badge variant="secondary">Disabled</Badge>
+                        }
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Model:</span>
+                        <span className="text-xs font-mono">{llmStatus.display_parser.model}</span>
+                      </div>
+                      {llmStatus.display_parser.stats && (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">Requests:</span>
+                            <span className="text-sm">{llmStatus.display_parser.stats.total_requests || 0}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">Cache Hit Rate:</span>
+                            <span className="text-sm">
+                              {((llmStatus.display_parser.stats.cache_hit_rate || 0) * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Inference</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Status:</span>
+                        {llmStatus.inference.enabled ? 
+                          <Badge variant="default">Enabled</Badge> : 
+                          <Badge variant="secondary">Disabled</Badge>
+                        }
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Fast Model:</span>
+                        <span className="text-xs font-mono">{llmStatus.inference.fast_model}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Base Model:</span>
+                        <span className="text-xs font-mono">{llmStatus.inference.base_model}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
-  )
+  );
 }

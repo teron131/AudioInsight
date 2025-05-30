@@ -102,13 +102,13 @@ export function TranscriptDisplay({ transcriptData, className }: TranscriptDispl
                   {/* Processing indicators for last line */}
                   {isLastLine && !isFinalizing && (
                     <>
-                      {remaining_time_transcription && remaining_time_transcription > 0 && (
+                      {remaining_time_transcription != null && remaining_time_transcription > 0 && (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-secondary border rounded text-xs text-blue-600 font-medium">
                           <Loader2 className="w-3 h-3 animate-spin" />
-                          Transcription lag {remaining_time_transcription.toFixed(1)}s
+                          Transcription Lag {remaining_time_transcription.toFixed(1)}s
                         </span>
                       )}
-                      {diarization_enabled && buffer_diarization && remaining_time_diarization && remaining_time_diarization > 0 && (
+                      {diarization_enabled && buffer_diarization && remaining_time_diarization != null && remaining_time_diarization > 0 && (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-secondary border rounded text-xs text-orange-600 font-medium">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           Diarization lag {remaining_time_diarization.toFixed(1)}s

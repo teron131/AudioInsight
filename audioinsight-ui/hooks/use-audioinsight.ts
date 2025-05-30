@@ -86,14 +86,19 @@ export function useAudioInsight(): UseAudioInsightReturn {
                            data.type === 'completion' ||
                            (data.final === true);
       
+      // Handle completion signals immediately for processing state
+      if (data.type === 'ready_to_stop') {
+        setIsProcessingFile(false);
+      }
+      
       // Handle transcript data
       if (data.type === 'transcription' || data.lines) {
         const {
           lines = [],
           buffer_transcription = "",
           buffer_diarization = "",
-          remaining_time_transcription = 0,
-          remaining_time_diarization = 0,
+          remaining_time_transcription,
+          remaining_time_diarization,
           diarization_enabled = false
         } = data;
         
@@ -138,6 +143,11 @@ export function useAudioInsight(): UseAudioInsightReturn {
             }
             return prev ? { ...prev, isFinalizing: false, buffer_transcription: '', buffer_diarization: '' } : prev;
           });
+          
+          toast({
+            title: "Success", 
+            description: "Processing completed",
+          });
         } else {
           // Use a small delay for other completion signals
           setTimeout(() => {
@@ -166,19 +176,13 @@ export function useAudioInsight(): UseAudioInsightReturn {
               return prev ? { ...prev, isFinalizing: false, buffer_transcription: '', buffer_diarization: '' } : prev;
             });
           }, 100); // Small delay to ensure proper order
-        }
-        
-        if (isRecording) {
-          toast({
-            title: "Success",
-            description: "Live transcription completed",
-          });
-        } else if (isProcessingFile) {
-          toast({
-            title: "Success", 
-            description: "File processing completed",
-          });
-          setIsProcessingFile(false);
+          
+          if (isRecording) {
+            toast({
+              title: "Success",
+              description: "Live transcription completed",
+            });
+          }
         }
       }
       

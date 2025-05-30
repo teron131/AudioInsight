@@ -299,44 +299,6 @@ async def update_processing_config(config: dict):
 
 
 # =============================================================================
-# System Status and Health APIs
-# =============================================================================
-
-
-@app.get("/api/system/status")
-async def get_system_status():
-    """Get system status and health information."""
-    try:
-        import platform
-
-        import psutil
-
-        # System info
-        system_info = {"platform": platform.system(), "python_version": platform.python_version(), "cpu_count": psutil.cpu_count(), "cpu_percent": psutil.cpu_percent(interval=1), "memory": {"total": psutil.virtual_memory().total, "available": psutil.virtual_memory().available, "percent": psutil.virtual_memory().percent}, "disk": {"total": psutil.disk_usage("/").total, "free": psutil.disk_usage("/").free, "percent": psutil.disk_usage("/").percent}}
-
-        # AudioInsight status
-        global kit
-        audioinsight_status = {"initialized": kit is not None, "diarization_enabled": getattr(kit, "diarization_enabled", False) if kit else False, "llm_enabled": getattr(kit, "llm_enabled", False) if kit else False, "display_parser_enabled": get_display_parser().is_enabled() if kit else False}
-
-        return {"status": "success", "system": system_info, "audioinsight": audioinsight_status, "timestamp": time.time()}
-    except Exception as e:
-        logger.error(f"Error getting system status: {e}")
-        return {"status": "error", "message": f"Error getting system status: {str(e)}"}
-
-
-@app.get("/api/system/health")
-async def health_check():
-    """Simple health check endpoint."""
-    try:
-        global kit
-        health_status = "healthy" if kit is not None else "unhealthy"
-
-        return {"status": health_status, "timestamp": time.time(), "service": "AudioInsight", "version": "1.0.0"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-# =============================================================================
 # Export APIs
 # =============================================================================
 
@@ -515,3 +477,568 @@ def main():
         uvicorn_kwargs = {**uvicorn_kwargs, **ssl_kwargs}
 
     uvicorn.run(**uvicorn_kwargs)
+
+
+# =============================================================================
+# Model Management APIs
+# =============================================================================
+
+
+@app.get("/api/models/status")
+async def get_models_status():
+    """Get the status of all loaded models."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        models_status = {
+            "asr": {
+                "loaded": kit._models_loaded,
+                "model_name": getattr(kit.args, "model", "unknown"),
+                "backend": getattr(kit.args, "backend", "unknown"),
+                "language": getattr(kit.args, "lang", "auto"),
+                "ready": kit.asr is not None if hasattr(kit, "asr") else False,
+            },
+            "diarization": {
+                "loaded": kit._diarization_loaded,
+                "enabled": getattr(kit.args, "diarization", False),
+                "ready": kit.diarization is not None if hasattr(kit, "diarization") else False,
+            },
+            "llm": {
+                "fast_model": getattr(kit.args, "fast_llm", "google/gemini-flash-1.5-8b"),
+                "base_model": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini"),
+                "inference_enabled": getattr(kit.args, "llm_inference", True),
+            },
+        }
+
+        return {"status": "success", "models": models_status}
+    except Exception as e:
+        logger.error(f"Error getting models status: {e}")
+        return {"status": "error", "message": f"Error getting models status: {str(e)}"}
+
+
+@app.post("/api/models/reload")
+async def reload_models(model_type: str = "all"):
+    """Reload specific models or all models."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        reloaded = []
+
+        if model_type in ["all", "asr"] and hasattr(kit, "_load_asr_models"):
+            kit._models_loaded = False
+            kit._load_asr_models()
+            kit._models_loaded = True
+            reloaded.append("asr")
+
+        if model_type in ["all", "diarization"] and hasattr(kit, "_load_diarization"):
+            kit._diarization_loaded = False
+            kit._load_diarization()
+            kit._diarization_loaded = True
+            reloaded.append("diarization")
+
+        logger.info(f"Reloaded models: {reloaded}")
+        return {"status": "success", "message": f"Reloaded models: {', '.join(reloaded)}", "reloaded": reloaded}
+
+    except Exception as e:
+        logger.error(f"Error reloading models: {e}")
+        return {"status": "error", "message": f"Error reloading models: {str(e)}"}
+
+
+@app.post("/api/models/unload")
+async def unload_models(model_type: str = "all"):
+    """Unload specific models to free memory."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        unloaded = []
+
+        if model_type in ["all", "asr"]:
+            kit.asr = None
+            kit.tokenizer = None
+            kit._models_loaded = False
+            unloaded.append("asr")
+
+        if model_type in ["all", "diarization"]:
+            if hasattr(kit, "diarization") and kit.diarization:
+                kit.diarization.close()
+            kit.diarization = None
+            kit._diarization_loaded = False
+            unloaded.append("diarization")
+
+        logger.info(f"Unloaded models: {unloaded}")
+        return {"status": "success", "message": f"Unloaded models: {', '.join(unloaded)}", "unloaded": unloaded}
+
+    except Exception as e:
+        logger.error(f"Error unloading models: {e}")
+        return {"status": "error", "message": f"Error unloading models: {str(e)}"}
+
+
+# =============================================================================
+# Audio Processing Control APIs
+# =============================================================================
+
+
+@app.get("/api/processing/parameters")
+async def get_processing_parameters():
+    """Get current audio processing parameters."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        params = {
+            "min_chunk_size": getattr(kit.args, "min_chunk_size", 0.5),
+            "buffer_trimming": getattr(kit.args, "buffer_trimming", "segment"),
+            "buffer_trimming_sec": getattr(kit.args, "buffer_trimming_sec", 15.0),
+            "vac_chunk_size": getattr(kit.args, "vac_chunk_size", 0.04),
+            "language": getattr(kit.args, "lang", "auto"),
+            "task": getattr(kit.args, "task", "transcribe"),
+            "vad_enabled": getattr(kit.args, "vad", True),
+            "vac_enabled": getattr(kit.args, "vac", False),
+            "confidence_validation": getattr(kit.args, "confidence_validation", False),
+        }
+
+        return {"status": "success", "parameters": params}
+    except Exception as e:
+        logger.error(f"Error getting processing parameters: {e}")
+        return {"status": "error", "message": f"Error getting processing parameters: {str(e)}"}
+
+
+@app.post("/api/processing/parameters")
+async def update_processing_parameters(parameters: dict):
+    """Update audio processing parameters in real-time."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        updated_params = []
+        valid_params = {"min_chunk_size", "buffer_trimming", "buffer_trimming_sec", "vac_chunk_size", "lang", "task", "vad", "vac", "confidence_validation"}
+
+        for param, value in parameters.items():
+            if param in valid_params:
+                setattr(kit.args, param, value)
+                updated_params.append(param)
+                logger.info(f"Updated processing parameter: {param} = {value}")
+
+        return {"status": "success", "message": f"Updated parameters: {', '.join(updated_params)}", "updated_parameters": updated_params}
+
+    except Exception as e:
+        logger.error(f"Error updating processing parameters: {e}")
+        return {"status": "error", "message": f"Error updating processing parameters: {str(e)}"}
+
+
+# =============================================================================
+# Configuration Presets APIs
+# =============================================================================
+
+
+@app.get("/api/presets")
+async def get_configuration_presets():
+    """Get available configuration presets."""
+    try:
+        presets = {
+            "fast_transcription": {
+                "name": "Fast Transcription",
+                "description": "Optimized for speed with basic features",
+                "config": {
+                    "model": "base",
+                    "diarization": False,
+                    "llm_inference": False,
+                    "min_chunk_size": 0.3,
+                    "buffer_trimming": "segment",
+                    "vad": True,
+                    "vac": False,
+                },
+            },
+            "high_accuracy": {
+                "name": "High Accuracy",
+                "description": "Maximum accuracy with all features enabled",
+                "config": {
+                    "model": "large-v3-turbo",
+                    "diarization": True,
+                    "llm_inference": True,
+                    "min_chunk_size": 1.0,
+                    "buffer_trimming": "sentence",
+                    "vad": True,
+                    "vac": True,
+                    "confidence_validation": True,
+                },
+            },
+            "meeting_recording": {
+                "name": "Meeting Recording",
+                "description": "Optimized for multi-speaker meetings",
+                "config": {
+                    "model": "large-v3",
+                    "diarization": True,
+                    "llm_inference": True,
+                    "min_chunk_size": 0.8,
+                    "buffer_trimming": "sentence",
+                    "llm_conversation_trigger": 3,
+                    "vad": True,
+                },
+            },
+            "live_streaming": {
+                "name": "Live Streaming",
+                "description": "Real-time streaming with low latency",
+                "config": {
+                    "model": "medium",
+                    "diarization": False,
+                    "llm_inference": False,
+                    "min_chunk_size": 0.2,
+                    "buffer_trimming": "segment",
+                    "vac": True,
+                    "vad": True,
+                },
+            },
+        }
+
+        return {"status": "success", "presets": presets}
+
+    except Exception as e:
+        logger.error(f"Error getting configuration presets: {e}")
+        return {"status": "error", "message": f"Error getting configuration presets: {str(e)}"}
+
+
+@app.post("/api/presets/{preset_name}/apply")
+async def apply_configuration_preset(preset_name: str):
+    """Apply a configuration preset."""
+    try:
+        # Get available presets
+        presets_response = await get_configuration_presets()
+        if presets_response["status"] != "success":
+            return presets_response
+
+        presets = presets_response["presets"]
+
+        if preset_name not in presets:
+            return {"status": "error", "message": f"Preset '{preset_name}' not found"}
+
+        preset_config = presets[preset_name]["config"]
+
+        # Apply the preset configuration
+        result = await update_processing_config(preset_config)
+
+        if result["status"] == "success":
+            logger.info(f"Applied configuration preset: {preset_name}")
+            return {"status": "success", "message": f"Applied preset '{presets[preset_name]['name']}'", "preset": preset_name, "applied_config": preset_config}
+        else:
+            return result
+
+    except Exception as e:
+        logger.error(f"Error applying configuration preset: {e}")
+        return {"status": "error", "message": f"Error applying preset: {str(e)}"}
+
+
+# =============================================================================
+# File Management APIs
+# =============================================================================
+
+
+@app.get("/api/files/uploaded")
+async def get_uploaded_files():
+    """Get list of uploaded files."""
+    try:
+        import os
+        import tempfile
+        from pathlib import Path
+
+        temp_dir = Path(tempfile.gettempdir())
+        uploaded_files = []
+
+        # Look for audio files in temp directory (this is a simplified approach)
+        audio_extensions = {".wav", ".mp3", ".mp4", ".m4a", ".flac", ".ogg", ".webm"}
+
+        for file_path in temp_dir.glob("audioinsight_*"):
+            if file_path.suffix.lower() in audio_extensions:
+                stat = file_path.stat()
+                uploaded_files.append(
+                    {
+                        "filename": file_path.name,
+                        "path": str(file_path),
+                        "size": stat.st_size,
+                        "created": stat.st_ctime,
+                        "modified": stat.st_mtime,
+                    }
+                )
+
+        # Sort by creation time (newest first)
+        uploaded_files.sort(key=lambda x: x["created"], reverse=True)
+
+        return {"status": "success", "files": uploaded_files, "count": len(uploaded_files)}
+
+    except Exception as e:
+        logger.error(f"Error getting uploaded files: {e}")
+        return {"status": "error", "message": f"Error getting uploaded files: {str(e)}"}
+
+
+@app.delete("/api/files/{file_path:path}")
+async def delete_uploaded_file(file_path: str):
+    """Delete a specific uploaded file."""
+    try:
+        import tempfile
+        from pathlib import Path
+
+        # Security check - only allow deletion of files in temp directory
+        temp_dir = Path(tempfile.gettempdir())
+        full_path = Path(file_path)
+
+        if not str(full_path).startswith(str(temp_dir)):
+            return {"status": "error", "message": "Invalid file path"}
+
+        if full_path.exists():
+            full_path.unlink()
+            logger.info(f"Deleted file: {file_path}")
+            return {"status": "success", "message": f"Deleted file: {full_path.name}"}
+        else:
+            return {"status": "error", "message": "File not found"}
+
+    except Exception as e:
+        logger.error(f"Error deleting file: {e}")
+        return {"status": "error", "message": f"Error deleting file: {str(e)}"}
+
+
+@app.post("/api/files/cleanup")
+async def cleanup_old_files(max_age_hours: int = 24):
+    """Clean up old uploaded files."""
+    try:
+        import os
+        import tempfile
+        import time
+        from pathlib import Path
+
+        temp_dir = Path(tempfile.gettempdir())
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        deleted_files = []
+
+        audio_extensions = {".wav", ".mp3", ".mp4", ".m4a", ".flac", ".ogg", ".webm"}
+
+        for file_path in temp_dir.glob("audioinsight_*"):
+            if file_path.suffix.lower() in audio_extensions:
+                file_age = current_time - file_path.stat().st_mtime
+                if file_age > max_age_seconds:
+                    try:
+                        file_path.unlink()
+                        deleted_files.append(file_path.name)
+                    except Exception as e:
+                        logger.warning(f"Failed to delete {file_path}: {e}")
+
+        logger.info(f"Cleaned up {len(deleted_files)} old files")
+        return {"status": "success", "message": f"Cleaned up {len(deleted_files)} files older than {max_age_hours} hours", "deleted_files": deleted_files}
+
+    except Exception as e:
+        logger.error(f"Error cleaning up files: {e}")
+        return {"status": "error", "message": f"Error cleaning up files: {str(e)}"}
+
+
+# =============================================================================
+# LLM Management APIs
+# =============================================================================
+
+
+@app.get("/api/llm/status")
+async def get_llm_status():
+    """Get LLM processing status and statistics."""
+    try:
+        # Get display parser stats
+        display_parser = get_display_parser()
+        display_stats = display_parser.get_stats()
+
+        llm_status = {
+            "display_parser": {
+                "enabled": display_parser.is_enabled(),
+                "model": display_parser.config.model_id if display_parser.config else "google/gemini-flash-1.5-8b",
+                "stats": display_stats,
+            },
+            "inference": {
+                "enabled": getattr(kit.args, "llm_inference", True) if kit else False,
+                "fast_model": getattr(kit.args, "fast_llm", "google/gemini-flash-1.5-8b") if kit else None,
+                "base_model": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini") if kit else None,
+            },
+        }
+
+        return {"status": "success", "llm_status": llm_status}
+
+    except Exception as e:
+        logger.error(f"Error getting LLM status: {e}")
+        return {"status": "error", "message": f"Error getting LLM status: {str(e)}"}
+
+
+@app.post("/api/llm/test")
+async def test_llm_connection(model_id: str = None):
+    """Test LLM connection and model availability."""
+    try:
+        from langchain.prompts import ChatPromptTemplate
+
+        from .llm import LLMConfig, UniversalLLM
+
+        # Use provided model or default
+        test_model = model_id or "google/gemini-flash-1.5-8b"
+
+        # Create test LLM client
+        config = LLMConfig(model_id=test_model)
+        llm_client = UniversalLLM(config)
+
+        # Create simple test prompt
+        prompt = ChatPromptTemplate.from_messages([("human", "Say 'Hello, AudioInsight!' if you can respond.")])
+
+        # Test the connection
+        start_time = time.time()
+        result = await llm_client.invoke_text(prompt, {})
+        response_time = time.time() - start_time
+
+        return {"status": "success", "message": "LLM connection test successful", "model": test_model, "response": result, "response_time": response_time, "test_timestamp": time.time()}
+
+    except Exception as e:
+        logger.error(f"LLM connection test failed: {e}")
+        return {"status": "error", "message": f"LLM connection test failed: {str(e)}", "model": test_model if "test_model" in locals() else model_id}
+
+
+# =============================================================================
+# Batch Processing APIs
+# =============================================================================
+
+
+@app.post("/api/batch/process")
+async def start_batch_processing(file_paths: list[str], processing_config: dict = None):
+    """Start batch processing of multiple audio files."""
+    try:
+        import asyncio
+        from pathlib import Path
+
+        # Validate file paths
+        valid_files = []
+        for file_path in file_paths:
+            path = Path(file_path)
+            if path.exists() and path.suffix.lower() in {".wav", ".mp3", ".mp4", ".m4a", ".flac", ".ogg", ".webm"}:
+                valid_files.append(str(path))
+            else:
+                logger.warning(f"Invalid or missing file: {file_path}")
+
+        if not valid_files:
+            return {"status": "error", "message": "No valid audio files found"}
+
+        # Apply processing configuration if provided
+        if processing_config:
+            await update_processing_parameters(processing_config)
+
+        # Start batch processing (this is a simplified implementation)
+        batch_id = f"batch_{int(time.time())}"
+
+        # In a real implementation, you would queue these for background processing
+        # For now, we'll just return the batch information
+
+        batch_info = {"batch_id": batch_id, "files": valid_files, "total_files": len(valid_files), "status": "queued", "created_at": time.time(), "config": processing_config or {}}
+
+        logger.info(f"Started batch processing: {batch_id} with {len(valid_files)} files")
+
+        return {"status": "success", "message": f"Batch processing started with {len(valid_files)} files", "batch": batch_info}
+
+    except Exception as e:
+        logger.error(f"Error starting batch processing: {e}")
+        return {"status": "error", "message": f"Error starting batch processing: {str(e)}"}
+
+
+@app.get("/api/batch/{batch_id}/status")
+async def get_batch_status(batch_id: str):
+    """Get status of a batch processing job."""
+    try:
+        # In a real implementation, you would track batch jobs in a database or cache
+        # For now, we'll return a placeholder response
+
+        batch_status = {"batch_id": batch_id, "status": "completed", "processed_files": 0, "total_files": 0, "failed_files": 0, "progress_percent": 100, "started_at": time.time() - 3600, "completed_at": time.time() - 600, "results": []}  # This would be dynamic in a real implementation  # Placeholder: 1 hour ago  # Placeholder: 10 minutes ago
+
+        return {"status": "success", "batch": batch_status}
+
+    except Exception as e:
+        logger.error(f"Error getting batch status: {e}")
+        return {"status": "error", "message": f"Error getting batch status: {str(e)}"}
+
+
+# =============================================================================
+# Audio Quality Analysis APIs
+# =============================================================================
+
+
+@app.post("/api/audio/analyze")
+async def analyze_audio_quality(file_path: str):
+    """Analyze audio quality and provide recommendations."""
+    try:
+        from pathlib import Path
+
+        import librosa
+        import numpy as np
+
+        audio_path = Path(file_path)
+        if not audio_path.exists():
+            return {"status": "error", "message": "Audio file not found"}
+
+        # Load audio file
+        y, sr = librosa.load(str(audio_path), sr=None)
+        duration = len(y) / sr
+
+        # Basic audio analysis
+        # RMS energy
+        rms = librosa.feature.rms(y=y)[0]
+        avg_rms = np.mean(rms)
+
+        # Zero crossing rate
+        zcr = librosa.feature.zero_crossing_rate(y)[0]
+        avg_zcr = np.mean(zcr)
+
+        # Spectral features
+        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        avg_spectral_centroid = np.mean(spectral_centroids)
+
+        # Basic noise estimation (simplified)
+        noise_estimate = np.std(y[: int(0.1 * sr)])  # First 100ms as noise reference
+
+        # Calculate SNR estimate
+        signal_power = np.mean(y**2)
+        noise_power = noise_estimate**2
+        snr_estimate = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else float("inf")
+
+        # Generate recommendations
+        recommendations = []
+
+        if avg_rms < 0.01:
+            recommendations.append("Audio level is very low. Consider increasing input gain.")
+        elif avg_rms > 0.8:
+            recommendations.append("Audio level is very high. Risk of clipping.")
+
+        if snr_estimate < 10:
+            recommendations.append("High noise level detected. Consider noise reduction.")
+
+        if sr < 16000:
+            recommendations.append("Sample rate below 16kHz may affect transcription quality.")
+
+        analysis = {
+            "file_info": {
+                "filename": audio_path.name,
+                "duration": duration,
+                "sample_rate": sr,
+                "channels": 1,  # librosa loads as mono by default
+            },
+            "quality_metrics": {
+                "average_rms": float(avg_rms),
+                "average_zcr": float(avg_zcr),
+                "average_spectral_centroid": float(avg_spectral_centroid),
+                "estimated_snr": float(snr_estimate),
+                "noise_estimate": float(noise_estimate),
+            },
+            "recommendations": recommendations,
+            "overall_quality": "good" if snr_estimate > 15 and 0.01 < avg_rms < 0.8 else "fair" if snr_estimate > 5 else "poor",
+        }
+
+        return {"status": "success", "analysis": analysis}
+
+    except Exception as e:
+        logger.error(f"Error analyzing audio quality: {e}")
+        return {"status": "error", "message": f"Error analyzing audio: {str(e)}"}
