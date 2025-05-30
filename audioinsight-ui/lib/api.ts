@@ -49,15 +49,38 @@ export interface ModelStatus {
 }
 
 export interface ProcessingParameters {
+  // Server Configuration
+  host: string;
+  port: number;
+  
+  // Model Configuration  
+  model: string;
+  backend: string;
+  language: string;
+  task: string;
+  model_cache_dir?: string;
+  model_dir?: string;
+  
+  // Processing Configuration
   min_chunk_size: number;
   buffer_trimming: string;
   buffer_trimming_sec: number;
   vac_chunk_size: number;
-  language: string;
-  task: string;
+  warmup_file?: string;
+  
+  // Feature Configuration (boolean toggles)
+  transcription: boolean;
+  diarization: boolean;
   vad_enabled: boolean;
   vac_enabled: boolean;
   confidence_validation: boolean;
+  llm_inference: boolean;
+  
+  // LLM Configuration
+  fast_llm: string;
+  base_llm: string;
+  llm_trigger_time: number;
+  llm_conversation_trigger: number;
 }
 
 export interface ConfigurationPreset {
