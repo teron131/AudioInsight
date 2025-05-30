@@ -1,0 +1,23 @@
+{
+  "name": "audioinsight",
+  "version": "1.0.0",
+  "description": "AudioInsight - AI-powered audio analysis and transcription",
+  "scripts": {
+    "dev": "npm --prefix audioinsight-ui run dev",
+    "build": "npm --prefix audioinsight-ui run build",
+    "start": "npm --prefix audioinsight-ui run start",
+    "lint": "npm --prefix audioinsight-ui run lint",
+    "ui:dev": "npm --prefix audioinsight-ui run dev",
+    "ui:build": "npm --prefix audioinsight-ui run build",
+    "ui:start": "npm --prefix audioinsight-ui run start",
+    "ui:lint": "npm --prefix audioinsight-ui run lint"
+  },
+  "private": true,
+  "workspaces": [
+    "audioinsight-ui"
+  ],
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.8",
+    "class-variance-authority": "^0.7.1"
+  }
+}

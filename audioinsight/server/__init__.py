@@ -1,3 +1,2 @@
-from ..app import app, main
-
-__all__ = ["app", "main"]
+# Remove circular import - imports should be done at the module level where needed
+__all__ = []
