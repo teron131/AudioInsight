@@ -6,13 +6,16 @@ import { TranscriptDisplay } from '@/components/transcript-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { WaveformVisualization } from '@/components/waveform-visualization';
 import { useAudioInsight } from '@/hooks/use-audioinsight';
 import { Loader2, Mic, Square, Upload, Wifi, WifiOff } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 export default function AudioInsightPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   
   const {
     isConnected,
@@ -57,8 +60,26 @@ export default function AudioInsightPage() {
             </p>
           </div>
           
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-2">
+              <Switch 
+                id="diarization-toggle"
+                checked={diarizationEnabled}
+                onCheckedChange={setDiarizationEnabled}
+                disabled={isRecording || isProcessingFile}
+              />
+              <Label htmlFor="diarization-toggle">Diarization</Label>
+            </div>
+
+            <Button 
+              onClick={clearSession}
+              variant="outline"
+              size="sm"
+              disabled={isRecording || isProcessingFile}
+            >
+              Clear Session
+            </Button>
+
             {isConnected ? (
               <Badge variant="default" className="bg-green-600">
                 <Wifi className="w-3 h-3 mr-1" />
@@ -83,17 +104,17 @@ export default function AudioInsightPage() {
               onClick={startRecording}
               disabled={isProcessingFile}
               className="bg-blue-600 hover:bg-blue-700"
+              size="icon"
             >
-              <Mic className="w-4 h-4 mr-2" />
-              Start Recording
+              <Mic className="w-4 h-4" />
             </Button>
           ) : (
             <Button 
               onClick={stopRecording}
               variant="destructive"
+              size="icon"
             >
-              <Square className="w-4 h-4 mr-2" />
-              Stop Recording
+              <Square className="w-4 h-4" />
             </Button>
           )}
 
@@ -101,13 +122,13 @@ export default function AudioInsightPage() {
             onClick={handleUploadClick}
             variant="outline"
             disabled={isRecording || isProcessingFile}
+            size="icon"
           >
             {isProcessingFile ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4" />
             )}
-            Upload Audio File
           </Button>
 
           <input
@@ -118,17 +139,10 @@ export default function AudioInsightPage() {
             className="hidden"
           />
 
-          <Button 
-            onClick={clearSession}
-            variant="outline"
-            disabled={isRecording || isProcessingFile}
-          >
-            Clear Session
-          </Button>
-
           <ExportMenu 
             onExport={exportTranscript}
             disabled={!hasTranscriptData}
+            isIconOnly={true}
           />
         </div>
       </div>
@@ -175,7 +189,7 @@ export default function AudioInsightPage() {
       </div>
 
       {/* Status Information */}
-      {transcriptData && (
+      {/*transcriptData && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -216,7 +230,7 @@ export default function AudioInsightPage() {
             </CardContent>
           </Card>
         </div>
-      )}
+      )*/}
     </div>
   );
 }

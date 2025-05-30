@@ -64,6 +64,7 @@ export class AudioInsightWebSocket {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private currentDiarizationSetting = false;
 
   constructor(
     private onMessage: (data: WebSocketMessage) => void,
@@ -71,12 +72,12 @@ export class AudioInsightWebSocket {
     private onStatusChange: (connected: boolean) => void,
   ) {}
 
-  connect(): Promise<void> {
+  connect(diarizationEnabled: boolean): Promise<void> {
+    this.currentDiarizationSetting = diarizationEnabled;
     return new Promise((resolve, reject) => {
       try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Connect to backend on port 8001
-        const wsUrl = `${protocol}//${window.location.hostname}:8001/asr`;
+        const wsUrl = `${protocol}//${window.location.hostname}:8001/asr?diarization=${diarizationEnabled}`;
         
         this.websocket = new WebSocket(wsUrl);
 
@@ -109,12 +110,11 @@ export class AudioInsightWebSocket {
           this.isConnected = false;
           this.onStatusChange(false);
           
-          // Attempt to reconnect if not manually closed
           if (this.reconnectAttempts < this.maxReconnectAttempts) {
             setTimeout(() => {
               this.reconnectAttempts++;
               console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-              this.connect().catch(() => {
+              this.connect(this.currentDiarizationSetting).catch(() => {
                 if (this.reconnectAttempts >= this.maxReconnectAttempts) {
                   this.onError('Failed to reconnect to server');
                 }
@@ -123,7 +123,6 @@ export class AudioInsightWebSocket {
           }
         };
 
-        // Connection timeout
         setTimeout(() => {
           if (!this.isConnected) {
             this.websocket?.close();
@@ -150,7 +149,7 @@ export class AudioInsightWebSocket {
   }
 
   disconnect(): void {
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent reconnection
+    this.reconnectAttempts = this.maxReconnectAttempts;
     if (this.websocket) {
       this.websocket.close();
       this.websocket = null;
@@ -161,5 +160,9 @@ export class AudioInsightWebSocket {
 
   getConnectionState(): boolean {
     return this.isConnected;
+  }
+
+  getCurrentDiarizationSetting(): boolean {
+    return this.currentDiarizationSetting;
   }
 } 
