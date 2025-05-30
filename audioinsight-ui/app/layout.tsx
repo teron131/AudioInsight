@@ -1,4 +1,5 @@
 import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Toaster } from "@/components/ui/toaster"
 import { cn } from "@/lib/utils"
 import { Activity, Home, Settings } from "lucide-react"
@@ -25,7 +26,7 @@ export default function RootLayout({
       <body className={cn(inter.className, "bg-background text-foreground")}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
@@ -53,6 +54,7 @@ export default function RootLayout({
                     <Activity className="w-7 h-7 text-blue-600" />
                     <h1 className="text-xl font-semibold text-foreground">AudioInsight</h1>
                   </div>
+                  <ThemeToggle />
                 </div>
               </header>
               <main className="flex-1 overflow-y-auto">{children}</main>

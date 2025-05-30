@@ -1,9 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { Button, type ButtonProps } from "@/components/ui/button"
-import { Copy, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Check, Copy } from "lucide-react"
+import { useState } from "react"
 
 interface CopyButtonProps extends ButtonProps {
   textToCopy: string
