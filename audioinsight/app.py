@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
     # Configure display text parsing with fast_llm model
     from .llm import ParserConfig
 
-    fast_llm_model = getattr(args, "fast_llm", "google/gemini-flash-1.5-8b")
+    fast_llm_model = getattr(args, "fast_llm", "openai/gpt-4.1-nano")
     display_config = ParserConfig(model_id=fast_llm_model)
 
     # Get the display parser and configure it
@@ -250,7 +250,7 @@ async def get_model_config():
             "transcription_model": getattr(kit, "whisper_model", "openai/whisper-large-v3"),
             "diarization_enabled": getattr(kit, "diarization_enabled", True),
             "llm_analysis_enabled": getattr(kit, "llm_enabled", False),
-            "fast_llm_model": getattr(kit.display_parser, "config", {}).get("model_id", "google/gemini-flash-1.5-8b") if hasattr(kit, "display_parser") else "google/gemini-flash-1.5-8b",
+            "fast_llm_model": getattr(kit.display_parser, "config", {}).get("model_id", "openai/gpt-4.1-nano") if hasattr(kit, "display_parser") else "openai/gpt-4.1-nano",
         }
 
         return {"status": "success", "config": config}
@@ -506,7 +506,7 @@ async def get_models_status():
                 "ready": kit.diarization is not None if hasattr(kit, "diarization") else False,
             },
             "llm": {
-                "fast_model": getattr(kit.args, "fast_llm", "google/gemini-flash-1.5-8b"),
+                "fast_model": getattr(kit.args, "fast_llm", "openai/gpt-4.1-nano"),
                 "base_model": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini"),
                 "inference_enabled": getattr(kit.args, "llm_inference", True),
             },
@@ -593,15 +593,36 @@ async def get_processing_parameters():
             return {"status": "error", "message": "AudioInsight not initialized"}
 
         params = {
+            # Server Configuration
+            "host": getattr(kit.args, "host", "localhost"),
+            "port": getattr(kit.args, "port", 8001),
+            # Model Configuration
+            "model": getattr(kit.args, "model", "large-v3-turbo"),
+            "backend": getattr(kit.args, "backend", "faster-whisper"),
+            "language": getattr(kit.args, "lang", "auto"),
+            "task": getattr(kit.args, "task", "transcribe"),
+            "model_cache_dir": getattr(kit.args, "model_cache_dir", None),
+            "model_dir": getattr(kit.args, "model_dir", None),
+            # Processing Configuration
             "min_chunk_size": getattr(kit.args, "min_chunk_size", 0.5),
             "buffer_trimming": getattr(kit.args, "buffer_trimming", "segment"),
             "buffer_trimming_sec": getattr(kit.args, "buffer_trimming_sec", 15.0),
             "vac_chunk_size": getattr(kit.args, "vac_chunk_size", 0.04),
-            "language": getattr(kit.args, "lang", "auto"),
-            "task": getattr(kit.args, "task", "transcribe"),
+            "warmup_file": getattr(kit.args, "warmup_file", None),
+            # Feature Configuration (boolean toggles)
+            "transcription": getattr(kit.args, "transcription", True),
+            "diarization": getattr(kit.args, "diarization", False),
             "vad_enabled": getattr(kit.args, "vad", True),
             "vac_enabled": getattr(kit.args, "vac", False),
             "confidence_validation": getattr(kit.args, "confidence_validation", False),
+            "llm_inference": getattr(kit.args, "llm_inference", True),
+            # LLM Configuration
+            "fast_llm": getattr(kit.args, "fast_llm", "openai/gpt-4.1-nano"),
+            "base_llm": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini"),
+            "llm_summary_interval": getattr(kit.args, "llm_summary_interval", 15.0),
+            "llm_new_text_trigger": getattr(kit.args, "llm_new_text_trigger", 300),
+            "parser_trigger_interval": getattr(kit.args, "parser_trigger_interval", 1.0),
+            "parser_output_tokens": getattr(kit.args, "parser_output_tokens", 33000),
         }
 
         return {"status": "success", "parameters": params}
@@ -619,11 +640,44 @@ async def update_processing_parameters(parameters: dict):
             return {"status": "error", "message": "AudioInsight not initialized"}
 
         updated_params = []
-        valid_params = {"min_chunk_size", "buffer_trimming", "buffer_trimming_sec", "vac_chunk_size", "lang", "task", "vad", "vac", "confidence_validation"}
+        # Map frontend parameter names to backend attribute names
+        param_mapping = {
+            # Server Configuration
+            "host": "host",
+            "port": "port",
+            # Model Configuration
+            "model": "model",
+            "backend": "backend",
+            "language": "lang",  # Frontend uses 'language', backend uses 'lang'
+            "task": "task",
+            "model_cache_dir": "model_cache_dir",
+            "model_dir": "model_dir",
+            # Processing Configuration
+            "min_chunk_size": "min_chunk_size",
+            "buffer_trimming": "buffer_trimming",
+            "buffer_trimming_sec": "buffer_trimming_sec",
+            "vac_chunk_size": "vac_chunk_size",
+            "warmup_file": "warmup_file",
+            # Feature Configuration
+            "transcription": "transcription",
+            "diarization": "diarization",
+            "vad_enabled": "vad",  # Frontend uses 'vad_enabled', backend uses 'vad'
+            "vac_enabled": "vac",  # Frontend uses 'vac_enabled', backend uses 'vac'
+            "confidence_validation": "confidence_validation",
+            "llm_inference": "llm_inference",
+            # LLM Configuration
+            "fast_llm": "fast_llm",
+            "base_llm": "base_llm",
+            "llm_summary_interval": "llm_summary_interval",
+            "llm_new_text_trigger": "llm_new_text_trigger",
+            "parser_trigger_interval": "parser_trigger_interval",
+            "parser_output_tokens": "parser_output_tokens",
+        }
 
         for param, value in parameters.items():
-            if param in valid_params:
-                setattr(kit.args, param, value)
+            if param in param_mapping:
+                backend_param = param_mapping[param]
+                setattr(kit.args, backend_param, value)
                 updated_params.append(param)
                 logger.info(f"Updated processing parameter: {param} = {value}")
 
@@ -854,12 +908,12 @@ async def get_llm_status():
         llm_status = {
             "display_parser": {
                 "enabled": display_parser.is_enabled(),
-                "model": display_parser.config.model_id if display_parser.config else "google/gemini-flash-1.5-8b",
+                "model": display_parser.config.model_id if display_parser.config else "openai/gpt-4.1-nano",
                 "stats": display_stats,
             },
             "inference": {
                 "enabled": getattr(kit.args, "llm_inference", True) if kit else False,
-                "fast_model": getattr(kit.args, "fast_llm", "google/gemini-flash-1.5-8b") if kit else None,
+                "fast_model": getattr(kit.args, "fast_llm", "openai/gpt-4.1-nano") if kit else None,
                 "base_model": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini") if kit else None,
             },
         }
@@ -880,7 +934,7 @@ async def test_llm_connection(model_id: str = None):
         from .llm import LLMConfig, UniversalLLM
 
         # Use provided model or default
-        test_model = model_id or "google/gemini-flash-1.5-8b"
+        test_model = model_id or "openai/gpt-4.1-nano"
 
         # Create test LLM client
         config = LLMConfig(model_id=test_model)
@@ -899,6 +953,101 @@ async def test_llm_connection(model_id: str = None):
     except Exception as e:
         logger.error(f"LLM connection test failed: {e}")
         return {"status": "error", "message": f"LLM connection test failed: {str(e)}", "model": test_model if "test_model" in locals() else model_id}
+
+
+# =============================================================================
+# Transcript Parser APIs
+# =============================================================================
+
+
+@app.get("/api/transcript-parser/status")
+async def get_transcript_parser_status():
+    """Get transcript parser status and statistics."""
+    try:
+        global current_processor
+        if not current_processor or not hasattr(current_processor, "transcript_parser"):
+            return {"status": "error", "message": "No active transcript parser"}
+
+        parser = current_processor.transcript_parser
+        if not parser:
+            return {"status": "success", "enabled": False, "message": "Transcript parser not initialized"}
+
+        return {
+            "status": "success",
+            "enabled": current_processor._parser_enabled,
+            "stats": parser.get_stats(),
+            "config": {
+                "model_id": parser.config.model_id if parser.config else "openai/gpt-4.1-nano",
+                "max_output_tokens": parser.config.max_output_tokens if parser.config else 33000,
+            },
+            "total_parsed": len(current_processor.parsed_transcripts),
+            "last_parsed_available": current_processor.last_parsed_transcript is not None,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting transcript parser status: {e}")
+        return {"status": "error", "message": f"Error getting parser status: {str(e)}"}
+
+
+@app.post("/api/transcript-parser/enable")
+async def enable_transcript_parser(enabled: bool = True):
+    """Enable or disable transcript parsing."""
+    try:
+        global current_processor
+        if not current_processor or not hasattr(current_processor, "enable_transcript_parsing"):
+            return {"status": "error", "message": "No active transcript parser"}
+
+        current_processor.enable_transcript_parsing(enabled)
+        status = "enabled" if enabled else "disabled"
+
+        return {"status": "success", "message": f"Transcript parsing {status}", "enabled": enabled}
+
+    except Exception as e:
+        logger.error(f"Error toggling transcript parser: {e}")
+        return {"status": "error", "message": f"Error toggling parser: {str(e)}"}
+
+
+@app.get("/api/transcript-parser/transcripts")
+async def get_parsed_transcripts(limit: int = 10):
+    """Get parsed transcripts with optional limit."""
+    try:
+        global current_processor
+        if not current_processor or not hasattr(current_processor, "get_parsed_transcripts"):
+            return {"status": "error", "message": "No active transcript parser"}
+
+        all_transcripts = current_processor.get_parsed_transcripts()
+
+        # Apply limit
+        if limit > 0:
+            transcripts = all_transcripts[-limit:]
+        else:
+            transcripts = all_transcripts
+
+        return {"status": "success", "transcripts": [t.model_dump() for t in transcripts], "total_count": len(all_transcripts), "returned_count": len(transcripts)}
+
+    except Exception as e:
+        logger.error(f"Error getting parsed transcripts: {e}")
+        return {"status": "error", "message": f"Error getting transcripts: {str(e)}"}
+
+
+@app.get("/api/transcript-parser/latest")
+async def get_latest_parsed_transcript():
+    """Get the most recent parsed transcript."""
+    try:
+        global current_processor
+        if not current_processor or not hasattr(current_processor, "get_last_parsed_transcript"):
+            return {"status": "error", "message": "No active transcript parser"}
+
+        latest = current_processor.get_last_parsed_transcript()
+
+        if not latest:
+            return {"status": "success", "transcript": None, "message": "No parsed transcripts available"}
+
+        return {"status": "success", "transcript": latest.model_dump(), "message": "Latest parsed transcript retrieved"}
+
+    except Exception as e:
+        logger.error(f"Error getting latest parsed transcript: {e}")
+        return {"status": "error", "message": f"Error getting latest transcript: {str(e)}"}
 
 
 # =============================================================================

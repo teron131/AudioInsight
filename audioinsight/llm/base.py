@@ -49,7 +49,7 @@ class UniversalLLM:
                 api_key=api_key,
                 base_url=base_url if "/" in self.config.model_id else None,
                 temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
+                max_tokens=self.config.max_output_tokens,
                 timeout=self.config.timeout,
             )
 
@@ -200,7 +200,7 @@ class UniversalLLM:
         return {
             "model_id": self.config.model_id,
             "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
+            "max_tokens": self.config.max_output_tokens,
             "timeout": self.config.timeout,
             "provider": "openrouter" if base_url else "openai",
             "has_api_key": bool(api_key or self.config.api_key),

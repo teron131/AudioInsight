@@ -373,7 +373,7 @@ export default function SettingsPage() {
                   <Input
                     id="fast_llm"
                     type="text"
-                    value={processingParams.fast_llm || 'google/gemini-flash-1.5-8b'}
+                    value={processingParams.fast_llm || 'openai/gpt-4.1-nano'}
                     onChange={(e) => updateProcessingParam('fast_llm', e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
@@ -393,30 +393,59 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="llm_trigger_time">LLM Trigger Time (seconds)</Label>
+                  <Label htmlFor="llm_summary_interval">Summary Trigger Interval (seconds)</Label>
                   <Input
-                    id="llm_trigger_time"
+                    id="llm_summary_interval"
                     type="number"
                     step="0.1"
-                    min="0.1"
-                    value={processingParams.llm_trigger_time ?? 5.0}
-                    onChange={(e) => updateProcessingParam('llm_trigger_time', parseFloat(e.target.value))}
+                    min="1.0"
+                    value={processingParams.llm_summary_interval ?? 15.0}
+                    onChange={(e) => updateProcessingParam('llm_summary_interval', parseFloat(e.target.value))}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Time after silence to trigger inference
+                    Minimum time between comprehensive summaries
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="llm_conversation_trigger">Conversation Trigger Count</Label>
+                  <Label htmlFor="llm_new_text_trigger">New Text Trigger (characters)</Label>
                   <Input
-                    id="llm_conversation_trigger"
+                    id="llm_new_text_trigger"
                     type="number"
-                    min="1"
-                    value={processingParams.llm_conversation_trigger ?? 2}
-                    onChange={(e) => updateProcessingParam('llm_conversation_trigger', parseInt(e.target.value))}
+                    min="50"
+                    value={processingParams.llm_new_text_trigger ?? 300}
+                    onChange={(e) => updateProcessingParam('llm_new_text_trigger', parseInt(e.target.value))}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Number of speaker turns to trigger inference
+                    Characters of new text to trigger summary (~50 words = 300 chars)
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="parser_trigger_interval">Parser Trigger Interval (seconds)</Label>
+                  <Input
+                    id="parser_trigger_interval"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={processingParams.parser_trigger_interval ?? 1.0}
+                    onChange={(e) => updateProcessingParam('parser_trigger_interval', parseFloat(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Time interval between transcript parser triggers
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="parser_output_tokens">Parser Output Tokens Limit</Label>
+                  <Input
+                    id="parser_output_tokens"
+                    type="number"
+                    min="1000"
+                    max="100000"
+                    step="1000"
+                    value={processingParams.parser_output_tokens ?? 33000}
+                    onChange={(e) => updateProcessingParam('parser_output_tokens', parseInt(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Maximum OUTPUT tokens</strong> the parser model can generate. Parser will automatically chunk text to stay within this limit. Higher values = fewer API calls but require more capable models.
                   </p>
                 </div>
               </div>

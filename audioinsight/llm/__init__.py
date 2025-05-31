@@ -19,6 +19,7 @@ from .types import (
     LLMResponse,
     LLMStats,
     LLMTrigger,
+    ParsedTranscript,
     ParserConfig,
     ParserStats,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "LLMStats",
     "LLMTrigger",
     "ParserConfig",
+    "ParsedTranscript",
     # Statistics classes
     "BaseStats",
     "ParserStats",

@@ -79,8 +79,10 @@ export interface ProcessingParameters {
   // LLM Configuration
   fast_llm: string;
   base_llm: string;
-  llm_trigger_time: number;
-  llm_conversation_trigger: number;
+  llm_summary_interval: number;
+  llm_new_text_trigger: number;
+  parser_trigger_interval: number;
+  parser_output_tokens: number;
 }
 
 export interface ConfigurationPreset {
@@ -108,6 +110,34 @@ export interface LLMStatus {
     fast_model: string;
     base_model: string;
   };
+}
+
+export interface TranscriptParserStatus {
+  enabled: boolean;
+  stats: any;
+  config: {
+    model_id: string;
+    output_tokens: number;
+  };
+  total_parsed: number;
+  last_parsed_available: boolean;
+}
+
+export interface ParsedTranscript {
+  original_text: string;
+  parsed_text: string;
+  segments: Array<{
+    text: string;
+    position: number;
+    character_start: number;
+    character_end: number;
+    speaker?: number;
+    timestamp_start?: number;
+    timestamp_end?: number;
+  }>;
+  timestamps: Record<string, number>;
+  speakers: Array<Record<string, any>>;
+  parsing_time: number;
 }
 
 export interface BatchJob {
@@ -454,6 +484,66 @@ export class AudioInsightAPI {
       console.warn('Health check failed:', error);
       return { status: 'error' };
     }
+  }
+
+  // =============================================================================
+  // Transcript Parser APIs
+  // =============================================================================
+
+  async getTranscriptParserStatus(): Promise<TranscriptParserStatus> {
+    const response = await fetch(`${this.baseUrl}/api/transcript-parser/status`);
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || 'Failed to get transcript parser status');
+    }
+    
+    return {
+      enabled: data.enabled,
+      stats: data.stats,
+      config: data.config,
+      total_parsed: data.total_parsed,
+      last_parsed_available: data.last_parsed_available
+    };
+  }
+
+  async enableTranscriptParser(enabled: boolean = true): Promise<{ enabled: boolean; message: string }> {
+    const response = await fetch(`${this.baseUrl}/api/transcript-parser/enable?enabled=${enabled}`, {
+      method: 'POST',
+    });
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || 'Failed to toggle transcript parser');
+    }
+    
+    return { enabled: data.enabled, message: data.message };
+  }
+
+  async getParsedTranscripts(limit: number = 10): Promise<{ transcripts: ParsedTranscript[]; total_count: number; returned_count: number }> {
+    const response = await fetch(`${this.baseUrl}/api/transcript-parser/transcripts?limit=${limit}`);
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || 'Failed to get parsed transcripts');
+    }
+    
+    return {
+      transcripts: data.transcripts,
+      total_count: data.total_count,
+      returned_count: data.returned_count
+    };
+  }
+
+  async getLatestParsedTranscript(): Promise<ParsedTranscript | null> {
+    const response = await fetch(`${this.baseUrl}/api/transcript-parser/latest`);
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || 'Failed to get latest parsed transcript');
+    }
+    
+    return data.transcript;
   }
 
   // =============================================================================

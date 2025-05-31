@@ -85,25 +85,18 @@ Provide a structured summary with key points. Remember to respond in the same la
         )
 
         # State tracking
-        self.last_activity_time = time.time()
         self.accumulated_text = ""
         self.last_processed_text = ""  # Keep track of what was already processed
+        self.text_length_at_last_summary = 0  # Track text length at last summary for new text trigger
         self.last_inference = None
         self.inference_task = None
         self.is_running = False
         self.inference_callbacks = []
-        self.consecutive_idle_checks = 0  # Track consecutive idle periods
-        self.min_idle_checks = 3  # Require 3 consecutive idle checks (3 seconds) - reduced from 5 for more responsive summaries
 
         # Prevent duplicate inference
         self.last_inference_time = 0.0
         self.inference_cooldown = 2.0  # Minimum seconds between inference - reduced from 3.0 for more frequent summaries
         self.is_generating_inference = False  # Flag to prevent concurrent inference
-
-        # Conversation tracking
-        self.conversation_count = 0  # Count conversations since last inference
-        self.last_speaker = None  # Track the last speaker to detect conversation changes
-        self.conversation_count_since_last_inference = 0  # Reset after each inference
 
         # Statistics
         self.stats = LLMStats()
@@ -130,18 +123,6 @@ Provide a structured summary with key points. Remember to respond in the same la
         if not new_text.strip():
             return
 
-        self.last_activity_time = time.time()
-        self.consecutive_idle_checks = 0  # Reset idle counter on new activity
-
-        # Track conversations (speaker turns)
-        current_speaker = speaker_info.get("speaker") if speaker_info and "speaker" in speaker_info else None
-
-        # If speaker changes or this is the first message, it's a new conversation
-        if self.last_speaker != current_speaker:
-            self.conversation_count_since_last_inference += 1
-            self.last_speaker = current_speaker
-            logger.debug(f"New conversation detected: {self.conversation_count_since_last_inference} conversations since last inference")
-
         # Add to accumulated text with speaker info if available
         if speaker_info and "speaker" in speaker_info:
             formatted_text = f"[Speaker {speaker_info['speaker']}]: {new_text}"
@@ -153,7 +134,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         else:
             self.accumulated_text = formatted_text
 
-        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total, " f"conversations: {self.conversation_count_since_last_inference}, idle_checks reset to 0")
+        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total")
 
     async def start_monitoring(self):
         """Start monitoring for inference triggers."""
@@ -179,7 +160,6 @@ Provide a structured summary with key points. Remember to respond in the same la
     async def _check_and_process(self):
         """Check if conditions are met for inference."""
         if not self.accumulated_text.strip():
-            self.consecutive_idle_checks = 0
             return
 
         # Skip check if already generating or in cooldown
@@ -187,61 +167,37 @@ Provide a structured summary with key points. Remember to respond in the same la
         if self.is_generating_inference or (current_time - self.last_inference_time) < self.inference_cooldown:
             return
 
-        time_since_activity = current_time - self.last_activity_time
         text_length = len(self.accumulated_text)
 
         # OPTIMIZATION: Skip if we don't have minimum text length yet
         if text_length < self.trigger_config.min_text_length:
-            self.consecutive_idle_checks = 0
             return
 
-        # Check if we're truly idle (no new activity for required time)
-        if time_since_activity >= 1.0:  # At least 1 second since last activity
-            self.consecutive_idle_checks += 1
-        else:
-            self.consecutive_idle_checks = 0
-            # Even if not idle, check for conversation count trigger
-            if self.conversation_count_since_last_inference >= self.trigger_config.conversation_trigger_count:
-                logger.info(f"🔄 Triggering inference: {self.conversation_count_since_last_inference} conversations reached (target: {self.trigger_config.conversation_trigger_count})")
-                await self._generate_inference(trigger_reason="conversation_count")
-            return
+        # Calculate conditions for both time and new text triggers
+        new_text_since_last_summary = text_length - self.text_length_at_last_summary
+        time_since_last_summary = current_time - self.last_inference_time
 
-        # Check both idle time and conversation count triggers
-        new_text_length = len(self.accumulated_text) - len(self.last_processed_text)
-        is_truly_idle = self.consecutive_idle_checks >= self.min_idle_checks
-        has_enough_conversations = self.conversation_count_since_last_inference >= self.trigger_config.conversation_trigger_count
+        # Check both trigger conditions
+        has_been_long_enough = time_since_last_summary > self.trigger_config.summary_interval_seconds
+        has_enough_new_text = new_text_since_last_summary >= self.trigger_config.new_text_trigger_chars
 
-        # OPTIMIZATION: Increase text length requirements to avoid spam
-        accumulated_length = len(self.accumulated_text)
-        has_enough_text = accumulated_length > 800 and new_text_length > 300  # Increased thresholds
+        logger.debug(f"Trigger check: text_length={text_length} chars, new_text={new_text_since_last_summary} chars, " f"time_since_last={time_since_last_summary:.1f}s, " f"time_trigger={has_been_long_enough}, text_trigger={has_enough_new_text}")
 
-        logger.debug(f"Trigger check: idle={self.consecutive_idle_checks}s, " f"conversations={self.conversation_count_since_last_inference}, " f"new_text={new_text_length} chars, accumulated={accumulated_length} chars, " f"truly_idle={is_truly_idle}, enough_conversations={has_enough_conversations}, enough_text={has_enough_text}")
-
-        # Trigger inference if any condition is met, prioritizing conversation count > text length > idle
-        if has_enough_conversations:
-            trigger_reason = "conversation_count"
-            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"conversations={self.conversation_count_since_last_inference}")
+        # Trigger inference based on OR logic - either condition can trigger
+        if has_enough_new_text:
+            trigger_reason = "new_text"
+            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"new_text={new_text_since_last_summary} chars, text_length={text_length} chars")
             await self._generate_inference(trigger_reason=trigger_reason)
-            self.consecutive_idle_checks = 0  # Reset after processing
-        elif has_enough_text:
-            trigger_reason = "text_length"
-            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"accumulated={accumulated_length} chars, new={new_text_length} chars")
+        elif has_been_long_enough:
+            trigger_reason = "time_interval"
+            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"interval={time_since_last_summary:.1f}s, text_length={text_length} chars")
             await self._generate_inference(trigger_reason=trigger_reason)
-            self.consecutive_idle_checks = 0  # Reset after processing
-        elif is_truly_idle:
-            trigger_reason = "idle"
-            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"idle={self.consecutive_idle_checks}s")
-            await self._generate_inference(trigger_reason=trigger_reason)
-            self.consecutive_idle_checks = 0  # Reset after processing
-        elif self.consecutive_idle_checks > 0 and self.consecutive_idle_checks % 5 == 0:
-            # OPTIMIZATION: Log every 5 seconds instead of 3 when we're in idle mode
-            logger.info(f"⏳ Idle for {self.consecutive_idle_checks}s, conversations={self.conversation_count_since_last_inference}, new_text={new_text_length} chars, accumulated={accumulated_length} chars")
 
-    async def _generate_inference(self, trigger_reason: str = "idle"):
+    async def _generate_inference(self, trigger_reason: str = "manual"):
         """Generate inference using the LLM.
 
         Args:
-            trigger_reason: Reason for triggering the inference ('idle', 'conversation_count', 'forced', or 'both')
+            trigger_reason: Reason for triggering the inference ('new_text', 'text_length', 'forced', or 'manual')
         """
         if not self.accumulated_text.strip():
             return
@@ -259,28 +215,14 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.is_generating_inference = True
 
         try:
-            # For forced inference (final summary), process the entire accumulated text
-            # For regular inference, get only the new text since last inference
+            # CHANGE: Always process the entire accumulated text for comprehensive summaries
+            # This ensures summaries cover the full conversation context, not just incremental updates
+            text_to_process = self.accumulated_text.strip()
+
             if trigger_reason == "forced":
-                # Process entire accumulated text for comprehensive final summary
-                text_to_process = self.accumulated_text.strip()
                 logger.info(f"Processing entire accumulated text for final comprehensive summary: {len(text_to_process)} chars")
             else:
-                # Regular incremental processing logic
-                if self.last_processed_text:
-                    # Find where the last processed text ends in the current accumulated text
-                    last_inference_end = self.accumulated_text.find(self.last_processed_text)
-                    if last_inference_end != -1:
-                        last_inference_end += len(self.last_processed_text)
-                        text_to_process = self.accumulated_text[last_inference_end:].strip()
-                        if not text_to_process:
-                            logger.debug("No new text to process")
-                            return
-                    else:
-                        # If we can't find the overlap, process the recent portion
-                        text_to_process = self.accumulated_text[-self.trigger_config.max_text_length :].strip()
-                else:
-                    text_to_process = self.accumulated_text
+                logger.info(f"Processing entire accumulated text for comprehensive summary: {len(text_to_process)} chars")
 
             # Truncate if too long
             if len(text_to_process) > self.trigger_config.max_text_length:
@@ -291,7 +233,7 @@ Provide a structured summary with key points. Remember to respond in the same la
             if trigger_reason == "forced":
                 logger.info(f"Generating comprehensive final inference for {len(text_to_process)} chars...")
             else:
-                logger.info(f"Generating inference for {len(text_to_process)} chars of new content...")
+                logger.info(f"Generating comprehensive inference for {len(text_to_process)} chars of entire transcript...")
 
             # Prepare context information
             lines = text_to_process.split("\n")
@@ -332,20 +274,21 @@ Provide a structured summary with key points. Remember to respond in the same la
                 except Exception as e:
                     logger.error(f"Error in inference callback: {e}")
 
-            # Reset conversation count after processing (except for forced inference to avoid affecting ongoing monitoring)
+            # Reset text length tracking for new text trigger after processing
             if trigger_reason != "forced":
-                self.conversation_count_since_last_inference = 0
-                logger.debug(f"Reset conversation count to 0 after processing")
+                self.text_length_at_last_summary = len(self.accumulated_text)
+                logger.debug(f"Reset text length tracking to {self.text_length_at_last_summary} chars")
 
-            # Update the last processed text to include what we just processed (except for forced inference)
+            # Update last_processed_text to the current accumulated text
             if trigger_reason != "forced":
-                # Keep a rolling buffer to allow for new inferences of additional content
                 self.last_processed_text = self.accumulated_text
 
                 # Keep the most recent text in buffer (last 5000 chars) to maintain context
                 if len(self.accumulated_text) > 5000:
                     self.accumulated_text = self.accumulated_text[-5000:]
                     self.last_processed_text = self.accumulated_text
+                    # Update text length tracking after truncation
+                    self.text_length_at_last_summary = len(self.accumulated_text)
 
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")

@@ -38,10 +38,10 @@ _DEFAULT_CONFIG = {
         "llm_inference": True,
     },
     "llm": {
-        "fast_llm": "google/gemini-flash-1.5-8b",
+        "fast_llm": "openai/gpt-4.1-nano",
         "base_llm": "openai/gpt-4.1-mini",
-        "llm_trigger_time": 5.0,
-        "llm_conversation_trigger": 2,
+        "llm_summary_interval": 1.0,
+        "llm_new_text_trigger": 300,
     },
 }
 
@@ -90,10 +90,12 @@ def _get_argument_parser() -> ArgumentParser:
     # LLM configuration
     llm_group = parser.add_argument_group("LLM Inference Configuration")
     llm_group.add_argument("--llm-inference", action="store_true", default=_DEFAULT_CONFIG["features"]["llm_inference"], help="Enable LLM-based transcription inference after periods of inactivity.")
-    llm_group.add_argument("--fast-llm", type=str, default=_DEFAULT_CONFIG["llm"]["fast_llm"], help="Fast LLM model to use for text parsing and quick operations (default: google/gemini-flash-1.5-8b).")
+    llm_group.add_argument("--fast-llm", type=str, default=_DEFAULT_CONFIG["llm"]["fast_llm"], help="Fast LLM model to use for text parsing and quick operations (default: openai/gpt-4.1-nano).")
     llm_group.add_argument("--base-llm", type=str, default=_DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model to use for summarization and complex operations (default: openai/gpt-4.1-mini).")
-    llm_group.add_argument("--llm-trigger-time", type=float, default=_DEFAULT_CONFIG["llm"]["llm_trigger_time"], help="Time in seconds after which to trigger inference when no new transcription is received (default: 5.0).")
-    llm_group.add_argument("--llm-conversation-trigger", type=int, default=_DEFAULT_CONFIG["llm"]["llm_conversation_trigger"], help="Number of conversations (speaker turns) after which to trigger inference (default: 2).")
+    llm_group.add_argument("--llm-summary-interval", type=float, default=_DEFAULT_CONFIG["llm"]["llm_summary_interval"], help="Minimum time interval in seconds between comprehensive summaries (default: 15.0).")
+    llm_group.add_argument("--llm-new-text-trigger", type=int, default=_DEFAULT_CONFIG["llm"]["llm_new_text_trigger"], help="Number of new characters since last summary to trigger a new summary (default: 300).")
+    llm_group.add_argument("--parser-trigger-interval", type=float, default=1.0, help="Time interval in seconds between transcript parser triggers (default: 1.0).")
+    llm_group.add_argument("--parser-output-tokens", type=int, default=33000, help="Maximum output tokens for transcript parser. Parser will chunk text to stay within this OUTPUT limit (default: 33000). Note: This is about OUTPUT tokens the model generates, not input tokens.")
 
     # Logging configuration
     logging_group = parser.add_argument_group("Logging Configuration")
@@ -124,11 +126,20 @@ def _validate_args(args: Namespace) -> None:
         raise ValueError("Both ssl_certfile and ssl_keyfile must be provided together or not at all")
 
     # Validate LLM configuration
-    if args.llm_trigger_time <= 0:
-        raise ValueError(f"llm_trigger_time must be positive, got {args.llm_trigger_time}")
+    if args.llm_summary_interval <= 0:
+        raise ValueError(f"llm_summary_interval must be positive, got {args.llm_summary_interval}")
 
-    if args.llm_conversation_trigger <= 0:
-        raise ValueError(f"llm_conversation_trigger must be positive, got {args.llm_conversation_trigger}")
+    if args.llm_new_text_trigger <= 0:
+        raise ValueError(f"llm_new_text_trigger must be positive, got {args.llm_new_text_trigger}")
+
+    if args.parser_trigger_interval <= 0:
+        raise ValueError(f"parser_trigger_interval must be positive, got {args.parser_trigger_interval}")
+
+    if args.parser_output_tokens <= 0:
+        raise ValueError(f"parser_output_tokens must be positive, got {args.parser_output_tokens}")
+
+    if args.parser_output_tokens > 100000:
+        raise ValueError(f"parser_output_tokens too high (max 100000), got {args.parser_output_tokens}")
 
     # Validate feature combinations
     if args.no_transcription and not args.diarization:

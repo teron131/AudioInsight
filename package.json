@@ -1,6 +1,5 @@
 {
   "name": "audioinsight",
-  "version": "1.0.0",
   "description": "AudioInsight - AI-powered audio analysis and transcription",
   "scripts": {
     "dev": "npm --prefix audioinsight-ui run dev",

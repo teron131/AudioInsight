@@ -4,12 +4,13 @@ import re
 import traceback
 from datetime import timedelta
 from time import sleep, time
+from typing import Optional
 
 import ffmpeg
 import numpy as np
 import opencc
 
-from .llm import LLMSummarizer, LLMTrigger
+from .llm import LLMSummarizer, LLMTrigger, ParsedTranscript, Parser, ParserConfig
 from .logging_config import get_logger
 from .main import AudioInsight
 from .timed_objects import ASRToken
@@ -497,6 +498,10 @@ class TranscriptionProcessor:
         self.full_transcription = ""
         self.sep = " "  # Default separator
 
+        # Parser timing control
+        self.last_parser_trigger_time = 0.0
+        self.accumulated_text_for_parser = ""
+
         # Initialize transcription engine if enabled
         if self.args.transcription:
             self.online = online_factory(self.args, asr, tokenizer)
@@ -573,13 +578,31 @@ class TranscriptionProcessor:
                     new_text = self.sep.join([t.text for t in new_tokens])
                     # Convert to Traditional Chinese for consistency
                     new_text_converted = s2hk(new_text) if new_text else new_text
-                    # Get speaker info if available
-                    speaker_info = None
-                    if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
-                        speaker_info = {"speaker": new_tokens[0].speaker}
 
-                    # Fire-and-forget async update - don't await, don't block transcription
-                    asyncio.create_task(self._update_llm_async(llm, new_text_converted, speaker_info))
+                    # Accumulate text for parser with timing control
+                    if self.coordinator and new_text_converted.strip():
+                        # Accumulate text for parser
+                        if self.accumulated_text_for_parser:
+                            self.accumulated_text_for_parser += self.sep + new_text_converted
+                        else:
+                            self.accumulated_text_for_parser = new_text_converted
+
+                        # Check if it's time to trigger parser (every second)
+                        current_time = time()
+                        parser_interval = getattr(self.coordinator.transcript_parser.config, "trigger_interval_seconds", 1.0) if self.coordinator.transcript_parser else 1.0
+
+                        if current_time - self.last_parser_trigger_time >= parser_interval:
+                            # Get accumulated speaker info (use most recent speaker)
+                            speaker_info = None
+                            if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
+                                speaker_info = {"speaker": new_tokens[0].speaker}
+
+                            # Send accumulated text to parser
+                            asyncio.create_task(self._update_coordinator_parser_async(self.coordinator, self.accumulated_text_for_parser, speaker_info))
+
+                            # Reset accumulation
+                            self.accumulated_text_for_parser = ""
+                            self.last_parser_trigger_time = current_time
 
                 transcription_queue.task_done()
 
@@ -589,14 +612,16 @@ class TranscriptionProcessor:
                     transcription_queue.task_done()
         logger.info("Transcription processor finished.")
 
-    async def _update_llm_async(self, llm, text, speaker_info):
-        """Asynchronously update LLM without blocking transcription."""
+    async def _update_coordinator_parser_async(self, coordinator, text, speaker_info):
+        """Asynchronously update coordinator's transcript parser without blocking transcription."""
         try:
-            # This runs in background, transcription continues regardless
-            llm.update_transcription(text, speaker_info)
+            if coordinator and hasattr(coordinator, "parse_and_store_transcript"):
+                # Convert speaker_info to list format expected by parser
+                speaker_list = [speaker_info] if speaker_info else None
+                await coordinator.parse_and_store_transcript(text, speaker_list)
         except Exception as e:
             # Log errors but don't let them affect transcription
-            logger.warning(f"LLM update failed (non-critical): {e}")
+            logger.warning(f"Transcript parsing update failed (non-critical): {e}")
 
     async def _get_end_buffer(self):
         """Get current end buffer value - to be implemented by coordinator."""
@@ -604,6 +629,12 @@ class TranscriptionProcessor:
 
     def finish_transcription(self):
         """Finish the transcription to get any remaining tokens."""
+        # Flush any remaining accumulated text to parser
+        if self.coordinator and self.accumulated_text_for_parser.strip():
+            asyncio.create_task(self._update_coordinator_parser_async(self.coordinator, self.accumulated_text_for_parser, None))  # No specific speaker info for final flush
+            self.accumulated_text_for_parser = ""
+            logger.info(f"Flushed remaining accumulated text to parser")
+
         if self.online:
             try:
                 return self.online.finish()
@@ -855,13 +886,19 @@ class AudioProcessor:
         self.llm = None
         self.llm_task = None
 
+        # Initialize transcript parser for structured processing
+        self.transcript_parser = None
+        self.parsed_transcripts = []  # Store parsed transcript data
+        self.last_parsed_transcript = None  # Most recent parsed transcript
+        self._parser_enabled = True  # Enable transcript parsing by default
+
         # Initialize LLM if enabled in features
         if getattr(self.args, "llm_inference", False):
             logger.info("🔧 Creating LLM processor on initialization")
             try:
                 trigger_config = LLMTrigger(
-                    idle_time_seconds=getattr(self.args, "llm_trigger_time", 5.0),
-                    conversation_trigger_count=getattr(self.args, "llm_conversation_trigger", 2),
+                    summary_interval_seconds=getattr(self.args, "llm_summary_interval", 1.0),
+                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 100),
                 )
 
                 self.llm = LLMSummarizer(
@@ -873,6 +910,15 @@ class AudioProcessor:
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM inference processor: {e}")
                 self.llm = None
+
+        # Initialize transcript parser
+        try:
+            parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0))
+            self.transcript_parser = Parser(config=parser_config)
+            logger.info(f"Transcript parser initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s")
+        except Exception as e:
+            logger.warning(f"Failed to initialize transcript parser: {e}")
+            self.transcript_parser = None
 
         logger.info("🔧 AudioProcessor initialized - components will be created on demand")
 
@@ -926,6 +972,69 @@ class AudioProcessor:
             else:
                 logger.info("⚠️ Duplicate inference result detected, not adding")
 
+    async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
+        """Parse transcript text and store it for sharing across the application.
+
+        Args:
+            text: Transcript text to parse
+            speaker_info: Optional speaker information
+            timestamps: Optional timestamp information
+
+        Returns:
+            ParsedTranscript: Parsed transcript data or None if parsing disabled/failed
+        """
+        if not self._parser_enabled or not self.transcript_parser or not text.strip():
+            return None
+
+        try:
+            # Parse the transcript using the structured parser
+            parsed_transcript = await self.transcript_parser.parse_transcript(text, speaker_info, timestamps)
+
+            # Store the parsed transcript
+            async with self.lock:
+                self.parsed_transcripts.append(parsed_transcript)
+                self.last_parsed_transcript = parsed_transcript
+
+                # Keep only the last 50 parsed transcripts to prevent memory growth
+                if len(self.parsed_transcripts) > 50:
+                    self.parsed_transcripts = self.parsed_transcripts[-50:]
+
+            # Update LLM with parsed text instead of raw text for better summaries
+            if self.llm and parsed_transcript.parsed_text:
+                self.llm.update_transcription(parsed_transcript.parsed_text, speaker_info[0] if speaker_info else None)
+
+            logger.debug(f"📝 Parsed and stored transcript: {len(text)} -> {len(parsed_transcript.parsed_text)} chars")
+            return parsed_transcript
+
+        except Exception as e:
+            logger.warning(f"Failed to parse transcript: {e}")
+            return None
+
+    def enable_transcript_parsing(self, enabled: bool = True):
+        """Enable or disable transcript parsing.
+
+        Args:
+            enabled: Whether to enable transcript parsing
+        """
+        self._parser_enabled = enabled
+        logger.info(f"Transcript parsing {'enabled' if enabled else 'disabled'}")
+
+    def get_parsed_transcripts(self) -> list:
+        """Get all parsed transcripts.
+
+        Returns:
+            List of ParsedTranscript objects
+        """
+        return self.parsed_transcripts.copy()
+
+    def get_last_parsed_transcript(self) -> Optional[ParsedTranscript]:
+        """Get the most recent parsed transcript.
+
+        Returns:
+            Most recent ParsedTranscript or None
+        """
+        return self.last_parsed_transcript
+
     async def get_current_state(self):
         """Get current state."""
         async with self.lock:
@@ -956,11 +1065,14 @@ class AudioProcessor:
     async def reset(self):
         """Reset all state variables to initial values."""
         async with self.lock:
-            self.tokens = []
+            self.tokens.clear()
             self.buffer_transcription = self.buffer_diarization = ""
             self.end_buffer = self.end_attributed_speaker = 0
             self.full_transcription = self.last_response_content = ""
             self.beg_loop = time()
+            # Reset parsed transcript data
+            self.parsed_transcripts.clear()
+            self.last_parsed_transcript = None
 
     async def results_formatter(self):
         """Format processing results for output."""
@@ -1035,6 +1147,10 @@ class AudioProcessor:
                 # Add LLM inference processor stats if available
                 if self.llm:
                     response["llm_stats"] = self.llm.get_stats()
+
+                # Add parsed transcript data if available
+                if self.transcript_parser and self._parser_enabled:
+                    response["transcript_parser"] = {"enabled": True, "stats": self.transcript_parser.get_stats(), "last_parsed": self.last_parsed_transcript.model_dump() if self.last_parsed_transcript else None, "total_parsed": len(self.parsed_transcripts)}
 
                 # Only yield if content has changed (use final converted content for comparison) - optimize string building
                 response_content = " ".join(f"{line['speaker']} {line['text']}" for line in final_lines) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
@@ -1350,6 +1466,10 @@ class AudioProcessor:
             if hasattr(self, "summaries"):
                 self.summaries.clear()
             self._has_summaries = False
+            # Clear parsed transcript data
+            if hasattr(self, "parsed_transcripts"):
+                self.parsed_transcripts.clear()
+            self.last_parsed_transcript = None
 
         # Clear task references
         self.transcription_task = None

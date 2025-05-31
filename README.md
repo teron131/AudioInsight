@@ -163,7 +163,7 @@ audioinsight-server \
   --language auto \
   --diarization \
   --llm-inference \
-  --fast-llm "google/gemini-flash-1.5-8b" \
+  --fast-llm "openai/gpt-4.1-nano" \
   --base-llm "openai/gpt-4.1-mini" \
   --host 0.0.0.0 \
   --port 8001
@@ -178,7 +178,7 @@ audioinsight-server \
   --llm-inference \
   --llm-trigger-time 3.0 \
   --llm-conversation-trigger 3 \
-  --fast-llm "google/gemini-flash-1.5-8b" \
+  --fast-llm "openai/gpt-4.1-nano" \
   --base-llm "anthropic/claude-3-haiku"
 ```
 
@@ -205,7 +205,7 @@ kit = AudioInsight(
     model="large-v3-turbo", 
     diarization=True,
     llm_inference=True,
-    fast_llm="google/gemini-flash-1.5-8b",
+    fast_llm="openai/gpt-4.1-nano",
     base_llm="openai/gpt-4.1-mini"
 )
 
@@ -284,7 +284,7 @@ async def llm_transcript_analysis():
     
     # Text parsing example
     parser = Parser(
-        config=LLMConfig(model="google/gemini-flash-1.5-8b", provider="google")
+        config=LLMConfig(model="openai/gpt-4.1-nano", provider="google")
     )
     
     corrected_text = await parser.parse_text("This is a transcript with potential errors...")
@@ -357,7 +357,7 @@ async def upload_file_stream(file: UploadFile):
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--llm-inference` | Enable LLM-based transcript analysis | `True` |
-| `--fast-llm` | Fast LLM model for text parsing | `google/gemini-flash-1.5-8b` |
+| `--fast-llm` | Fast LLM model for text parsing | `openai/gpt-4.1-nano` |
 | `--base-llm` | Base LLM model for summarization | `openai/gpt-4.1-mini` |
 | `--llm-trigger-time` | Idle time before LLM analysis (seconds) | `5.0` |
 | `--llm-conversation-trigger` | Speaker turns before analysis | `2` |
@@ -485,7 +485,7 @@ docker run --gpus all -p 8001:8001 \
   --diarization \
   --language auto \
   --llm-inference \
-  --fast-llm "google/gemini-flash-1.5-8b" \
+  --fast-llm "openai/gpt-4.1-nano" \
   --base-llm "openai/gpt-4.1-mini"
 ```
 
@@ -533,7 +533,7 @@ export GOOGLE_API_KEY="your-google-key"
 
 # Model configurations
 export WHISPER_MODEL="large-v3-turbo"
-export FAST_LLM_MODEL="google/gemini-flash-1.5-8b"
+export FAST_LLM_MODEL="openai/gpt-4.1-nano"
 export BASE_LLM_MODEL="openai/gpt-4.1-mini"
 ```
 

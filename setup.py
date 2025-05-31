@@ -2,7 +2,6 @@ from setuptools import find_packages, setup
 
 setup(
     name="audioinsight",
-    version="0.1",
     description="Real-time, Fully Local Speech-to-Text and Speaker Diarization with AudioInsight",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -63,7 +62,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "audioinsight-server=audioinsight.server.app:main",
+            "audioinsight-server=audioinsight.app:main",
         ],
     },
     python_requires=">=3.9",

@@ -17,5 +17,5 @@ audioinsight-server \
     --model large-v3-turbo \
     --base-llm "openai/gpt-4.1-mini" \
     --llm-trigger-time 5.0 \
-    --fast-llm "google/gemini-flash-1.5-8b" \
+    --fast-llm "openai/gpt-4.1-nano" \
     # --diarization
