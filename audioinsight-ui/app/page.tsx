@@ -50,15 +50,6 @@ export default function AudioInsightPage() {
       {/* Header Section */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-4xl font-bold text-foreground mb-2">
-              Audio Transcription & Analysis
-            </h1>
-            <p className="text-muted-foreground text-lg">
-              Real-time speech-to-text with AI-powered insights
-            </p>
-          </div>
-          
           <div className="flex items-center gap-4">
             {/* Control Buttons */}
             <div className="flex items-center gap-4">
@@ -118,7 +109,9 @@ export default function AudioInsightPage() {
               />
               <Label htmlFor="diarization-toggle" className="text-base">Diarization</Label>
             </div>
-
+          </div>
+          
+          <div>
             <Button 
               onClick={clearSession}
               variant="outline"

@@ -334,10 +334,10 @@ async def upload_file_stream(file: UploadFile):
 
 | Parameter | Description | Default | Options |
 |-----------|-------------|---------|---------|
-| `--model` | Whisper model size | `large-v3-turbo` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo` |
+| `--model` | Whisper model size | `large-v3-turbo` | `tiny`, `base`, `small`, `medium`, `large-v3-turbo` |
 | `--language` | Source language | `auto` | Language codes such as `en`, `zh`, `ja`, etc. |
 | `--task` | Processing task | `transcribe` | `transcribe`, `translate` |
-| `--backend` | Whisper backend | `faster-whisper` | `faster-whisper`, `openai-api`, `whisper`, `mlx-whisper` |
+| `--backend` | Whisper backend | `faster-whisper` | `faster-whisper`, `openai-api` |
 
 ### Advanced Options
 

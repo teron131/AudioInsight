@@ -153,8 +153,6 @@ export default function SettingsPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">AudioInsight Settings</h1>
-          <p className="text-muted-foreground">Manage models, processing parameters, and system configuration</p>
         </div>
         <div className="flex items-center gap-2">
           {getSaveStatusBadge()}
@@ -189,6 +187,69 @@ export default function SettingsPage() {
 
       {processingParams && (
         <div className="space-y-4">
+                    {/* Feature Configuration */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="w-5 h-5" />
+                <span>Feature Configuration</span>
+              </CardTitle>
+              <CardDescription>Enable or disable audio processing features</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="transcription"
+                    checked={processingParams.transcription ?? true}
+                    onCheckedChange={(checked) => updateProcessingParam('transcription', checked)}
+                  />
+                  <Label htmlFor="transcription">Transcription</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="diarization"
+                    checked={processingParams.diarization ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('diarization', checked)}
+                  />
+                  <Label htmlFor="diarization">Speaker Diarization</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="vad_enabled"
+                    checked={processingParams.vad_enabled ?? true}
+                    onCheckedChange={(checked) => updateProcessingParam('vad_enabled', checked)}
+                  />
+                  <Label htmlFor="vad_enabled">Voice Activity Detection</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="vac_enabled"
+                    checked={processingParams.vac_enabled ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('vac_enabled', checked)}
+                  />
+                  <Label htmlFor="vac_enabled">Voice Activity Controller</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="confidence_validation"
+                    checked={processingParams.confidence_validation ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('confidence_validation', checked)}
+                  />
+                  <Label htmlFor="confidence_validation">Confidence Validation</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="llm_inference"
+                    checked={processingParams.llm_inference ?? true}
+                    onCheckedChange={(checked) => updateProcessingParam('llm_inference', checked)}
+                  />
+                  <Label htmlFor="llm_inference">LLM Inference</Label>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
           {/* Whisper Configuration */}
           <Card>
             <CardHeader className="pb-3">
@@ -202,15 +263,21 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="model">Model</Label>
-                  <Input
-                    id="model"
-                    type="text"
-                    value={processingParams.model || 'large-v3-turbo'}
-                    onChange={(e) => updateProcessingParam('model', e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Suggested: tiny, base, small, medium, large-v1, large-v2, large-v3, large-v3-turbo
-                  </p>
+                  <Select 
+                    value={processingParams.model || 'large-v3-turbo'} 
+                    onValueChange={(value) => updateProcessingParam('model', value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="large-v3-turbo">large-v3-turbo</SelectItem>
+                      <SelectItem value="medium">medium</SelectItem>
+                      <SelectItem value="small">small</SelectItem>
+                      <SelectItem value="base">base</SelectItem>
+                      <SelectItem value="tiny">tiny</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="backend">Backend</Label>
@@ -223,8 +290,6 @@ export default function SettingsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="faster-whisper">Faster Whisper</SelectItem>
-                      <SelectItem value="whisper_timestamped">Whisper Timestamped</SelectItem>
-                      <SelectItem value="mlx-whisper">MLX Whisper</SelectItem>
                       <SelectItem value="openai-api">OpenAI API</SelectItem>
                     </SelectContent>
                   </Select>
@@ -416,79 +481,6 @@ export default function SettingsPage() {
                     value={processingParams.vac_chunk_size ?? 0.04}
                     onChange={(e) => updateProcessingParam('vac_chunk_size', parseFloat(e.target.value))}
                   />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="warmup_file">Warmup File (Optional)</Label>
-                  <Input
-                    id="warmup_file"
-                    type="text"
-                    value={processingParams.warmup_file || ''}
-                    onChange={(e) => updateProcessingParam('warmup_file', e.target.value || undefined)}
-                    placeholder="/path/to/warmup.wav"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Feature Configuration */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center space-x-2">
-                <Settings className="w-5 h-5" />
-                <span>Feature Configuration</span>
-              </CardTitle>
-              <CardDescription>Enable or disable audio processing features</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="transcription"
-                    checked={processingParams.transcription ?? true}
-                    onCheckedChange={(checked) => updateProcessingParam('transcription', checked)}
-                  />
-                  <Label htmlFor="transcription">Transcription</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="diarization"
-                    checked={processingParams.diarization ?? false}
-                    onCheckedChange={(checked) => updateProcessingParam('diarization', checked)}
-                  />
-                  <Label htmlFor="diarization">Speaker Diarization</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="vad_enabled"
-                    checked={processingParams.vad_enabled ?? true}
-                    onCheckedChange={(checked) => updateProcessingParam('vad_enabled', checked)}
-                  />
-                  <Label htmlFor="vad_enabled">Voice Activity Detection</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="vac_enabled"
-                    checked={processingParams.vac_enabled ?? false}
-                    onCheckedChange={(checked) => updateProcessingParam('vac_enabled', checked)}
-                  />
-                  <Label htmlFor="vac_enabled">Voice Activity Controller</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="confidence_validation"
-                    checked={processingParams.confidence_validation ?? false}
-                    onCheckedChange={(checked) => updateProcessingParam('confidence_validation', checked)}
-                  />
-                  <Label htmlFor="confidence_validation">Confidence Validation</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="llm_inference"
-                    checked={processingParams.llm_inference ?? true}
-                    onCheckedChange={(checked) => updateProcessingParam('llm_inference', checked)}
-                  />
-                  <Label htmlFor="llm_inference">LLM Inference</Label>
                 </div>
               </div>
             </CardContent>

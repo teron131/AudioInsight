@@ -64,10 +64,10 @@ def _get_argument_parser() -> ArgumentParser:
 
     # Model configuration
     model_group = parser.add_argument_group("Model Configuration")
-    model_group.add_argument("--model", type=str, default=_DEFAULT_CONFIG["model"]["model"], help="Name size of the Whisper model to use (default: tiny). Suggested values: tiny.en,tiny,base.en,base,small.en,small,medium.en,medium,large-v1,large-v2,large-v3,large,large-v3-turbo.")
+    model_group.add_argument("--model", type=str, default=_DEFAULT_CONFIG["model"]["model"], help="Name size of the Whisper model to use (default: tiny). Suggested values: tiny.en,tiny,base.en,base,small.en,small,medium.en,medium,large-v3-turbo.")
     model_group.add_argument("--model_cache_dir", type=str, default=None, help="Overriding the default model cache dir where models downloaded from the hub are saved")
     model_group.add_argument("--model_dir", type=str, default=None, help="Dir where Whisper model.bin and other files are saved. This option overrides --model and --model_cache_dir parameter.")
-    model_group.add_argument("--backend", type=str, default=_DEFAULT_CONFIG["model"]["backend"], choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api"], help="Load only this backend for Whisper processing.")
+    model_group.add_argument("--backend", type=str, default=_DEFAULT_CONFIG["model"]["backend"], choices=["faster-whisper", "openai-api"], help="Load only this backend for Whisper processing.")
     model_group.add_argument("--lang", "--language", type=str, default=_DEFAULT_CONFIG["model"]["lang"], help="Source language code, e.g. en,de,cs, or 'auto' for language detection.")
     model_group.add_argument("--task", type=str, default=_DEFAULT_CONFIG["model"]["task"], choices=["transcribe", "translate"], help="Transcribe or translate.")
 
