@@ -1,0 +1,88 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# AudioInsight Project Structure
+
+## Package Organization
+The project follows a specific structure with the backend package and optional frontend UI:
+
+```
+AudioInsight/
+├── audioinsight/               # Backend package
+│   ├── __init__.py
+│   ├── app.py                 # Main entry point
+│   ├── config.py              # Configuration
+│   ├── processors.py          # Core logic
+│   ├── diarization/           # Standalone modules
+│   ├── server/                # Server components  
+│   ├── whisper_streaming/     # Feature modules
+│   └── llm/                   # LLM integration
+├── audioinsight-ui/           # Frontend (if applicable)
+├── audio/                     # Audio input directory
+├── logs/                      # Application logs
+├── setup.py                   # Package setup
+├── start.sh                   # Backend startup script
+├── package.json               # Root coordination
+└── .env                       # Environment variables
+```
+
+Reference key files:
+- Main entry point: [audioinsight/app.py](mdc:audioinsight/app.py)
+- Configuration: [audioinsight/config.py](mdc:audioinsight/config.py)
+- Backend startup: [start.sh](mdc:start.sh)
+- Package setup: [setup.py](mdc:setup.py)
+
+## Development Setup
+Install the package in development mode:
+```bash
+pip install -e .
+```
+
+This allows importing from anywhere:
+```python
+from audioinsight.processors import AudioProcessor
+```
+
+## Full-Stack Development Commands
+
+### Main Directory Coordination
+The root [package.json](mdc:package.json) contains proxy commands that delegate to the frontend package:
+
+```bash
+# Start both frontend + backend simultaneously
+npm run dev
+
+# Individual services
+./start.sh              # Backend only
+cd audioinsight-ui && npm run dev:frontend  # Frontend only
+```
+
+### How It Works
+- Main [package.json](mdc:package.json) proxies to frontend
+- Frontend package.json uses `concurrently` to run both services
+- Backend started via [start.sh](mdc:start.sh) script
+
+## Module Organization Rules
+
+### Standalone Modules
+Place in dedicated directories under `audioinsight/`:
+- `diarization/` - Speaker diarization functionality
+- `whisper_streaming/` - Real-time audio processing
+- `server/` - Server-specific components
+- `llm/` - Language model integration
+
+### Core Files
+- `app.py` - FastAPI application and main entry point
+- `config.py` - Centralized configuration management
+- `processors.py` - Core audio processing logic
+
+### Import Patterns
+Use relative imports within the audioinsight package:
+```python
+# From audioinsight/app.py
+from .config import config
+from .processors import AudioProcessor
+from .diarization.speaker_diarization import DiarizationProcessor
+```

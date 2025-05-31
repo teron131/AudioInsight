@@ -1,0 +1,83 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# AudioInsight Project Overview
+
+## Project Description
+AudioInsight is a comprehensive audio processing platform that provides real-time transcription, speaker diarization, and intelligent analysis of audio content. The project combines advanced AI models with a modern web interface for seamless audio processing workflows.
+
+## Key Components
+
+### Backend (Python/FastAPI)
+The core backend is located in the `audioinsight/` package:
+
+- **Main Application**: [audioinsight/app.py](mdc:audioinsight/app.py) - FastAPI server with REST and WebSocket endpoints
+- **Configuration**: [audioinsight/config.py](mdc:audioinsight/config.py) - Centralized configuration management
+- **Audio Processing**: Core audio processing logic and Whisper integration
+- **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation
+- **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing
+- **LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Language model features
+
+### Frontend (Next.js/React)
+The web interface is located in `audioinsight-ui/`:
+
+- Modern React-based UI for audio upload and processing
+- Real-time progress tracking and results display
+- Integration with backend via REST APIs and WebSockets
+
+### Infrastructure
+- **Package Setup**: [setup.py](mdc:setup.py) - Python package configuration
+- **Startup Script**: [start.sh](mdc:start.sh) - Backend server startup
+- **Environment**: [.env](mdc:.env) - Environment configuration
+- **Dependencies**: [package.json](mdc:package.json) - Node.js dependencies and scripts
+
+## Audio Processing Capabilities
+
+### Transcription
+- Whisper-based speech-to-text
+- Multiple model sizes for accuracy vs speed tradeoffs
+- Support for multiple audio formats
+
+### Speaker Diarization
+- Automatic speaker identification
+- Timeline-based speaker segments
+- Integration with transcription for speaker-attributed text
+
+### Real-time Processing
+- Streaming audio processing
+- WebSocket-based live updates
+- Progressive result delivery
+
+## Development Workflow
+
+### Starting the Full Application
+```bash
+# Install Python package in development mode
+pip install -e .
+
+# Start both frontend and backend
+npm run dev
+```
+
+### Individual Services
+```bash
+# Backend only
+./start.sh
+
+# Frontend only  
+cd audioinsight-ui && npm run dev:frontend
+```
+
+### File Organization
+- Audio files are processed from the `audio/` directory
+- Logs are written to `logs/` directory
+- Configuration is managed via environment variables and [audioinsight/config.py](mdc:audioinsight/config.py)
+
+## Key Technologies
+- **Backend**: FastAPI, Python, Whisper, PyTorch
+- **Frontend**: Next.js, React, TypeScript
+- **Audio Processing**: librosa, soundfile, numpy
+- **AI/ML**: OpenAI Whisper, PyAnnote for diarization
+- **Infrastructure**: Docker support, environment-based configuration
