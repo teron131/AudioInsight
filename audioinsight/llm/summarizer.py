@@ -5,18 +5,18 @@ from typing import Any, Dict, Optional
 from langchain.prompts import ChatPromptTemplate
 
 from ..logging_config import get_logger
-from .base import UniversalLLM
+from .base import EventBasedProcessor, UniversalLLM
 from .types import LLMConfig, LLMResponse, LLMStats, LLMTrigger
 from .utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
 
 
-class LLMSummarizer:
+class LLMSummarizer(EventBasedProcessor):
     """
     LLM-based transcription processor that monitors transcription activity
     and generates inference after periods of inactivity or after a certain number of conversations.
-    Uses the universal LLM client for consistent inference.
+    Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
     """
 
     def __init__(
@@ -32,6 +32,9 @@ class LLMSummarizer:
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """
+        # Initialize base class with optimized queue for summarizer and concurrent workers
+        super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=2)  # Increased queue size, reduced cooldown, added concurrency
+
         self.model_id = model_id
         self.trigger_config = trigger_config or LLMTrigger()
 
@@ -84,22 +87,23 @@ Provide a structured summary with key points. Remember to respond in the same la
             ]
         )
 
-        # State tracking
-        self.accumulated_text = ""
-        self.last_processed_text = ""  # Keep track of what was already processed
+        # State tracking (use inherited accumulated_data from base class)
         self.text_length_at_last_summary = 0  # Track text length at last summary for new text trigger
         self.last_inference = None
-        self.inference_task = None
-        self.is_running = False
         self.inference_callbacks = []
-
-        # Prevent duplicate inference
-        self.last_inference_time = 0.0
-        self.inference_cooldown = 2.0  # Minimum seconds between inference - reduced from 3.0 for more frequent summaries
-        self.is_generating_inference = False  # Flag to prevent concurrent inference
 
         # Statistics
         self.stats = LLMStats()
+
+    async def _process_item(self, item: Any):
+        """Process a single inference request from the queue.
+
+        Args:
+            item: The trigger reason string
+        """
+        trigger_reason = item
+        await self._generate_inference(trigger_reason=trigger_reason)
+        self.update_processing_time()
 
     def add_inference_callback(self, callback):
         """Add a callback function to be called when inference is generated.
@@ -129,69 +133,53 @@ Provide a structured summary with key points. Remember to respond in the same la
         else:
             formatted_text = new_text
 
-        if self.accumulated_text:
-            self.accumulated_text += " " + formatted_text
+        if self.accumulated_data:
+            self.accumulated_data += " " + formatted_text
         else:
-            self.accumulated_text = formatted_text
+            self.accumulated_data = formatted_text
 
-        logger.debug(f"Updated transcription: {len(self.accumulated_text)} chars total")
+        logger.debug(f"Updated transcription: {len(self.accumulated_data)} chars total")
 
-    async def start_monitoring(self):
-        """Start monitoring for inference triggers."""
-        if self.is_running:
+        # Check if we should trigger inference
+        self._check_inference_triggers()
+
+    def _check_inference_triggers(self):
+        """Check if conditions are met for inference and queue request if needed."""
+        if not self.accumulated_data.strip():
             return
 
-        self.is_running = True
-        logger.info("Started LLM inference monitoring")
-
-        while self.is_running:
-            try:
-                await self._check_and_process()
-                await asyncio.sleep(1.0)  # Check every second
-            except Exception as e:
-                logger.error(f"Error in inference monitoring: {e}")
-                await asyncio.sleep(5.0)  # Back off on error
-
-    async def stop_monitoring(self):
-        """Stop monitoring."""
-        self.is_running = False
-        logger.info("Stopped LLM inference monitoring")
-
-    async def _check_and_process(self):
-        """Check if conditions are met for inference."""
-        if not self.accumulated_text.strip():
+        # Use base class method for basic checks
+        if not self.should_process(self.accumulated_data, self.trigger_config.min_text_length):
             return
 
-        # Skip check if already generating or in cooldown
+        text_length = len(self.accumulated_data)
         current_time = time.time()
-        if self.is_generating_inference or (current_time - self.last_inference_time) < self.inference_cooldown:
-            return
-
-        text_length = len(self.accumulated_text)
-
-        # OPTIMIZATION: Skip if we don't have minimum text length yet
-        if text_length < self.trigger_config.min_text_length:
-            return
 
         # Calculate conditions for both time and new text triggers
         new_text_since_last_summary = text_length - self.text_length_at_last_summary
-        time_since_last_summary = current_time - self.last_inference_time
+        time_since_last_summary = current_time - self.last_processing_time
 
         # Check both trigger conditions
         has_been_long_enough = time_since_last_summary > self.trigger_config.summary_interval_seconds
         has_enough_new_text = new_text_since_last_summary >= self.trigger_config.new_text_trigger_chars
 
-        logger.debug(f"Trigger check: text_length={text_length} chars, new_text={new_text_since_last_summary} chars, " f"time_since_last={time_since_last_summary:.1f}s, " f"time_trigger={has_been_long_enough}, text_trigger={has_enough_new_text}")
-
         # Trigger inference based on OR logic - either condition can trigger
-        if has_enough_new_text:
-            trigger_reason = "new_text"
-            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"new_text={new_text_since_last_summary} chars, text_length={text_length} chars")
-            await self._generate_inference(trigger_reason=trigger_reason)
-        elif has_been_long_enough:
-            trigger_reason = "time_interval"
-            logger.info(f"🔄 Triggering inference: {trigger_reason} trigger - " f"interval={time_since_last_summary:.1f}s, text_length={text_length} chars")
-            await self._generate_inference(trigger_reason=trigger_reason)
+        if has_enough_new_text or has_been_long_enough:
+            trigger_reason = "new_text" if has_enough_new_text else "time_interval"
+
+            # Use base class method to queue for processing
+            if self.queue_for_processing(trigger_reason):
+                logger.debug(f"Queued inference request: {trigger_reason}")
+
+    async def start_monitoring(self):
+        """Start monitoring for inference triggers."""
+        await self.start_worker()
+        logger.info("Started LLM inference monitoring")
+
+    async def stop_monitoring(self):
+        """Stop monitoring."""
+        await self.stop_worker()
+        logger.info("Stopped LLM inference monitoring")
 
     async def _generate_inference(self, trigger_reason: str = "manual"):
         """Generate inference using the LLM.
@@ -199,25 +187,13 @@ Provide a structured summary with key points. Remember to respond in the same la
         Args:
             trigger_reason: Reason for triggering the inference ('new_text', 'text_length', 'forced', or 'manual')
         """
-        if not self.accumulated_text.strip():
+        if not self.accumulated_data.strip():
             return
-
-        # Check if we're in cooldown period or already generating (except for forced inference)
-        current_time = time.time()
-        if trigger_reason != "forced" and ((current_time - self.last_inference_time) < self.inference_cooldown):
-            logger.debug(f"Inference cooldown active: {current_time - self.last_inference_time:.1f}s < {self.inference_cooldown}s")
-            return
-
-        if self.is_generating_inference:
-            logger.debug("Inference generation already in progress, skipping")
-            return
-
-        self.is_generating_inference = True
 
         try:
             # CHANGE: Always process the entire accumulated text for comprehensive summaries
             # This ensures summaries cover the full conversation context, not just incremental updates
-            text_to_process = self.accumulated_text.strip()
+            text_to_process = self.accumulated_data.strip()
 
             if trigger_reason == "forced":
                 logger.info(f"Processing entire accumulated text for final comprehensive summary: {len(text_to_process)} chars")
@@ -262,7 +238,6 @@ Provide a structured summary with key points. Remember to respond in the same la
             self.stats.record_inference(trigger_reason, generation_time, len(text_to_process))
 
             self.last_inference = response
-            self.last_inference_time = current_time  # Update last inference time
 
             logger.info(f"Generated inference in {generation_time:.2f}s: {len(response.summary)} chars")
             logger.debug(f"Inference: {response.summary}")
@@ -276,24 +251,22 @@ Provide a structured summary with key points. Remember to respond in the same la
 
             # Reset text length tracking for new text trigger after processing
             if trigger_reason != "forced":
-                self.text_length_at_last_summary = len(self.accumulated_text)
+                self.text_length_at_last_summary = len(self.accumulated_data)
                 logger.debug(f"Reset text length tracking to {self.text_length_at_last_summary} chars")
 
-            # Update last_processed_text to the current accumulated text
+            # Update last_processed_data to the current accumulated text
             if trigger_reason != "forced":
-                self.last_processed_text = self.accumulated_text
+                self.last_processed_data = self.accumulated_data
 
                 # Keep the most recent text in buffer (last 5000 chars) to maintain context
-                if len(self.accumulated_text) > 5000:
-                    self.accumulated_text = self.accumulated_text[-5000:]
-                    self.last_processed_text = self.accumulated_text
+                if len(self.accumulated_data) > 5000:
+                    self.accumulated_data = self.accumulated_data[-5000:]
+                    self.last_processed_data = self.accumulated_data
                     # Update text length tracking after truncation
-                    self.text_length_at_last_summary = len(self.accumulated_text)
+                    self.text_length_at_last_summary = len(self.accumulated_data)
 
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
-        finally:
-            self.is_generating_inference = False
 
     def get_last_inference(self) -> Optional[LLMResponse]:
         """Get the most recent inference."""
@@ -305,13 +278,16 @@ Provide a structured summary with key points. Remember to respond in the same la
 
     def get_stats(self) -> Dict[str, Any]:
         """Get inference statistics."""
-        return self.stats.to_dict()
+        base_stats = self.get_queue_status()
+        inference_stats = self.stats.to_dict()
+        return {**base_stats, **inference_stats}
 
     async def force_inference(self) -> Optional[LLMResponse]:
         """Force generate a inference of current accumulated text."""
-        if not self.accumulated_text.strip():
+        if not self.accumulated_data.strip():
             return None
 
+        # Force inference bypasses the queue system
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
 

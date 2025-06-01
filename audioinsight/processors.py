@@ -498,14 +498,103 @@ class TranscriptionProcessor:
         self.full_transcription = ""
         self.sep = " "  # Default separator
 
-        # Parser timing control
-        self.last_parser_trigger_time = 0.0
+        # Simplified event-based triggering - use the new Parser base class
         self.accumulated_text_for_parser = ""
 
         # Initialize transcription engine if enabled
         if self.args.transcription:
             self.online = online_factory(self.args, asr, tokenizer)
             self.sep = self.online.asr.sep
+
+        # Incremental parsing optimization - track what's already been parsed
+        self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
+        self.min_text_threshold = 100  # Variable: parse all if text < this many chars
+        self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
+
+    async def start_parser_worker(self):
+        """Start the parser worker task that processes queued text."""
+        if self.coordinator and self.coordinator.transcript_parser:
+            await self.coordinator.transcript_parser.start_worker()
+            logger.info("Started parser worker from transcript parser")
+
+    async def stop_parser_worker(self):
+        """Stop the parser worker task."""
+        if self.coordinator and self.coordinator.transcript_parser:
+            await self.coordinator.transcript_parser.stop_worker()
+            logger.info("Stopped parser worker from transcript parser")
+
+    def _get_text_to_parse(self, current_text: str) -> str:
+        """Get only the new text that needs parsing using intelligent sentence-based splitting.
+
+        Args:
+            current_text: The full accumulated text
+
+        Returns:
+            str: Only the new text that needs to be parsed, or empty string if nothing new
+        """
+        # If no previous parsing, handle based on text length
+        if not self.last_parsed_text:
+            if len(current_text) < self.min_text_threshold:
+                # Parse all for short text
+                logger.info(f"🔍 Incremental parsing: No previous parsing, text < {self.min_text_threshold} chars, parsing ALL")
+                return current_text
+            else:
+                # Parse last 25% of sentences for longer text
+                result = self._get_last_sentences_percentage(current_text)
+                logger.info(f"🔍 Incremental parsing: No previous parsing, text >= {self.min_text_threshold} chars, parsing last 25% of sentences ({len(result)} chars)")
+                return result
+
+        # Find new text since last parsing
+        if self.last_parsed_text in current_text:
+            # Get the part after the last parsed text
+            last_index = current_text.rfind(self.last_parsed_text)
+            new_text_start = last_index + len(self.last_parsed_text)
+            new_text = current_text[new_text_start:].strip()
+
+            if not new_text:
+                logger.info("🔍 Incremental parsing: No new text to parse")
+                return ""  # No new text to parse
+
+            # For incremental updates, always parse the new content
+            logger.info(f"🔍 Incremental parsing: Found new text since last parsing ({len(new_text)} chars from {len(current_text)} total)")
+            return new_text
+        else:
+            # Text doesn't contain last parsed content (maybe reset occurred)
+            # Fall back to percentage-based parsing
+            if len(current_text) < self.min_text_threshold:
+                logger.info(f"🔍 Incremental parsing: Text doesn't contain last parsed content, < {self.min_text_threshold} chars, parsing ALL")
+                return current_text
+            else:
+                result = self._get_last_sentences_percentage(current_text)
+                logger.info(f"🔍 Incremental parsing: Text doesn't contain last parsed content, >= {self.min_text_threshold} chars, parsing last 25% ({len(result)} chars)")
+                return result
+
+    def _get_last_sentences_percentage(self, text: str) -> str:
+        """Get the last 25% of sentences from the text (rounded up).
+
+        Args:
+            text: The text to split into sentences
+
+        Returns:
+            str: The last 25% of sentences joined together
+        """
+        # Split by common punctuation (sentences)
+        sentences = _sentence_split_regex.split(text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        if not sentences:
+            return text
+
+        # Calculate 25% rounded up
+        num_sentences = len(sentences)
+        percentage_count = max(1, math.ceil(num_sentences * self.sentence_percentage))
+
+        # Get last N sentences
+        last_sentences = sentences[-percentage_count:]
+        result = ". ".join(last_sentences)
+
+        logger.debug(f"Sentence-based parsing: {num_sentences} total sentences, processing last {percentage_count} sentences ({len(result)} chars)")
+        return result
 
     async def process(self, transcription_queue, update_callback, llm=None):
         """Process audio chunks for transcription."""
@@ -562,47 +651,77 @@ class TranscriptionProcessor:
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
                     # Remove token generation logging entirely - too verbose
 
-                # Get buffer information
-                _buffer = self.online.get_buffer()
-                buffer = _buffer.text
-                end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
+                    # Get buffer information
+                    _buffer = self.online.get_buffer()
+                    buffer = _buffer.text
+                    end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
-                # Avoid duplicating content
-                if buffer in self.full_transcription:
-                    buffer = ""
+                    # Avoid duplicating content
+                    if buffer in self.full_transcription:
+                        buffer = ""
 
-                await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
+                    await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
 
-                # Update LLM inference processor asynchronously (non-blocking)
-                if llm and new_tokens:
-                    new_text = self.sep.join([t.text for t in new_tokens])
-                    # Convert to Traditional Chinese for consistency
-                    new_text_converted = s2hk(new_text) if new_text else new_text
+                    # Accumulate text for parser with event-based triggering
+                    if self.coordinator and new_tokens:
+                        new_text = self.sep.join([t.text for t in new_tokens])
+                        # Convert to Traditional Chinese for consistency
+                        new_text_converted = s2hk(new_text) if new_text else new_text
 
-                    # Accumulate text for parser with timing control
-                    if self.coordinator and new_text_converted.strip():
-                        # Accumulate text for parser
-                        if self.accumulated_text_for_parser:
-                            self.accumulated_text_for_parser += self.sep + new_text_converted
-                        else:
-                            self.accumulated_text_for_parser = new_text_converted
+                        if new_text_converted.strip():
+                            # CRITICAL FIX: Update LLM with new transcription text for real-time inference
+                            if self.coordinator.llm:
+                                # Get speaker info for LLM context
+                                speaker_info_dict = None
+                                if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
+                                    speaker_info_dict = {"speaker": new_tokens[0].speaker}
 
-                        # Check if it's time to trigger parser (every second)
-                        current_time = time()
-                        parser_interval = getattr(self.coordinator.transcript_parser.config, "trigger_interval_seconds", 1.0) if self.coordinator.transcript_parser else 1.0
+                                self.coordinator.llm.update_transcription(new_text_converted, speaker_info_dict)
+                                logger.debug(f"🔄 Updated LLM with {len(new_text_converted)} chars: '{new_text_converted[:50]}...'")
 
-                        if current_time - self.last_parser_trigger_time >= parser_interval:
+                            # Accumulate text for parser
+                            if self.accumulated_text_for_parser:
+                                self.accumulated_text_for_parser += self.sep + new_text_converted
+                            else:
+                                self.accumulated_text_for_parser = new_text_converted
+
                             # Get accumulated speaker info (use most recent speaker)
                             speaker_info = None
                             if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
-                                speaker_info = {"speaker": new_tokens[0].speaker}
+                                speaker_info = [{"speaker": new_tokens[0].speaker}]
 
-                            # Send accumulated text to parser
-                            asyncio.create_task(self._update_coordinator_parser_async(self.coordinator, self.accumulated_text_for_parser, speaker_info))
+                            # Use new event-based Parser system instead of manual queue management
+                            min_batch_size = 200  # Maintain threshold for batching
 
-                            # Reset accumulation
-                            self.accumulated_text_for_parser = ""
-                            self.last_parser_trigger_time = current_time
+                            if len(self.accumulated_text_for_parser) >= min_batch_size:
+                                # OPTIMIZATION: Use intelligent incremental parsing
+                                text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
+
+                                if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
+                                    # Use the new event-based parser queue system
+                                    success = await self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, speaker_info, None)
+
+                                    if success:
+                                        logger.info(f"✅ Queued {len(text_to_parse)} chars for incremental parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
+
+                                        # Update last parsed text to track progress - CRITICAL: Must be BEFORE reset
+                                        self.last_parsed_text = self.accumulated_text_for_parser
+
+                                        # Reset accumulation AFTER tracking what was parsed
+                                        self.accumulated_text_for_parser = ""
+                                    else:
+                                        logger.info(f"⏳ Parser queue busy, accumulating text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+                                else:
+                                    logger.info("⚠️ No new text to parse, skipping this update")
+                                    self.accumulated_text_for_parser = ""
+                            else:
+                                # Continue accumulating text until batch size is reached
+                                logger.debug(f"⏳ Accumulating text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+
+                    # Get accumulated speaker info (use most recent speaker)
+                    speaker_info = None
+                    if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
+                        speaker_info = [{"speaker": new_tokens[0].speaker}]
 
                 transcription_queue.task_done()
 
@@ -629,11 +748,33 @@ class TranscriptionProcessor:
 
     def finish_transcription(self):
         """Finish the transcription to get any remaining tokens."""
-        # Flush any remaining accumulated text to parser
+        # Flush any remaining accumulated text to parser using the new event-based system
         if self.coordinator and self.accumulated_text_for_parser.strip():
-            asyncio.create_task(self._update_coordinator_parser_async(self.coordinator, self.accumulated_text_for_parser, None))  # No specific speaker info for final flush
-            self.accumulated_text_for_parser = ""
-            logger.info(f"Flushed remaining accumulated text to parser")
+            # CRITICAL FIX: Also update LLM with remaining accumulated text before parsing
+            if self.coordinator.llm:
+                self.coordinator.llm.update_transcription(self.accumulated_text_for_parser, None)
+                logger.info(f"🔄 Updated LLM with remaining accumulated text: {len(self.accumulated_text_for_parser)} chars")
+
+            # Try to queue remaining text for processing using the new event-based parser
+            try:
+                if self.coordinator.transcript_parser:
+                    # Use incremental parsing for remaining text
+                    text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
+
+                    if text_to_parse and text_to_parse.strip():
+                        # Use the new async queue method
+                        asyncio.create_task(self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, None, None))
+                        # Update tracking
+                        self.last_parsed_text = self.accumulated_text_for_parser
+                        logger.info(f"Queued remaining {len(text_to_parse)} chars for incremental parsing (from {len(self.accumulated_text_for_parser)} total)")
+                    else:
+                        logger.info("No new text in remaining buffer to parse")
+
+                    self.accumulated_text_for_parser = ""
+                else:
+                    logger.warning("No transcript parser available during finish")
+            except Exception as e:
+                logger.warning(f"Failed to queue remaining text to parser: {e}")
 
         if self.online:
             try:
@@ -641,6 +782,12 @@ class TranscriptionProcessor:
             except Exception as e:
                 logger.warning(f"Failed to finish transcription: {e}")
         return None
+
+    def reset_parsing_state(self):
+        """Reset the incremental parsing state for fresh sessions."""
+        self.last_parsed_text = ""
+        self.accumulated_text_for_parser = ""
+        logger.debug("Reset incremental parsing state")
 
 
 class DiarizationProcessor:
@@ -892,6 +1039,11 @@ class AudioProcessor:
         self.last_parsed_transcript = None  # Most recent parsed transcript
         self._parser_enabled = True  # Enable transcript parsing by default
 
+        # Incremental parsing optimization - track what's already been parsed
+        self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
+        self.min_text_threshold = 100  # Variable: parse all if text < this many chars
+        self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
+
         # Initialize LLM if enabled in features
         if getattr(self.args, "llm_inference", False):
             logger.info("🔧 Creating LLM processor on initialization")
@@ -999,10 +1151,7 @@ class AudioProcessor:
                 if len(self.parsed_transcripts) > 50:
                     self.parsed_transcripts = self.parsed_transcripts[-50:]
 
-            # Update LLM with parsed text instead of raw text for better summaries
-            if self.llm and parsed_transcript.parsed_text:
-                self.llm.update_transcription(parsed_transcript.parsed_text, speaker_info[0] if speaker_info else None)
-
+            # Note: LLM summarizer is now triggered by parser worker to ensure proper event order
             logger.debug(f"📝 Parsed and stored transcript: {len(text)} -> {len(parsed_transcript.parsed_text)} chars")
             return parsed_transcript
 
@@ -1073,6 +1222,10 @@ class AudioProcessor:
             # Reset parsed transcript data
             self.parsed_transcripts.clear()
             self.last_parsed_transcript = None
+
+        # Reset transcription processor's incremental parsing state
+        if self.transcription_processor:
+            self.transcription_processor.reset_parsing_state()
 
     async def results_formatter(self):
         """Format processing results for output."""
@@ -1193,11 +1346,18 @@ class AudioProcessor:
 
                         # Always generate a final comprehensive summary from the complete transcript
                         # This ensures we have a summary of the entire conversation, not just fragments
-                        if self.llm and self.llm.accumulated_text.strip():
+                        if self.llm and self.llm.accumulated_data.strip():
                             if summaries_count == 0:
                                 logger.info("🔄 Generating final inference (no summaries created during processing)...")
                             else:
                                 logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
+
+                            # CRITICAL FIX: Feed the LLM the complete full transcription for final summary
+                            complete_transcript = self.full_transcription
+                            if complete_transcript.strip():
+                                # Update LLM with complete transcript to ensure comprehensive summary
+                                self.llm.update_transcription(complete_transcript, None)
+                                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
 
                             # Force a final summary of all accumulated text
                             await self.llm.force_inference()
@@ -1218,7 +1378,7 @@ class AudioProcessor:
                                     current_summary_count = len(getattr(self, "summaries", []))
 
                                 if current_summary_count > initial_summary_count:
-                                    logger.info(f"✅ Final summary a~dded after {waited_time:.1f}s wait")
+                                    logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
                                     break
 
                                 if waited_time >= max_wait_time:
@@ -1286,6 +1446,10 @@ class AudioProcessor:
 
             if not self.transcription_queue:
                 self.transcription_queue = asyncio.Queue()
+
+            # Start parser worker if enabled
+            if self.transcript_parser:
+                await self.transcription_processor.start_parser_worker()
 
             # FIXED: Now self.llm is properly initialized before creating transcription task
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
@@ -1364,7 +1528,11 @@ class AudioProcessor:
         """Clean up resources when processing is complete."""
         logger.info("Starting cleanup of AudioProcessor resources.")
 
-        # Stop LLM inference processor first to generate final inference
+        # Stop parser worker first
+        if self.transcription_processor:
+            await self.transcription_processor.stop_parser_worker()
+
+        # Stop LLM inference processor to generate final inference
         if self.llm:
             await self.llm.stop_monitoring()
             logger.info("LLM inference processor stopped")

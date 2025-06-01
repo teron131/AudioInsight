@@ -30,7 +30,6 @@ setup(
             "huggingface-hub",
         ],
         "vac": ["torch>=2.6.0,<2.7.0"],
-        "sentence": ["mosestokenizer"],
         "whisper": ["whisper", "opencc"],
         "openai": ["openai"],
         "llm": [
@@ -48,7 +47,6 @@ setup(
             "torchvision>=0.21.0,<0.22.0",
             "torchaudio>=2.6.0,<2.7.0",
             "huggingface-hub",
-            "mosestokenizer",
             "whisper",
             "opencc",
             "openai",

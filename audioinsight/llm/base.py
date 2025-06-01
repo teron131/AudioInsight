@@ -1,4 +1,6 @@
 import asyncio
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Union
 
 from langchain.prompts import ChatPromptTemplate
@@ -10,6 +12,183 @@ from .types import LLMConfig
 from .utils import get_api_credentials
 
 logger = get_logger(__name__)
+
+# Shared thread pool executor for all LLM operations to avoid overhead
+_shared_executor = None
+
+
+def get_shared_executor() -> ThreadPoolExecutor:
+    """Get or create the shared thread pool executor for LLM operations."""
+    global _shared_executor
+    if _shared_executor is None:
+        _shared_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm-executor")
+    return _shared_executor
+
+
+class EventBasedProcessor(ABC):
+    """
+    Base class for event-based processing with queue management and worker tasks.
+
+    Provides common functionality for:
+    - Event-based triggering instead of polling
+    - Queue-based processing to prevent overflow
+    - Worker task management
+    - Trigger condition checking
+    - Concurrent processing for better performance
+    """
+
+    def __init__(self, queue_maxsize: int = 10, cooldown_seconds: float = 2.0, max_concurrent_workers: int = 2):
+        """Initialize the event-based processor.
+
+        Args:
+            queue_maxsize: Maximum size of the processing queue
+            cooldown_seconds: Minimum time between processing operations
+            max_concurrent_workers: Maximum number of concurrent worker tasks
+        """
+        # Event-based triggering
+        self.new_event = asyncio.Event()
+        self.processing_queue = asyncio.Queue(maxsize=queue_maxsize)
+        self.worker_tasks = []
+        self.max_concurrent_workers = max_concurrent_workers
+
+        # Processing state
+        self.is_running = False
+        self.is_processing = False
+        self.last_processing_time = 0.0
+        self.cooldown_seconds = cooldown_seconds
+        self.active_workers = 0
+
+        # Tracking
+        self.accumulated_data = ""
+        self.last_processed_data = ""
+
+    async def start_worker(self):
+        """Start the worker task for processing."""
+        if self.worker_tasks == [] and not self.is_running:
+            self.is_running = True
+            self.worker_tasks = [asyncio.create_task(self._worker()) for _ in range(self.max_concurrent_workers)]
+            logger.info(f"{self.__class__.__name__} workers started")
+
+    async def stop_worker(self):
+        """Stop the worker task."""
+        if self.worker_tasks:
+            self.is_running = False
+            try:
+                # Signal workers to stop
+                for _ in range(len(self.worker_tasks)):
+                    await self.processing_queue.put(None)
+                await asyncio.gather(*self.worker_tasks)
+            except Exception as e:
+                logger.warning(f"Error stopping {self.__class__.__name__} workers: {e}")
+            finally:
+                self.worker_tasks = []
+                logger.info(f"{self.__class__.__name__} workers stopped")
+
+    async def _worker(self):
+        """Worker task that processes queued items serially."""
+        worker_id = id(asyncio.current_task())
+        logger.info(f"{self.__class__.__name__} worker {worker_id} started")
+
+        while self.is_running:
+            try:
+                # Wait for new work or shutdown signal
+                item = await self.processing_queue.get()
+
+                if item is None:  # Shutdown signal
+                    break
+
+                # Track active workers for better queue status
+                self.active_workers += 1
+
+                try:
+                    # Process the item
+                    await self._process_item(item)
+
+                except Exception as e:
+                    logger.warning(f"{self.__class__.__name__} worker {worker_id} processing failed: {e}")
+                finally:
+                    self.active_workers -= 1
+                    self.processing_queue.task_done()
+
+            except Exception as e:
+                logger.error(f"Error in {self.__class__.__name__} worker {worker_id}: {e}")
+
+        logger.info(f"{self.__class__.__name__} worker {worker_id} stopped")
+
+    @abstractmethod
+    async def _process_item(self, item: Any):
+        """Process a single item from the queue.
+
+        Args:
+            item: The item to process
+        """
+        pass
+
+    def should_process(self, data: str, min_size: int = 100) -> bool:
+        """Check if processing should be triggered based on conditions.
+
+        Args:
+            data: Current accumulated data
+            min_size: Minimum data size to trigger processing
+
+        Returns:
+            bool: True if processing should be triggered
+        """
+        import time
+
+        current_time = time.time()
+
+        # Skip if in cooldown (but allow concurrent processing)
+        if (current_time - self.last_processing_time) < self.cooldown_seconds:
+            return False
+
+        # Skip if queue is full
+        if self.processing_queue.full():
+            logger.warning(f"{self.__class__.__name__} queue full, skipping processing")
+            return False
+
+        # Check minimum size requirement
+        if len(data) < min_size:
+            return False
+
+        return True
+
+    async def queue_for_processing(self, item: Any) -> bool:
+        """Queue an item for processing.
+
+        Args:
+            item: Item to queue
+
+        Returns:
+            bool: True if successfully queued, False otherwise
+        """
+        try:
+            self.processing_queue.put_nowait(item)
+            self.new_event.set()
+            return True
+        except asyncio.QueueFull:
+            logger.warning(f"{self.__class__.__name__} queue full, dropping item")
+            return False
+
+    def update_processing_time(self):
+        """Update the last processing time."""
+        import time
+
+        self.last_processing_time = time.time()
+
+    def get_queue_status(self) -> Dict[str, Any]:
+        """Get current queue status.
+
+        Returns:
+            dict: Queue status information
+        """
+        return {
+            "queue_size": self.processing_queue.qsize(),
+            "active_workers": self.active_workers,
+            "is_running": self.is_running,
+            "has_workers": self.worker_tasks != [],
+            "max_workers": self.max_concurrent_workers,
+        }
 
 
 class UniversalLLM:
@@ -96,7 +275,9 @@ class UniversalLLM:
             llm = self._get_llm()
             chain = prompt | llm
 
-            result = await asyncio.get_event_loop().run_in_executor(None, lambda: chain.invoke(variables))
+            # Use shared executor instead of creating new one each time
+            executor = get_shared_executor()
+            result = await asyncio.get_event_loop().run_in_executor(executor, lambda: chain.invoke(variables))
 
             return result.content.strip()
 
@@ -119,7 +300,9 @@ class UniversalLLM:
             structured_llm = self.get_structured_llm(output_schema)
             chain = prompt | structured_llm
 
-            result = await asyncio.get_event_loop().run_in_executor(None, lambda: chain.invoke(variables))
+            # Use shared executor instead of creating new one each time
+            executor = get_shared_executor()
+            result = await asyncio.get_event_loop().run_in_executor(executor, lambda: chain.invoke(variables))
 
             return result
 
@@ -141,7 +324,9 @@ class UniversalLLM:
             llm = self._get_llm()
             chain = prompt | llm
 
-            results = await asyncio.get_event_loop().run_in_executor(None, lambda: chain.batch(variable_list))
+            # Use shared executor instead of creating new one each time
+            executor = get_shared_executor()
+            results = await asyncio.get_event_loop().run_in_executor(executor, lambda: chain.batch(variable_list))
 
             return [result.content.strip() for result in results]
 
@@ -164,7 +349,9 @@ class UniversalLLM:
             structured_llm = self.get_structured_llm(output_schema)
             chain = prompt | structured_llm
 
-            results = await asyncio.get_event_loop().run_in_executor(None, lambda: chain.batch(variable_list))
+            # Use shared executor instead of creating new one each time
+            executor = get_shared_executor()
+            results = await asyncio.get_event_loop().run_in_executor(executor, lambda: chain.batch(variable_list))
 
             return results
 

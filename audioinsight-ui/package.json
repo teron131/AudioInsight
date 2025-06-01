@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently --names \"Frontend,Backend\" --prefix-colors \"cyan,magenta\" \"next dev\" \"cd .. && python -c 'from audioinsight.app import main; main()'\"",
+    "dev": "concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && python -c 'from audioinsight.app import main; main()'\" \"next dev\"",
     "dev:frontend": "next dev",
     "dev:backend": "cd .. && python -c 'from audioinsight.app import main; main()'",
     "build": "next build",

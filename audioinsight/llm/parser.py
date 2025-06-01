@@ -1,22 +1,22 @@
 import asyncio
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from langchain.prompts import ChatPromptTemplate
 
 from ..logging_config import get_logger
-from .base import UniversalLLM
+from .base import EventBasedProcessor, UniversalLLM
 from .types import LLMConfig, ParsedTranscript, ParserConfig, ParserStats
 from .utils import contains_chinese, s2hk
 
 logger = get_logger(__name__)
 
 
-class Parser:
+class Parser(EventBasedProcessor):
     """
     LLM-based text parser that fixes typos, punctuation, and creates smooth sentences.
     Returns structured ParsedTranscript objects for sharing between UI and summarizer.
-    Uses the universal LLM client for consistent inference.
+    Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
     """
 
     def __init__(
@@ -32,6 +32,9 @@ class Parser:
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
+        # Initialize base class with optimized queue for parser and concurrent workers
+        super().__init__(queue_maxsize=50, cooldown_seconds=0.1, max_concurrent_workers=3)  # Increased queue size, reduced cooldown, added concurrency
+
         self.config = config or ParserConfig(model_id=model_id)
 
         # Create LLM config from text parser config
@@ -60,6 +63,34 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
         # Statistics using the new standardized class
         self.stats = ParserStats()
+
+    async def _process_item(self, item: Tuple[str, Optional[List[Dict]], Optional[Dict[str, float]]]):
+        """Process a single parsing request from the queue.
+
+        Args:
+            item: Tuple of (text, speaker_info, timestamps)
+        """
+        text, speaker_info, timestamps = item
+        result = await self.parse_transcript(text, speaker_info, timestamps)
+        self.update_processing_time()
+        return result
+
+    async def queue_parsing_request(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> bool:
+        """Queue a parsing request for event-based processing.
+
+        Args:
+            text: The transcript text to parse
+            speaker_info: Optional speaker information
+            timestamps: Optional timestamp information
+
+        Returns:
+            bool: True if successfully queued, False otherwise
+        """
+        if not self.should_process(text, min_size=50):  # Lower threshold for parser
+            logger.debug(f"⏳ Parser: Accumulating text for batching: {len(text)} chars")
+            return False
+
+        return await self.queue_for_processing((text, speaker_info, timestamps))
 
     async def parse_transcript(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> ParsedTranscript:
         """Parse and structure a transcript with full metadata.
@@ -269,7 +300,9 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         Returns:
             dict: Dictionary of processing statistics
         """
-        return self.stats.to_dict()
+        base_stats = self.get_queue_status()
+        parser_stats = self.stats.to_dict()
+        return {**base_stats, **parser_stats}
 
 
 # Convenience function for quick text parsing (returns structured data)
