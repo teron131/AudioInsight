@@ -1,14 +1,15 @@
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from ..logging_config import get_logger
-from .types import LLMConfig
+from .config import LLMConfig
 from .utils import get_api_credentials
 
 logger = get_logger(__name__)
@@ -21,7 +22,8 @@ def get_shared_executor() -> ThreadPoolExecutor:
     """Get or create the shared thread pool executor for LLM operations."""
     global _shared_executor
     if _shared_executor is None:
-        _shared_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm-executor")
+        # Increased from 4 to 8 workers for better parallel processing
+        _shared_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-executor")
     return _shared_executor
 
 
@@ -58,6 +60,11 @@ class EventBasedProcessor(ABC):
         self.cooldown_seconds = cooldown_seconds
         self.active_workers = 0
 
+        # Performance tracking
+        self.total_processed = 0
+        self.total_processing_time = 0.0
+        self.last_performance_log = 0.0
+
         # Tracking
         self.accumulated_data = ""
         self.last_processed_data = ""
@@ -91,18 +98,31 @@ class EventBasedProcessor(ABC):
 
         while self.is_running:
             try:
-                # Wait for new work or shutdown signal
-                item = await self.processing_queue.get()
+                # Use timeout to prevent hanging workers
+                item = await asyncio.wait_for(self.processing_queue.get(), timeout=5.0)
 
                 if item is None:  # Shutdown signal
                     break
 
                 # Track active workers for better queue status
                 self.active_workers += 1
+                start_time = time.time()
 
                 try:
                     # Process the item
                     await self._process_item(item)
+
+                    # Track performance metrics
+                    processing_time = time.time() - start_time
+                    self.total_processed += 1
+                    self.total_processing_time += processing_time
+
+                    # Log performance occasionally
+                    current_time = time.time()
+                    if current_time - self.last_performance_log > 60.0:  # Every minute
+                        avg_time = self.total_processing_time / max(self.total_processed, 1)
+                        logger.info(f"{self.__class__.__name__} performance: {self.total_processed} items processed, avg time: {avg_time:.2f}s")
+                        self.last_performance_log = current_time
 
                 except Exception as e:
                     logger.warning(f"{self.__class__.__name__} worker {worker_id} processing failed: {e}")
@@ -110,6 +130,9 @@ class EventBasedProcessor(ABC):
                     self.active_workers -= 1
                     self.processing_queue.task_done()
 
+            except asyncio.TimeoutError:
+                # Worker timeout - continue to check if still running
+                continue
             except Exception as e:
                 logger.error(f"Error in {self.__class__.__name__} worker {worker_id}: {e}")
 
@@ -138,13 +161,15 @@ class EventBasedProcessor(ABC):
 
         current_time = time.time()
 
-        # Skip if in cooldown (but allow concurrent processing)
-        if (current_time - self.last_processing_time) < self.cooldown_seconds:
+        # Skip if in cooldown - but reduced threshold for better responsiveness
+        cooldown_threshold = self.cooldown_seconds * 0.8  # 20% reduction
+        if (current_time - self.last_processing_time) < cooldown_threshold:
             return False
 
-        # Skip if queue is full
-        if self.processing_queue.full():
-            logger.warning(f"{self.__class__.__name__} queue full, skipping processing")
+        # Skip if queue is getting full (but not completely full)
+        queue_threshold = int(self.processing_queue.maxsize * 0.9)  # 90% capacity
+        if self.processing_queue.qsize() >= queue_threshold:
+            logger.warning(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
             return False
 
         # Check minimum size requirement
@@ -182,12 +207,16 @@ class EventBasedProcessor(ABC):
         Returns:
             dict: Queue status information
         """
+        avg_processing_time = self.total_processing_time / max(self.total_processed, 1)
+
         return {
             "queue_size": self.processing_queue.qsize(),
             "active_workers": self.active_workers,
             "is_running": self.is_running,
             "has_workers": self.worker_tasks != [],
             "max_workers": self.max_concurrent_workers,
+            "total_processed": self.total_processed,
+            "avg_processing_time": avg_processing_time,
         }
 
 

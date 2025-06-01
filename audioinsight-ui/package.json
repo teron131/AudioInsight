@@ -1,6 +1,5 @@
 {
   "name": "audioinsight-ui",
-  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && python -c 'from audioinsight.app import main; main()'\" \"next dev\"",

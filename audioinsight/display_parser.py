@@ -1,7 +1,8 @@
 import time
 from typing import Any, Dict, Optional
 
-from .llm import DisplayParserStats, LRUCache, Parser, ParserConfig
+from .llm import LRUCache, Parser, ParserConfig
+from .llm.parser import DisplayParserStats
 from .logging_config import get_logger
 
 logger = get_logger(__name__)

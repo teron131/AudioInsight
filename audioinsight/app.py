@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from . import AudioInsight, parse_args
+from .config import apply_parameter_updates, get_config, get_processing_parameters
 from .display_parser import enable_display_parsing, get_display_parser
 from .logging_config import get_logger, setup_logging
 from .server.config import CORS_SETTINGS
@@ -584,53 +585,6 @@ async def unload_models(model_type: str = "all"):
 # =============================================================================
 
 
-@app.get("/api/processing/parameters")
-async def get_processing_parameters():
-    """Get current audio processing parameters."""
-    try:
-        global kit
-        if not kit:
-            return {"status": "error", "message": "AudioInsight not initialized"}
-
-        params = {
-            # Server Configuration
-            "host": getattr(kit.args, "host", "localhost"),
-            "port": getattr(kit.args, "port", 8001),
-            # Model Configuration
-            "model": getattr(kit.args, "model", "large-v3-turbo"),
-            "backend": getattr(kit.args, "backend", "faster-whisper"),
-            "language": getattr(kit.args, "lang", "auto"),
-            "task": getattr(kit.args, "task", "transcribe"),
-            "model_cache_dir": getattr(kit.args, "model_cache_dir", None),
-            "model_dir": getattr(kit.args, "model_dir", None),
-            # Processing Configuration
-            "min_chunk_size": getattr(kit.args, "min_chunk_size", 0.5),
-            "buffer_trimming": getattr(kit.args, "buffer_trimming", "segment"),
-            "buffer_trimming_sec": getattr(kit.args, "buffer_trimming_sec", 15.0),
-            "vac_chunk_size": getattr(kit.args, "vac_chunk_size", 0.04),
-            "warmup_file": getattr(kit.args, "warmup_file", None),
-            # Feature Configuration (boolean toggles)
-            "transcription": getattr(kit.args, "transcription", True),
-            "diarization": getattr(kit.args, "diarization", False),
-            "vad_enabled": getattr(kit.args, "vad", True),
-            "vac_enabled": getattr(kit.args, "vac", False),
-            "confidence_validation": getattr(kit.args, "confidence_validation", False),
-            "llm_inference": getattr(kit.args, "llm_inference", True),
-            # LLM Configuration
-            "fast_llm": getattr(kit.args, "fast_llm", "openai/gpt-4.1-nano"),
-            "base_llm": getattr(kit.args, "base_llm", "openai/gpt-4.1-mini"),
-            "llm_summary_interval": getattr(kit.args, "llm_summary_interval", 15.0),
-            "llm_new_text_trigger": getattr(kit.args, "llm_new_text_trigger", 300),
-            "parser_trigger_interval": getattr(kit.args, "parser_trigger_interval", 1.0),
-            "parser_output_tokens": getattr(kit.args, "parser_output_tokens", 33000),
-        }
-
-        return {"status": "success", "parameters": params}
-    except Exception as e:
-        logger.error(f"Error getting processing parameters: {e}")
-        return {"status": "error", "message": f"Error getting processing parameters: {str(e)}"}
-
-
 @app.post("/api/processing/parameters")
 async def update_processing_parameters(parameters: dict):
     """Update audio processing parameters in real-time."""
@@ -639,53 +593,70 @@ async def update_processing_parameters(parameters: dict):
         if not kit:
             return {"status": "error", "message": "AudioInsight not initialized"}
 
-        updated_params = []
-        # Map frontend parameter names to backend attribute names
-        param_mapping = {
-            # Server Configuration
-            "host": "host",
-            "port": "port",
-            # Model Configuration
-            "model": "model",
-            "backend": "backend",
-            "language": "lang",  # Frontend uses 'language', backend uses 'lang'
-            "task": "task",
-            "model_cache_dir": "model_cache_dir",
-            "model_dir": "model_dir",
-            # Processing Configuration
-            "min_chunk_size": "min_chunk_size",
-            "buffer_trimming": "buffer_trimming",
-            "buffer_trimming_sec": "buffer_trimming_sec",
-            "vac_chunk_size": "vac_chunk_size",
-            "warmup_file": "warmup_file",
-            # Feature Configuration
-            "transcription": "transcription",
-            "diarization": "diarization",
-            "vad_enabled": "vad",  # Frontend uses 'vad_enabled', backend uses 'vad'
-            "vac_enabled": "vac",  # Frontend uses 'vac_enabled', backend uses 'vac'
-            "confidence_validation": "confidence_validation",
-            "llm_inference": "llm_inference",
-            # LLM Configuration
-            "fast_llm": "fast_llm",
-            "base_llm": "base_llm",
-            "llm_summary_interval": "llm_summary_interval",
-            "llm_new_text_trigger": "llm_new_text_trigger",
-            "parser_trigger_interval": "parser_trigger_interval",
-            "parser_output_tokens": "parser_output_tokens",
-        }
+        # Use domain-specific configuration system
+        from .config import apply_runtime_updates
 
-        for param, value in parameters.items():
-            if param in param_mapping:
-                backend_param = param_mapping[param]
-                setattr(kit.args, backend_param, value)
-                updated_params.append(param)
-                logger.info(f"Updated processing parameter: {param} = {value}")
+        updated_params = apply_runtime_updates(parameters)
 
-        return {"status": "success", "message": f"Updated parameters: {', '.join(updated_params)}", "updated_parameters": updated_params}
+        # Also update the kit's args for backward compatibility
+        config = get_config()
+
+        # Sync config back to kit.args (for legacy code compatibility)
+        if hasattr(kit, "args"):
+            # Update args with unified config values, mapping unified names to legacy names
+            kit.args.host = config.server.host
+            kit.args.port = config.server.port
+            kit.args.model = config.model.model
+            kit.args.backend = config.model.backend
+            kit.args.lang = config.model.language  # Map unified 'language' to legacy 'lang'
+            kit.args.task = config.model.task
+            kit.args.min_chunk_size = config.processing.min_chunk_size
+            kit.args.buffer_trimming = config.processing.buffer_trimming
+            kit.args.buffer_trimming_sec = config.processing.buffer_trimming_sec
+            kit.args.vac_chunk_size = config.processing.vac_chunk_size
+            kit.args.transcription = config.features.transcription
+            kit.args.diarization = config.features.diarization
+            kit.args.vad = config.features.vad
+            kit.args.vac = config.features.vac
+            kit.args.confidence_validation = config.features.confidence_validation
+            kit.args.llm_inference = config.features.llm_inference
+            kit.args.fast_llm = config.llm.fast_llm
+            kit.args.base_llm = config.llm.base_llm
+            kit.args.llm_summary_interval = config.llm.llm_summary_interval
+            kit.args.llm_new_text_trigger = config.llm.llm_new_text_trigger
+
+        return success_response("Parameters updated successfully", {"updated_parameters": updated_params, "total_updates": sum(len(domain_updates) for domain_updates in updated_params.values())})
 
     except Exception as e:
-        logger.error(f"Error updating processing parameters: {e}")
-        return {"status": "error", "message": f"Error updating processing parameters: {str(e)}"}
+        logger.error(f"Error updating processing parameters: {str(e)}")
+        return {"status": "error", "message": f"Failed to update parameters: {str(e)}"}
+
+
+@app.get("/api/processing/parameters")
+async def get_processing_parameters():
+    """Get current audio processing parameters with runtime/startup classification."""
+    try:
+        from .config import get_runtime_configurable_fields, get_startup_only_fields
+
+        # Get all current parameters (backward compatibility)
+        all_params = get_processing_parameters()
+
+        # Get runtime vs startup classification
+        runtime_fields = get_runtime_configurable_fields()
+        startup_fields = get_startup_only_fields()
+
+        return success_response(
+            "Parameters retrieved successfully",
+            {
+                "parameters": all_params,  # Backward compatibility
+                "runtime_configurable": runtime_fields,
+                "startup_only": startup_fields,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error retrieving processing parameters: {str(e)}")
+        return {"status": "error", "message": f"Failed to retrieve parameters: {str(e)}"}
 
 
 # =============================================================================
@@ -1191,3 +1162,78 @@ async def analyze_audio_quality(file_path: str):
     except Exception as e:
         logger.error(f"Error analyzing audio quality: {e}")
         return {"status": "error", "message": f"Error analyzing audio: {str(e)}"}
+
+
+# =============================================================================
+# Warmup Status Check API (for debugging cold start issues)
+# =============================================================================
+
+
+@app.get("/api/warmup/status")
+async def get_warmup_status():
+    """Get warmup status to debug cold start issues."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        warmup_info = {
+            "models_loaded": kit._models_loaded,
+            "asr_instance": kit.asr is not None,
+            "warmup_file_config": getattr(kit.args, "warmup_file", None),
+            "backend": getattr(kit.args, "backend", "unknown"),
+            "model": getattr(kit.args, "model", "unknown"),
+        }
+
+        # Try to check if the ASR model has been warmed up by checking its state
+        if kit.asr:
+            # Different backends might have different ways to check warmup status
+            warmup_info.update(
+                {
+                    "asr_type": type(kit.asr).__name__,
+                    "asr_ready": True,
+                }
+            )
+        else:
+            warmup_info.update(
+                {
+                    "asr_type": None,
+                    "asr_ready": False,
+                }
+            )
+
+        return {"status": "success", "warmup_info": warmup_info}
+
+    except Exception as e:
+        logger.error(f"Error getting warmup status: {e}")
+        return {"status": "error", "message": f"Error getting warmup status: {str(e)}"}
+
+
+@app.post("/api/warmup/force")
+async def force_warmup():
+    """Force a warmup of the ASR model to solve cold start issues."""
+    try:
+        global kit
+        if not kit:
+            return {"status": "error", "message": "AudioInsight not initialized"}
+
+        if not kit.asr:
+            return {"status": "error", "message": "ASR model not loaded"}
+
+        # Import warmup function
+        from .whisper_streaming.whisper_online import warmup_asr
+
+        # Force warmup
+        warmup_file = getattr(kit.args, "warmup_file", None)
+        logger.info(f"🔥 Forcing warmup with file: {warmup_file}")
+
+        success = warmup_asr(kit.asr, warmup_file)
+
+        if success is False:
+            return {"status": "warning", "message": "Warmup completed but may not have used warmup file"}
+
+        return {"status": "success", "message": "ASR model warmup forced successfully", "warmup_file": warmup_file}
+
+    except Exception as e:
+        logger.error(f"Error forcing warmup: {e}")
+        return {"status": "error", "message": f"Error forcing warmup: {str(e)}"}

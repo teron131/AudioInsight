@@ -261,12 +261,19 @@ class FFmpegProcessor:
                 beg = current_time
 
                 # Detect idle state much more conservatively
-                if current_time - self.last_ffmpeg_activity > 60.0:  # Much longer idle threshold
-                    logger.warning(f"FFmpeg process idle for {current_time - self.last_ffmpeg_activity:.2f}s. Restarting...")
+                # Only restart if idle for more than 10 minutes (600 seconds) AND process is broken
+                if current_time - self.last_ffmpeg_activity > 600.0:
+                    # Check if process is actually broken before restarting
+                    if self.ffmpeg_process is None or self.ffmpeg_process.poll() is not None or (self.ffmpeg_process.stdin and self.ffmpeg_process.stdin.closed):
+                        logger.warning(f"FFmpeg process idle for {current_time - self.last_ffmpeg_activity:.2f}s and appears broken. Restarting...")
                     await self.restart_ffmpeg()
                     beg = time()
                     self.last_ffmpeg_activity = time()
                     continue
+                else:
+                    # Process is healthy but idle - this is normal, just update activity time
+                    logger.debug(f"FFmpeg idle for {current_time - self.last_ffmpeg_activity:.2f}s but process is healthy")
+                    self.last_ffmpeg_activity = current_time  # Reset the idle timer
 
                 chunk = await loop.run_in_executor(None, self.ffmpeg_process.stdout.read, buffer_size)
                 if chunk:
@@ -1038,8 +1045,6 @@ class AudioProcessor:
         self.parsed_transcripts = []  # Store parsed transcript data
         self.last_parsed_transcript = None  # Most recent parsed transcript
         self._parser_enabled = True  # Enable transcript parsing by default
-
-        # Incremental parsing optimization - track what's already been parsed
         self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
         self.min_text_threshold = 100  # Variable: parse all if text < this many chars
         self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
@@ -1510,15 +1515,25 @@ class AudioProcessor:
                 if not hasattr(self, "_last_idle_warning"):
                     self._last_idle_warning = 0
 
-                if ffmpeg_idle_time > 20 and current_time - self._last_idle_warning > 60.0:
+                if ffmpeg_idle_time > 120 and current_time - self._last_idle_warning > 60.0:
                     logger.warning(f"FFmpeg idle for {ffmpeg_idle_time:.1f}s")
                     self._last_idle_warning = current_time
 
-                if ffmpeg_idle_time > 30 and not self.is_stopping:
-                    logger.error("FFmpeg idle too long, forcing restart")
+                # Much more conservative restart policy:
+                # - Only restart if idle for more than 5 minutes (300 seconds)
+                # - AND we're not in stopping state
+                # - AND the FFmpeg process appears to be actually broken (not just idle)
+                if ffmpeg_idle_time > 300 and not self.is_stopping:
+                    # Additional check: only restart if FFmpeg process is actually broken
+                    if self.ffmpeg_processor.ffmpeg_process is None or self.ffmpeg_processor.ffmpeg_process.poll() is not None:
+                        logger.error(f"FFmpeg idle for {ffmpeg_idle_time:.1f}s and process is broken, forcing restart")
                     await self.ffmpeg_processor.restart_ffmpeg()
                     # Update timing after restart
                     self.last_ffmpeg_activity = self.ffmpeg_processor.last_ffmpeg_activity
+                else:
+                    # FFmpeg is idle but process is still healthy - this is normal when no audio is coming in
+                    logger.debug(f"FFmpeg idle for {ffmpeg_idle_time:.1f}s but process is healthy - normal idle state")
+
             except asyncio.CancelledError:
                 break
             except Exception as e:

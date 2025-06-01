@@ -179,6 +179,16 @@ export interface AudioAnalysis {
   overall_quality: 'good' | 'fair' | 'poor';
 }
 
+export interface WarmupInfo {
+  models_loaded: boolean;
+  asr_instance: boolean;
+  warmup_file_config: string | null;
+  backend: string;
+  model: string;
+  asr_type: string | null;
+  asr_ready: boolean;
+}
+
 export class AudioInsightAPI {
   private baseUrl: string;
 
@@ -583,5 +593,36 @@ export class AudioInsightAPI {
 
   formatTimestamp(timestamp: number): string {
     return new Date(timestamp * 1000).toLocaleString();
+  }
+
+  // =============================================================================
+  // Warmup Management APIs (for debugging cold start issues)
+  // =============================================================================
+
+  async getWarmupStatus(): Promise<WarmupInfo> {
+    const response = await fetch(`${this.baseUrl}/api/warmup/status`);
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || 'Failed to get warmup status');
+    }
+    
+    return data.warmup_info;
+  }
+
+  async forceWarmup(): Promise<{ message: string; warmup_file: string | null }> {
+    const response = await fetch(`${this.baseUrl}/api/warmup/force`, {
+      method: 'POST',
+    });
+    const data = await response.json();
+    
+    if (!response.ok || data.status === 'error') {
+      throw new Error(data.message || 'Failed to force warmup');
+    }
+    
+    return {
+      message: data.message,
+      warmup_file: data.warmup_file,
+    };
   }
 } 

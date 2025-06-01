@@ -1,28 +1,22 @@
-"""
-AudioInsight LLM Module
-
-This module provides a universal LLM infrastructure for all AI operations in AudioInsight.
-It includes:
-- Universal LLM client for consistent inference
-- Text parsing and correction
-- Transcription summarization
-- Shared utilities and types
-"""
-
 from .base import UniversalLLM
-from .parser import Parser, parse_transcript
-from .summarizer import LLMSummarizer
-from .types import (
+from .config import (
+    LLMConfig,
+    LLMTrigger,
+    ParserConfig,
+    SummarizerConfig,
+    get_llm_trigger,
+    get_parser_config,
+    get_summarizer_config,
+)
+from .parser import (
     BaseStats,
     DisplayParserStats,
-    LLMConfig,
-    LLMResponse,
-    LLMStats,
-    LLMTrigger,
     ParsedTranscript,
-    ParserConfig,
+    Parser,
     ParserStats,
+    parse_transcript,
 )
+from .summarizer import LLMResponse, LLMStats, LLMSummarizer
 from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
@@ -36,6 +30,7 @@ __all__ = [
     "LLMStats",
     "LLMTrigger",
     "ParserConfig",
+    "SummarizerConfig",
     "ParsedTranscript",
     # Statistics classes
     "BaseStats",
@@ -47,6 +42,10 @@ __all__ = [
     "s2hk",
     "truncate_text",
     "LRUCache",
+    # Configuration helpers
+    "get_parser_config",
+    "get_summarizer_config",
+    "get_llm_trigger",
     # Convenience functions
     "parse_transcript",
 ]

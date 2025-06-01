@@ -412,7 +412,7 @@ export default function SettingsPage() {
                     id="llm_new_text_trigger"
                     type="number"
                     min="50"
-                    value={processingParams.llm_new_text_trigger ?? 300}
+                    value={processingParams.llm_new_text_trigger ?? 50}
                     onChange={(e) => updateProcessingParam('llm_new_text_trigger', parseInt(e.target.value))}
                   />
                   <p className="text-xs text-muted-foreground">

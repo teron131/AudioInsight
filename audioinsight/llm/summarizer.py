@@ -1,15 +1,84 @@
-import asyncio
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from langchain.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
 from .base import EventBasedProcessor, UniversalLLM
-from .types import LLMConfig, LLMResponse, LLMStats, LLMTrigger
+from .config import LLMConfig, LLMTrigger
+from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# Type Definitions for LLM Operations
+# =============================================================================
+
+
+class LLMResponse(BaseModel):
+    """Structured response from the LLM inference."""
+
+    summary: str = Field(description="Concise summary of the transcription")
+    key_points: List[str] = Field(default_factory=list, description="Main points discussed")
+
+
+class LLMStats:
+    """Statistics tracking for LLM operations."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        """Reset all statistics."""
+        self.inference_generated = 0
+        self.total_text_processed = 0
+        self.average_inference_time = 0.0
+        self.inference_by_time_interval = 0
+        self.inference_by_new_text = 0
+        self.inference_by_forced = 0
+
+    def record_inference(self, trigger_reason: str, processing_time: float, text_length: int):
+        """Record an inference operation.
+
+        Args:
+            trigger_reason: Reason for triggering the inference
+            processing_time: Time taken to process
+            text_length: Length of text processed
+        """
+        self.inference_generated += 1
+        self.total_text_processed += text_length
+
+        # Update average time
+        prev_avg = self.average_inference_time
+        count = self.inference_generated
+        self.average_inference_time = (prev_avg * (count - 1) + processing_time) / count
+
+        # Track trigger reason statistics
+        if trigger_reason == "time_interval":
+            self.inference_by_time_interval += 1
+        elif trigger_reason == "new_text":
+            self.inference_by_new_text += 1
+        elif trigger_reason == "forced":
+            self.inference_by_forced += 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Get statistics as a dictionary."""
+        return {
+            "inference_generated": self.inference_generated,
+            "total_text_processed": self.total_text_processed,
+            "average_inference_time": self.average_inference_time,
+            "inference_by_time_interval": self.inference_by_time_interval,
+            "inference_by_new_text": self.inference_by_new_text,
+            "inference_by_forced": self.inference_by_forced,
+        }
+
+
+# =============================================================================
+# LLM Summarizer Implementation
+# =============================================================================
 
 
 class LLMSummarizer(EventBasedProcessor):
@@ -33,15 +102,16 @@ class LLMSummarizer(EventBasedProcessor):
             trigger_config: Configuration for when to trigger LLM inference
         """
         # Initialize base class with optimized queue for summarizer and concurrent workers
-        super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=2)  # Increased queue size, reduced cooldown, added concurrency
+        super().__init__(queue_maxsize=150, cooldown_seconds=0.3, max_concurrent_workers=3)  # Further optimized: larger queue, faster cooldown, more workers
 
         self.model_id = model_id
         self.trigger_config = trigger_config or LLMTrigger()
 
-        # Initialize universal LLM client
+        # Initialize universal LLM client with optimized timeout
         llm_config = LLMConfig(
             model_id=model_id,
             api_key=api_key,
+            timeout=20.0,  # Moderate timeout for summarization tasks
         )
         self.llm_client = UniversalLLM(llm_config)
 
@@ -101,9 +171,30 @@ Provide a structured summary with key points. Remember to respond in the same la
         Args:
             item: The trigger reason string
         """
-        trigger_reason = item
-        await self._generate_inference(trigger_reason=trigger_reason)
-        self.update_processing_time()
+        start_time = time.time()
+        monitor = get_performance_monitor()
+
+        try:
+            trigger_reason = item
+            await self._generate_inference(trigger_reason=trigger_reason)
+            self.update_processing_time()
+
+            # Record successful processing
+            processing_time = time.time() - start_time
+            monitor.record_request("summarizer", processing_time)
+
+            # Log performance periodically
+            log_performance_if_needed()
+
+        except Exception as e:
+            # Record error
+            processing_time = time.time() - start_time
+            if "timeout" in str(e).lower():
+                monitor.record_error("summarizer", "timeout")
+            else:
+                monitor.record_error("summarizer", "general")
+            logger.error(f"Summarizer processing failed after {processing_time:.2f}s: {e}")
+            raise
 
     def add_inference_callback(self, callback):
         """Add a callback function to be called when inference is generated.
