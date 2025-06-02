@@ -50,10 +50,10 @@ flowchart LR
     B --> C["🔧 Core Engine<br/>(ASR + Diart)"]  
     C --> D["🧠 LLM Analysis<br/>(Non-Blocking)"]
     
-    A1["Audio Capture<br/>MediaRecorder"] -.-> A
-    B1["server/config<br/>server/handlers<br/>server/websocket<br/>server/utils"] -.-> B
-    C1["LocalAgreement Policy<br/>Specialized Processors"] -.-> C
-    D1["Event-Based Workers<br/>Parser (2x)<br/>Summarizer (2x)"] -.-> D
+    A -.-> A1["Audio Capture<br/>MediaRecorder"]
+    B -.-> B1["server/config<br/>server/handlers<br/>server/websocket<br/>server/utils"]
+    C -.-> C1["LocalAgreement Policy<br/>Specialized Processors"]
+    D -.-> D1["Event-Based Workers<br/>Parser (2x)<br/>Summarizer (2x)"]
 ```
 
 **Four-Layer Non-Blocking Modular Design:**
