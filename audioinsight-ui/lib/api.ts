@@ -194,7 +194,7 @@ export class AudioInsightAPI {
 
   constructor() {
     this.baseUrl = typeof window !== 'undefined' 
-      ? `${window.location.protocol}//${window.location.hostname}:8001`
+      ? `${window.location.protocol}//${window.location.hostname}:8080`
       : '';
   }
 

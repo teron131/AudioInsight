@@ -19,7 +19,7 @@ pip install audioinsight
 # Start transcribing immediately  
 audioinsight-server --model large-v3-turbo
 
-# Open http://localhost:8001 and start speaking! 🎤
+# Open http://localhost:8080 and start speaking! 🎤
 ```
 
 ## 🎯 Why AudioInsight?
@@ -171,7 +171,7 @@ audioinsight-server \
   --fast-llm "openai/gpt-4.1-nano" \
   --base-llm "openai/gpt-4.1-mini" \
   --host 0.0.0.0 \
-  --port 8001
+  --port 8080
 ```
 
 **LLM-Enhanced Processing:**
@@ -192,7 +192,7 @@ audioinsight-server \
 audioinsight-server \
   --ssl-certfile cert.pem \
   --ssl-keyfile key.pem
-# Access via https://localhost:8001
+# Access via https://localhost:8080
 ```
 
 ### Python Integration
@@ -253,7 +253,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 **LLM Integration Example:**
 ```python
-from audioinsight.llm import LLMSummarizer, Parser, UniversalLLM
+from audioinsight.llm import Summarizer, Parser, UniversalLLM
 from audioinsight.llm.types import LLMConfig, LLMTrigger
 import asyncio
 
@@ -275,7 +275,7 @@ async def llm_transcript_analysis():
     )
     
     # Initialize summarizer
-    summarizer = LLMSummarizer(
+    summarizer = Summarizer(
         config=summarizer_config,
         trigger=trigger
     )
@@ -374,7 +374,7 @@ async def upload_file_stream(file: UploadFile):
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--host` | Server bind address | `localhost` |
-| `--port` | Server port | `8001` |
+| `--port` | Server port | `8080` |
 | `--ssl-certfile` | SSL certificate path | `None` |
 | `--ssl-keyfile` | SSL private key path | `None` |
 
@@ -502,13 +502,13 @@ class EventBasedProcessor:
 docker build -t audioinsight .
 
 # Run with GPU support (recommended) and LLM analysis
-docker run --gpus all -p 8001:8001 \
+docker run --gpus all -p 8080:8080 \
   -e OPENAI_API_KEY="your-key" \
   -e GOOGLE_API_KEY="your-key" \
   audioinsight --llm-inference
 
 # CPU-only (slower but compatible)
-docker run -p 8001:8001 \
+docker run -p 8080:8080 \
   -e OPENAI_API_KEY="your-key" \
   audioinsight --llm-inference
 ```
@@ -517,7 +517,7 @@ docker run -p 8001:8001 \
 
 ```bash
 # Custom model and settings with LLM
-docker run --gpus all -p 8001:8001 \
+docker run --gpus all -p 8080:8080 \
   -e OPENAI_API_KEY="your-key" \
   audioinsight \
   --model base \
@@ -551,7 +551,7 @@ server {
     
     # WebSocket support
     location / {
-        proxy_pass http://localhost:8001;
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -645,10 +645,10 @@ docker-compose up -d
 ```python
 # Embed in existing applications with AI analysis
 from audioinsight import AudioInsight
-from audioinsight.llm import LLMSummarizer
+from audioinsight.llm import Summarizer
 
 kit = AudioInsight(model="base", llm_inference=True)
-summarizer = LLMSummarizer()
+summarizer = Summarizer()
 
 # Get enhanced transcription with AI insights
 results = await kit.process_with_analysis(audio_data)
@@ -721,10 +721,10 @@ audioinsight-server --llm-trigger-time 10.0 --llm-conversation-trigger 5
 **WebSocket Connection Issues:**
 ```bash
 # Check firewall settings
-sudo ufw allow 8001
+sudo ufw allow 8080
 
 # Test connection
-curl -I http://localhost:8001
+curl -I http://localhost:8080
 
 # Enable CORS for development
 audioinsight-server --host 0.0.0.0

@@ -42,7 +42,7 @@ class LLMTrigger:
     min_text_length: int = 100  # OPTIMIZATION: Minimum text length before considering triggers
 
 
-class LLMResponse(BaseModel):
+class SummarizerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
     summary: str = Field(description="Concise summary of the transcription")
@@ -82,7 +82,7 @@ class LLM:
         )
 
         # Create structured LLM for inference responses
-        self.structured_llm = self.llm.with_structured_output(LLMResponse, method="function_calling")
+        self.structured_llm = self.llm.with_structured_output(SummarizerResponse, method="function_calling")
 
         # Create prompt template
         self.prompt = ChatPromptTemplate.from_messages(
@@ -348,7 +348,7 @@ Provide a structured summary with key points. Remember to respond in the same la
 
             # Create chain and invoke
             chain = self.prompt | self.structured_llm
-            response: LLMResponse = await asyncio.get_event_loop().run_in_executor(
+            response: SummarizerResponse = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: chain.invoke(
                     {
@@ -427,11 +427,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         finally:
             self.is_generating_inference = False
 
-    def get_last_inference(self) -> Optional[LLMResponse]:
+    def get_last_inference(self) -> Optional[SummarizerResponse]:
         """Get the most recent inference."""
         return self.last_inference
 
-    def get_last_summary(self) -> Optional[LLMResponse]:
+    def get_last_summary(self) -> Optional[SummarizerResponse]:
         """Legacy method for backward compatibility. Use get_last_inference instead."""
         return self.get_last_inference()
 
@@ -439,7 +439,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         """Get inference statistics."""
         return self.stats.copy()
 
-    async def force_inference(self) -> Optional[LLMResponse]:
+    async def force_inference(self) -> Optional[SummarizerResponse]:
         """Force generate a inference of current accumulated text."""
         if not self.accumulated_text.strip():
             return None
@@ -447,6 +447,6 @@ Provide a structured summary with key points. Remember to respond in the same la
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
 
-    async def force_summary(self) -> Optional[LLMResponse]:
+    async def force_summary(self) -> Optional[SummarizerResponse]:
         """Legacy method for backward compatibility. Use force_inference instead."""
         return await self.force_inference()

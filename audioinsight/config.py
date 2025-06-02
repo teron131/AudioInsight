@@ -13,7 +13,7 @@ class ServerConfig(BaseModel):
     """Server configuration settings."""
 
     host: str = Field(default="localhost", description="Server bind address")
-    port: int = Field(default=8001, ge=1, le=65535, description="Server port")
+    port: int = Field(default=8080, ge=1, le=65535, description="Server port")
     ssl_certfile: Optional[str] = Field(default=None, description="SSL certificate file path")
     ssl_keyfile: Optional[str] = Field(default=None, description="SSL private key file path")
 
@@ -161,7 +161,7 @@ class UnifiedConfig(BaseSettings):
 DEFAULT_CONFIG = {
     "server": {
         "host": "localhost",
-        "port": 8001,
+        "port": 8080,
     },
     "model": {
         "model": "large-v3-turbo",

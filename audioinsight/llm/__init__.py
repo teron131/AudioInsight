@@ -16,18 +16,18 @@ from .parser import (
     ParserStats,
     parse_transcript,
 )
-from .summarizer import LLMResponse, LLMStats, LLMSummarizer
+from .summarizer import Summarizer, SummarizerResponse, SummarizerStats
 from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
     # Core classes
     "UniversalLLM",
-    "LLMSummarizer",
+    "Summarizer",
     "Parser",
     # Configuration and types
     "LLMConfig",
-    "LLMResponse",
-    "LLMStats",
+    "SummarizerResponse",
+    "SummarizerStats",
     "LLMTrigger",
     "ParserConfig",
     "SummarizerConfig",

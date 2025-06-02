@@ -77,7 +77,7 @@ export class AudioInsightWebSocket {
     return new Promise((resolve, reject) => {
       try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.hostname}:8001/asr?diarization=${diarizationEnabled}`;
+        const wsUrl = `${protocol}//${window.location.hostname}:8080/asr?diarization=${diarizationEnabled}`;
         
         this.websocket = new WebSocket(wsUrl);
 

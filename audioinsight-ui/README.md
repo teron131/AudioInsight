@@ -55,13 +55,13 @@ npm run dev
 pnpm dev
 ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser
+3. Open [http://localhost:3030](http://localhost:3030) in your browser
 
 ### Backend Setup
 
 Make sure the AudioInsight backend is running on the same host. The UI will automatically connect to:
-- WebSocket: `ws://localhost:8000/asr` (or current host)
-- API: `http://localhost:8000` (or current host)
+- WebSocket: `ws://localhost:8080/asr` (or current host)
+- API: `http://localhost:8080` (or current host)
 
 ## Usage
 
@@ -125,7 +125,7 @@ audioinsight-ui/
 ## Configuration
 
 The UI automatically adapts to the current host and protocol:
-- Development: `ws://localhost:3000/asr`
+- Development: `ws://localhost:3030/asr`
 - Production: Uses current window location
 
 No additional configuration is required for basic usage.
@@ -169,8 +169,8 @@ npm run dev
 ```
 
 This will start:
-- **Frontend**: Next.js development server on http://localhost:3000 (cyan logs)
-- **Backend**: AudioInsight Python server on http://localhost:8001 (magenta logs)
+- **Frontend**: Next.js development server on http://localhost:3030 (cyan logs)
+- **Backend**: AudioInsight Python server on http://localhost:8080 (magenta logs)
 
 Individual commands:
 - `npm run dev:frontend` - Start only the frontend

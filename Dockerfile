@@ -74,7 +74,7 @@ RUN if [ -n "$HF_TKN_FILE" ]; then \
     fi
     
 # Expose port for the transcription server
-EXPOSE 8001
+EXPOSE 8080
 
 ENTRYPOINT ["audioinsight-server", "--host", "0.0.0.0"]
 

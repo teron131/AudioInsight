@@ -104,10 +104,10 @@ def get_summarizer_config() -> SummarizerConfig
 class ParsedTranscript(BaseModel):
     """Structured transcript response."""
     
-class LLMResponse(BaseModel):
+class SummarizerResponse(BaseModel):
     """LLM inference response."""
     
-class LLMStats:
+class SummarizerStats:
     """Statistics tracking for LLM operations."""
 ```
 
@@ -144,7 +144,7 @@ async def update_settings(updates: dict):
 ### **CLI Arguments**
 ```bash
 # Startup-only settings (require restart)
-python -m audioinsight --host 0.0.0.0 --port 8001 --workers 4
+python -m audioinsight --host 0.0.0.0 --port 8080 --workers 4
 
 # Runtime settings (can be changed via API)
 # These are handled through the settings page or API calls

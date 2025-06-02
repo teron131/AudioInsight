@@ -18,14 +18,14 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-class LLMResponse(BaseModel):
+class SummarizerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
     summary: str = Field(description="Concise summary of the transcription")
     key_points: List[str] = Field(default_factory=list, description="Main points discussed")
 
 
-class LLMStats:
+class SummarizerStats:
     """Statistics tracking for LLM operations."""
 
     def __init__(self):
@@ -81,7 +81,7 @@ class LLMStats:
 # =============================================================================
 
 
-class LLMSummarizer(EventBasedProcessor):
+class Summarizer(EventBasedProcessor):
     """
     LLM-based transcription processor that monitors transcription activity
     and generates inference after periods of inactivity or after a certain number of conversations.
@@ -163,7 +163,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.inference_callbacks = []
 
         # Statistics
-        self.stats = LLMStats()
+        self.stats = SummarizerStats()
 
     async def _process_item(self, item: Any):
         """Process a single inference request from the queue.
@@ -308,7 +308,7 @@ Provide a structured summary with key points. Remember to respond in the same la
             duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
 
             # Generate structured response using universal LLM client
-            response: LLMResponse = await self.llm_client.invoke_structured(
+            response: SummarizerResponse = await self.llm_client.invoke_structured(
                 self.prompt,
                 {
                     "transcription": text_to_process,
@@ -316,7 +316,7 @@ Provide a structured summary with key points. Remember to respond in the same la
                     "has_speakers": has_speakers,
                     "num_lines": len(lines),
                 },
-                LLMResponse,
+                SummarizerResponse,
             )
 
             generation_time = time.time() - start_time
@@ -359,11 +359,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
 
-    def get_last_inference(self) -> Optional[LLMResponse]:
+    def get_last_inference(self) -> Optional[SummarizerResponse]:
         """Get the most recent inference."""
         return self.last_inference
 
-    def get_last_summary(self) -> Optional[LLMResponse]:
+    def get_last_summary(self) -> Optional[SummarizerResponse]:
         """Legacy method for backward compatibility. Use get_last_inference instead."""
         return self.get_last_inference()
 
@@ -373,7 +373,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         inference_stats = self.stats.to_dict()
         return {**base_stats, **inference_stats}
 
-    async def force_inference(self) -> Optional[LLMResponse]:
+    async def force_inference(self) -> Optional[SummarizerResponse]:
         """Force generate a inference of current accumulated text."""
         if not self.accumulated_data.strip():
             return None
@@ -382,6 +382,6 @@ Provide a structured summary with key points. Remember to respond in the same la
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
 
-    async def force_summary(self) -> Optional[LLMResponse]:
+    async def force_summary(self) -> Optional[SummarizerResponse]:
         """Legacy method for backward compatibility. Use force_inference instead."""
         return await self.force_inference()

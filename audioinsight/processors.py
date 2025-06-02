@@ -10,7 +10,7 @@ import ffmpeg
 import numpy as np
 import opencc
 
-from .llm import LLMSummarizer, LLMTrigger, ParsedTranscript, Parser, ParserConfig
+from .llm import LLMTrigger, ParsedTranscript, Parser, ParserConfig, Summarizer
 from .logging_config import get_logger
 from .main import AudioInsight
 from .timed_objects import ASRToken
@@ -1058,7 +1058,7 @@ class AudioProcessor:
                     new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 100),
                 )
 
-                self.llm = LLMSummarizer(
+                self.llm = Summarizer(
                     model_id=getattr(self.args, "base_llm", "openai/gpt-4.1-mini"),
                     trigger_config=trigger_config,
                 )

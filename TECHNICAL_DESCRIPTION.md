@@ -23,7 +23,7 @@ AudioInsight's LLM processing layer implements an advanced event-based architect
 - Incremental parsing with sentence-based text splitting
 
 #### **`audioinsight/llm/summarizer.py`** - Concurrent Conversation Analysis
-- `LLMSummarizer`: Intelligent conversation summarization with 2 concurrent workers
+- `Summarizer`: Intelligent conversation summarization with 2 concurrent workers
 - Large queue capacity (100 items) for handling burst processing
 - 0.5-second cooldown for balanced performance and API efficiency
 - Event-triggered analysis based on conversation patterns and idle time
