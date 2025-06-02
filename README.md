@@ -45,59 +45,15 @@ AudioInsight solves the fundamental challenge of real-time speech recognition by
 ### 🏗️ Architecture Overview
 
 ```mermaid
-graph LR
-  UI["Browser UI<br/>(WebSocket)"]
-  Server["FastAPI Server<br/>(Multi-Module)"]
-  Core["Core Engine<br/>(ASR + Diart)"]
-  LLM["LLM Analysis<br/>(Non-Blocking)"]
-
-  UI --> Server
-  Server --> Core
-  Core --> LLM
-
-  subgraph Browser_UI [Browser UI]
-    direction TB
-    UI_Capture["Audio Capture"]
-    UI_MediaRecorder["MediaRecorder"]
-    UI --> UI_Capture
-    UI --> UI_MediaRecorder
-  end
-
-  subgraph FastAPI_Server [FastAPI Server]
-    direction TB
-    SC["server/config"]
-    SH["server/handlers"]
-    SW["server/websocket"]
-    SU["server/utils"]
-    Server --> SC
-    Server --> SH
-    Server --> SW
-    Server --> SU
-  end
-
-  subgraph Core_Engine [Core Engine]
-    direction TB
-    LAP["LocalAgreement Policy"]
-    SP["Specialized Processors"]
-    Core --> LAP
-    Core --> SP
-  end
-
-  subgraph LLM_Analysis [LLM Analysis]
-    direction TB
-    EBW["Event-Based Workers"]
-    FFQ["Fire-and-Forget Queues"]
-    BP["Background Processing"]
-    MWP["Multi-Worker Pipeline"]
-    Parser["Parser (2x)"]
-    Summarizer["Summarizer (2x Workers)"]
-    LLM --> EBW
-    LLM --> FFQ
-    LLM --> BP
-    LLM --> MWP
-    MWP --> Parser
-    MWP --> Summarizer
-  end
+flowchart LR
+    A["🌐 Browser UI<br/>(WebSocket)"] --> B["⚡ FastAPI Server<br/>(Multi-Module)"]
+    B --> C["🔧 Core Engine<br/>(ASR + Diart)"]  
+    C --> D["🧠 LLM Analysis<br/>(Non-Blocking)"]
+    
+    A1["Audio Capture<br/>MediaRecorder"] -.-> A
+    B1["server/config<br/>server/handlers<br/>server/websocket<br/>server/utils"] -.-> B
+    C1["LocalAgreement Policy<br/>Specialized Processors"] -.-> C
+    D1["Event-Based Workers<br/>Parser (2x)<br/>Summarizer (2x)"] -.-> D
 ```
 
 **Four-Layer Non-Blocking Modular Design:**
