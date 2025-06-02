@@ -711,21 +711,33 @@ class TranscriptionProcessor:
                                 text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
 
                                 if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
-                                    # CRITICAL FIX: Make parser request completely non-blocking
-                                    try:
-                                        # Fire and forget - don't await the parser queue
-                                        asyncio.create_task(self._queue_parser_non_blocking(text_to_parse, speaker_info))
-                                        logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
+                                    # OPTIMIZATION: Smart batching to reduce API calls
+                                    # Only parse if we have substantial new content or enough time has passed
+                                    current_time = time()
+                                    time_since_last_parse = current_time - getattr(self, "_last_parse_time", 0)
+                                    min_parse_interval = 2.0  # Minimum 2 seconds between parsing requests
 
-                                        # Update last parsed text to track progress - CRITICAL: Must be BEFORE reset
-                                        self.last_parsed_text = self.accumulated_text_for_parser
+                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval  # Large enough batch  # Enough time passed
 
-                                        # Reset accumulation AFTER tracking what was parsed
-                                        self.accumulated_text_for_parser = ""
-                                    except Exception as e:
-                                        logger.debug(f"Non-critical parser queue error: {e}")
-                                        # Continue accumulating on error
-                                        logger.info(f"⏳ Parser queue error, continuing to accumulate text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+                                    if should_parse_now:
+                                        # CRITICAL FIX: Make parser request completely non-blocking
+                                        try:
+                                            # Fire and forget - don't await the parser queue
+                                            asyncio.create_task(self._queue_parser_non_blocking(text_to_parse, speaker_info))
+                                            logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
+
+                                            # Update last parsed text to track progress - CRITICAL: Must be BEFORE reset
+                                            self.last_parsed_text = self.accumulated_text_for_parser
+                                            self._last_parse_time = current_time
+
+                                            # Reset accumulation AFTER tracking what was parsed
+                                            self.accumulated_text_for_parser = ""
+                                        except Exception as e:
+                                            logger.debug(f"Non-critical parser queue error: {e}")
+                                            # Continue accumulating on error
+                                            logger.info(f"⏳ Parser queue error, continuing to accumulate text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+                                    else:
+                                        logger.debug(f"⏳ Delaying parse - batch size: {len(text_to_parse)}, time since last: {time_since_last_parse:.1f}s")
                                 else:
                                     logger.info("⚠️ No new text to parse, skipping this update")
                                     self.accumulated_text_for_parser = ""
@@ -1001,6 +1013,9 @@ class AudioProcessor:
     Manages shared state and coordinates specialized processors.
     """
 
+    # Class-level warm component cache to share across instances
+    _warm_components = {"whisper_loaded": False, "llm_clients_warmed": False, "workers_prestarted": False}
+
     def __init__(self):
         """Initialize the audio processor with configuration, models, and state."""
 
@@ -1069,9 +1084,16 @@ class AudioProcessor:
         self.min_text_threshold = 100  # Variable: parse all if text < this many chars
         self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
 
+        # OPTIMIZATION: Pre-initialize LLM components for faster first connection
+        self._initialize_llm_components()
+
+        logger.info("🔧 AudioProcessor initialized - components will be created on demand")
+
+    def _initialize_llm_components(self):
+        """Pre-initialize LLM components to reduce first-connection latency."""
         # Initialize LLM if enabled in features
         if getattr(self.args, "llm_inference", False):
-            logger.info("🔧 Creating LLM processor on initialization")
+            logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
                     summary_interval_seconds=getattr(self.args, "llm_summary_interval", 1.0),
@@ -1083,21 +1105,80 @@ class AudioProcessor:
                     trigger_config=trigger_config,
                 )
                 self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference initialized with model: {getattr(self.args, 'base_llm', 'openai/gpt-4.1-mini')}")
+                logger.info(f"LLM inference pre-initialized with model: {getattr(self.args, 'base_llm', 'openai/gpt-4.1-mini')}")
             except Exception as e:
-                logger.warning(f"Failed to initialize LLM inference processor: {e}")
+                logger.warning(f"Failed to pre-initialize LLM inference processor: {e}")
                 self.llm = None
 
         # Initialize transcript parser
         try:
             parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0))
             self.transcript_parser = Parser(config=parser_config)
-            logger.info(f"Transcript parser initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s")
+            logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s")
         except Exception as e:
-            logger.warning(f"Failed to initialize transcript parser: {e}")
+            logger.warning(f"Failed to pre-initialize transcript parser: {e}")
             self.transcript_parser = None
 
-        logger.info("🔧 AudioProcessor initialized - components will be created on demand")
+    @classmethod
+    async def warm_up_system(cls):
+        """Class method to warm up shared system components for faster instance creation."""
+        if cls._warm_components["whisper_loaded"]:
+            return  # Already warmed up
+
+        logger.info("🔥 Starting system warm-up to reduce latency...")
+        start_time = time()
+
+        try:
+            # Pre-load Whisper model if not already loaded
+            if not cls._warm_components["whisper_loaded"]:
+                models = AudioInsight()
+                if hasattr(models, "asr") and models.asr:
+                    logger.info("✅ Whisper model already loaded during system startup")
+                cls._warm_components["whisper_loaded"] = True
+
+            # Pre-warm LLM clients for faster first requests
+            if not cls._warm_components["llm_clients_warmed"]:
+                await cls._warm_llm_clients()
+                cls._warm_components["llm_clients_warmed"] = True
+
+            warm_time = time() - start_time
+            logger.info(f"🔥 System warm-up completed in {warm_time:.2f}s")
+
+        except Exception as e:
+            logger.warning(f"System warm-up failed: {e}")
+
+    @classmethod
+    async def _warm_llm_clients(cls):
+        """Pre-warm LLM clients with dummy requests for faster first real requests."""
+        try:
+            # Import here to avoid circular imports
+            from .llm.base import UniversalLLM
+            from .llm.config import LLMConfig
+
+            # Warm up both fast and base LLM models
+            models_to_warm = ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]  # Fast model for parsing  # Base model for summarization
+
+            for model_id in models_to_warm:
+                try:
+                    llm_config = LLMConfig(model_id=model_id, timeout=5.0)
+                    llm = UniversalLLM(llm_config)
+
+                    # Make a minimal warm-up request to establish connection
+                    from langchain.prompts import ChatPromptTemplate
+
+                    warm_prompt = ChatPromptTemplate.from_messages([("human", "Hi")])
+
+                    # Use asyncio.wait_for with timeout to avoid hanging
+                    await asyncio.wait_for(llm.invoke_text(warm_prompt, {}), timeout=3.0)
+                    logger.info(f"✅ Pre-warmed LLM client: {model_id}")
+
+                except asyncio.TimeoutError:
+                    logger.debug(f"LLM warm-up timeout for {model_id} (non-critical)")
+                except Exception as e:
+                    logger.debug(f"LLM warm-up failed for {model_id}: {e} (non-critical)")
+
+        except Exception as e:
+            logger.debug(f"LLM client warm-up failed: {e} (non-critical)")
 
     async def update_transcription(self, new_tokens, buffer, end_buffer, full_transcription, sep):
         """Thread-safe update of transcription with new data."""
@@ -1364,11 +1445,86 @@ class AudioProcessor:
                     if self.args.diarization and self.diarization_task and not self.diarization_task.done():
                         all_processors_done = False
 
+                    logger.info(f"🚨 DEBUG: is_stopping={self.is_stopping}, all_processors_done={all_processors_done}")
+                    if self.args.transcription:
+                        logger.info(f"🚨 DEBUG: transcription_task exists={self.transcription_task is not None}, done={self.transcription_task.done() if self.transcription_task else 'N/A'}")
+                    if self.args.diarization:
+                        logger.info(f"🚨 DEBUG: diarization_task exists={self.diarization_task is not None}, done={self.diarization_task.done() if self.diarization_task else 'N/A'}")
+
                     if all_processors_done:
                         logger.info("Results formatter: All upstream processors are done and in stopping state. Terminating.")
 
-                        # Get final state and create final response
+                        # COMPREHENSIVE FINAL PROCESSING - Check all buffer sources
+                        logger.info("🔄 Comprehensive final processing - checking all buffer sources...")
+                        logger.info("🚨 DEBUG: Starting comprehensive final processing section")
+
+                        # Get current final state
                         final_state = await self.get_current_state()
+
+                        # First check for any current buffer text that hasn't been processed
+                        current_buffer_text = final_state.get("buffer_transcription", "")
+                        if current_buffer_text and current_buffer_text.strip():
+                            logger.info(f"🔄 Found current buffer text: '{current_buffer_text[:50]}...'")
+
+                        # Force finish the ASR to get any remaining tokens
+                        final_transcript_from_asr = None
+                        if self.transcription_processor and self.transcription_processor.online:
+                            try:
+                                final_transcript_from_asr = self.transcription_processor.online.finish()
+                                if final_transcript_from_asr and final_transcript_from_asr.text and final_transcript_from_asr.text.strip():
+                                    logger.info(f"✅ Retrieved final transcript from ASR finish(): '{final_transcript_from_asr.text[:50]}...'")
+                                else:
+                                    logger.info("🔄 No additional content from ASR finish()")
+                            except Exception as e:
+                                logger.warning(f"Failed to finish ASR: {e}")
+
+                        # Collect any accumulated parser text
+                        accumulated_parser_text = ""
+                        if self.transcription_processor and hasattr(self.transcription_processor, "accumulated_text_for_parser"):
+                            accumulated_parser_text = self.transcription_processor.accumulated_text_for_parser
+                            if accumulated_parser_text and accumulated_parser_text.strip():
+                                logger.info(f"🔄 Added accumulated parser text: '{accumulated_parser_text[:50]}...'")
+
+                        # Create additional tokens from remaining content
+                        additional_tokens_created = 0
+                        if final_transcript_from_asr and final_transcript_from_asr.text:
+                            # Create a token from the remaining ASR content
+                            final_token = ASRToken(start=final_transcript_from_asr.start or (final_state["tokens"][-1].end if final_state["tokens"] else 0), end=final_transcript_from_asr.end or (final_transcript_from_asr.start + 5.0 if final_transcript_from_asr.start else 5.0), text=final_transcript_from_asr.text, speaker=0)  # Default speaker
+
+                            # Add to tokens list
+                            async with self.lock:
+                                self.tokens.append(final_token)
+                                additional_tokens_created += 1
+                                logger.info(f"🔄 Created final token ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
+
+                        # Handle accumulated parser text separately if it exists
+                        if accumulated_parser_text and accumulated_parser_text.strip():
+                            # Create token for accumulated parser text
+                            last_end = final_state["tokens"][-1].end if final_state["tokens"] else 0
+                            parser_token = ASRToken(start=last_end, end=last_end + 5.0, text=accumulated_parser_text, speaker=0)  # Estimated duration  # Default speaker
+
+                            async with self.lock:
+                                self.tokens.append(parser_token)
+                                additional_tokens_created += 1
+                                logger.info(f"🔄 Created final token ({parser_token.start:.1f}s-{parser_token.end:.1f}s): '{parser_token.text[:50]}...'")
+
+                        if additional_tokens_created > 0:
+                            logger.info(f"🔄 Added {additional_tokens_created} final tokens to committed transcript")
+
+                            # Update full transcription with any new content
+                            async with self.lock:
+                                if hasattr(self, "full_transcription"):
+                                    # Calculate new full transcription from all tokens
+                                    all_token_texts = [token.text for token in self.tokens if token.text and token.text.strip()]
+                                    self.full_transcription = (final_state.get("sep", " ") or " ").join(all_token_texts)
+                                    logger.info(f"🔄 Updated full transcription (now {len(self.full_transcription)} chars)")
+
+                        # Process any remaining accumulated parser text for final parsing
+                        if accumulated_parser_text and accumulated_parser_text.strip():
+                            logger.info(f"🔄 Processing accumulated parser text: '{accumulated_parser_text[:50]}...'")
+                            # Add as final token for parsing
+                            final_combined_text = accumulated_parser_text
+                            logger.info(f"🔄 Added accumulated text as final token: '{final_combined_text[:50]}...'")
 
                         # Force commit any remaining buffer text for final processing
                         final_buffer_text = final_state["buffer_transcription"]
@@ -1388,8 +1544,17 @@ class AudioProcessor:
                         async with self.lock:
                             summaries_count = len(getattr(self, "summaries", []))
 
+                        logger.info(f"🚨 DEBUG: About to check final summary generation, summaries_count={summaries_count}")
+
                         # Always generate a final comprehensive summary from the complete transcript
                         # This ensures we have a summary of the entire conversation, not just fragments
+                        logger.info(f"🔍 Checking final summary generation conditions...")
+                        logger.info(f"🔍 self.llm exists: {self.llm is not None}")
+                        if self.llm:
+                            accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
+                            logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
+                            logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
+
                         if self.llm and self.llm.accumulated_data.strip():
                             if summaries_count == 0:
                                 logger.info("🔄 Generating final inference (no summaries created during processing)...")
@@ -1428,6 +1593,42 @@ class AudioProcessor:
                                 if waited_time >= max_wait_time:
                                     logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
                                     break
+                        else:
+                            logger.warning("❌ Final summary NOT generated - LLM accumulated_data is empty or LLM not available")
+                            logger.info(f"   - LLM exists: {self.llm is not None}")
+                            if self.llm:
+                                logger.info(f"   - Accumulated data length: {len(self.llm.accumulated_data) if hasattr(self.llm, 'accumulated_data') else 'N/A'}")
+                                logger.info(f"   - Full transcription length: {len(self.full_transcription) if hasattr(self, 'full_transcription') else 'N/A'}")
+                                # Try to force populate the LLM with the full transcription
+                                if hasattr(self, "full_transcription") and self.full_transcription.strip():
+                                    logger.info("🔧 Attempting to populate LLM with full transcription for final summary...")
+                                    self.llm.update_transcription(self.full_transcription, None)
+                                    logger.info(f"🔧 LLM now has {len(self.llm.accumulated_data)} chars of accumulated data")
+                                    # Try again to generate summary
+                                    if self.llm.accumulated_data.strip():
+                                        logger.info("🔄 Generating final summary after populating LLM data...")
+                                        await self.llm.force_inference()
+                                        # Wait for summary
+                                        max_wait_time = 10.0
+                                        poll_interval = 0.5
+                                        waited_time = 0.0
+                                        initial_summary_count = summaries_count
+
+                                        while waited_time < max_wait_time:
+                                            await asyncio.sleep(poll_interval)
+                                            waited_time += poll_interval
+
+                                            # Check if new summary was added
+                                            async with self.lock:
+                                                current_summary_count = len(getattr(self, "summaries", []))
+
+                                            if current_summary_count > initial_summary_count:
+                                                logger.info(f"✅ Final summary added after forced population in {waited_time:.1f}s")
+                                                break
+
+                                            if waited_time >= max_wait_time:
+                                                logger.warning(f"⚠️ Final summary still not added after forced population - waited {max_wait_time}s")
+                                                break
 
                         # Get updated final state after inference processing
                         final_state = await self.get_current_state()
@@ -1472,6 +1673,9 @@ class AudioProcessor:
 
     async def create_tasks(self):
         """Create async tasks for audio processing and result formatting."""
+        # OPTIMIZATION: Track task creation timing for performance monitoring
+        task_creation_start = time()
+
         self.all_tasks_for_cleanup = []  # Reset task list
         processing_tasks_for_watchdog = []
 
@@ -1491,14 +1695,19 @@ class AudioProcessor:
             if not self.transcription_queue:
                 self.transcription_queue = asyncio.Queue()
 
-            # Start parser worker if enabled
+            # OPTIMIZATION: Start parser workers in parallel with other tasks
+            parser_start_task = None
             if self.transcript_parser:
-                await self.transcription_processor.start_parser_worker()
+                parser_start_task = asyncio.create_task(self.transcription_processor.start_parser_worker())
 
             # FIXED: Now self.llm is properly initialized before creating transcription task
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
             self.all_tasks_for_cleanup.append(self.transcription_task)
             processing_tasks_for_watchdog.append(self.transcription_task)
+
+            # Wait for parser to start if it was created
+            if parser_start_task:
+                await parser_start_task
 
         # Initialize diarization components if needed
         if self.args.diarization:
@@ -1519,18 +1728,19 @@ class AudioProcessor:
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
 
         # Start LLM inference processor monitoring if enabled - AFTER initialization
+        llm_start_task = None
         if self.llm:
-            self.llm_task = asyncio.create_task(self.llm.start_monitoring())
-            self.all_tasks_for_cleanup.append(self.llm_task)
+            llm_start_task = asyncio.create_task(self.llm.start_monitoring())
+            self.all_tasks_for_cleanup.append(llm_start_task)
             logger.info("LLM inference processor monitoring task started")
-
-            # DISABLED: Scale up workers after initial startup for better performance
-            # This was causing delays in real-time processing
-            # asyncio.create_task(self._scale_up_workers_after_startup())
 
         # Monitor overall system health
         self.watchdog_task = asyncio.create_task(self.watchdog(processing_tasks_for_watchdog))
         self.all_tasks_for_cleanup.append(self.watchdog_task)
+
+        # OPTIMIZATION: Track total task creation time
+        task_creation_time = time() - task_creation_start
+        logger.info(f"⚡ All processing tasks created in {task_creation_time:.3f}s")
 
         return self.results_formatter()
 

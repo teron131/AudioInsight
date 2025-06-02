@@ -27,7 +27,7 @@ class LLMTrigger(BaseModel):
     max_text_length: int = Field(default=2000000, gt=10000, le=8000000, description="Maximum text length for memory management")
     min_text_length: int = Field(default=100, gt=0, le=1000, description="Minimum text length before considering triggers")
     summary_interval_seconds: float = Field(default=1.0, gt=0, le=300, description="Minimum time between summaries")
-    new_text_trigger_chars: int = Field(default=300, gt=10, le=5000, description="Characters of new text to trigger summary")
+    new_text_trigger_chars: int = Field(default=50, gt=10, le=5000, description="Characters of new text to trigger summary")
 
 
 class ParserConfig(BaseModel):

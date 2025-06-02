@@ -70,21 +70,24 @@ class EventBasedProcessor(ABC):
         self.last_processed_data = ""
 
     async def start_worker(self):
-        """Start the worker task for processing with staggered startup to reduce bottlenecks."""
+        """Start the worker task for processing with parallel startup to reduce bottlenecks."""
         if self.worker_tasks == [] and not self.is_running:
             self.is_running = True
 
-            # Start workers gradually to reduce initialization bottleneck
+            # Start all workers in parallel for faster initialization
             self.worker_tasks = []
+            worker_tasks_creation = []
+
             for i in range(self.max_concurrent_workers):
+                # Create worker tasks in parallel - don't await each one
                 worker_task = asyncio.create_task(self._worker())
                 self.worker_tasks.append(worker_task)
+                worker_tasks_creation.append(worker_task)
 
-                # Small delay between worker creations to stagger initialization load
-                if i < self.max_concurrent_workers - 1:  # Don't delay after the last worker
-                    await asyncio.sleep(0.01)  # 10ms delay between workers
+            # Small delay to allow workers to start up properly
+            await asyncio.sleep(0.01)
 
-            logger.info(f"{self.__class__.__name__} workers started")
+            logger.info(f"{self.__class__.__name__} {len(self.worker_tasks)} workers started in parallel")
 
     async def stop_worker(self):
         """Stop the worker task."""

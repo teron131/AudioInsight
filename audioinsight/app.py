@@ -1237,3 +1237,20 @@ async def force_warmup():
     except Exception as e:
         logger.error(f"Error forcing warmup: {e}")
         return {"status": "error", "message": f"Error forcing warmup: {str(e)}"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application on startup."""
+    logger.info("🚀 AudioInsight starting up...")
+
+    # Start system warm-up for faster first connections
+    try:
+        from .processors import AudioProcessor
+
+        await AudioProcessor.warm_up_system()
+        logger.info("✅ System warm-up completed - reduced first-connection latency")
+    except Exception as e:
+        logger.warning(f"System warm-up failed (non-critical): {e}")
+
+    logger.info("✅ AudioInsight startup completed")

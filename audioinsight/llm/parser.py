@@ -136,8 +136,8 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # Initialize base class with reduced initial workers for faster startup
-        super().__init__(queue_maxsize=75, cooldown_seconds=0.05, max_concurrent_workers=2)  # Reduced from 4 to 2 workers for faster startup
+        # Initialize base class with optimized worker configuration for better throughput
+        super().__init__(queue_maxsize=100, cooldown_seconds=0.02, max_concurrent_workers=3)  # Increased from 75 to handle more concurrent requests  # Reduced from 0.05 for faster response  # Increased from 2 to 3 workers for better parallel processing
 
         self.config = config or ParserConfig(model_id=model_id)
         self.api_key = api_key  # Store for lazy initialization

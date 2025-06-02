@@ -101,8 +101,8 @@ class Summarizer(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """
-        # Initialize base class with reduced initial workers for faster startup
-        super().__init__(queue_maxsize=150, cooldown_seconds=0.3, max_concurrent_workers=2)  # Reduced from 3 to 2 workers for faster startup
+        # Initialize base class with optimized worker configuration for better throughput
+        super().__init__(queue_maxsize=200, cooldown_seconds=0.1, max_concurrent_workers=3)  # Increased from 150 to handle more concurrent requests  # Reduced from 0.3 for faster response  # Increased from 2 to 3 workers for better parallel processing
 
         self.model_id = model_id
         self.api_key = api_key  # Store for lazy initialization
