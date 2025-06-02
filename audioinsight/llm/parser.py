@@ -136,38 +136,48 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # Initialize base class with optimized queue for parser and concurrent workers
-        super().__init__(queue_maxsize=75, cooldown_seconds=0.05, max_concurrent_workers=4)  # Further optimized: larger queue, faster cooldown, more workers
+        # Initialize base class with reduced initial workers for faster startup
+        super().__init__(queue_maxsize=75, cooldown_seconds=0.05, max_concurrent_workers=2)  # Reduced from 4 to 2 workers for faster startup
 
         self.config = config or ParserConfig(model_id=model_id)
+        self.api_key = api_key  # Store for lazy initialization
 
-        # Create LLM config from text parser config with optimized timeout
-        llm_config = LLMConfig(
-            model_id=self.config.model_id,
-            api_key=api_key,
-            timeout=12.0,  # Reduced timeout for faster failure detection
-        )
+        # Lazy initialization - only create when first needed
+        self._llm_client = None
+        self._prompt = None
 
-        self.llm_client = UniversalLLM(llm_config)
+        # Statistics using the new standardized class - lightweight initialization
+        self.stats = ParserStats()
 
-        # Create prompt template for text parsing
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """Refine a sequence of piecemeal subtitle derived from transcription.
+    @property
+    def llm_client(self) -> UniversalLLM:
+        """Lazy initialization of LLM client to speed up startup."""
+        if self._llm_client is None:
+            llm_config = LLMConfig(model_id=self.config.model_id, api_key=self.api_key, timeout=12.0)
+            self._llm_client = UniversalLLM(llm_config)
+            logger.debug(f"Lazy-initialized LLM client for model: {self.config.model_id}")
+        return self._llm_client
+
+    @property
+    def prompt(self) -> ChatPromptTemplate:
+        """Lazy initialization of prompt template to speed up startup."""
+        if self._prompt is None:
+            self._prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        """Refine a sequence of piecemeal subtitle derived from transcription.
 - Make minimal contextual changes.
 - Only fix typos if you are highly confident.
 - Add punctuation appropriately.
 
 IMPORTANT: Always respond in the same language and script as the input text.""",
-                ),
-                ("human", "{text}"),
-            ]
-        )
-
-        # Statistics using the new standardized class
-        self.stats = ParserStats()
+                    ),
+                    ("human", "{text}"),
+                ]
+            )
+            logger.debug("Lazy-initialized prompt template for parser")
+        return self._prompt
 
     async def _process_item(self, item: Tuple[str, Optional[List[Dict]], Optional[Dict[str, float]]]):
         """Process a single parsing request from the queue.

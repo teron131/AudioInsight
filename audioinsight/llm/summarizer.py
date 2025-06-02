@@ -101,26 +101,43 @@ class Summarizer(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """
-        # Initialize base class with optimized queue for summarizer and concurrent workers
-        super().__init__(queue_maxsize=150, cooldown_seconds=0.3, max_concurrent_workers=3)  # Further optimized: larger queue, faster cooldown, more workers
+        # Initialize base class with reduced initial workers for faster startup
+        super().__init__(queue_maxsize=150, cooldown_seconds=0.3, max_concurrent_workers=2)  # Reduced from 3 to 2 workers for faster startup
 
         self.model_id = model_id
+        self.api_key = api_key  # Store for lazy initialization
         self.trigger_config = trigger_config or LLMTrigger()
 
-        # Initialize universal LLM client with optimized timeout
-        llm_config = LLMConfig(
-            model_id=model_id,
-            api_key=api_key,
-            timeout=20.0,  # Moderate timeout for summarization tasks
-        )
-        self.llm_client = UniversalLLM(llm_config)
+        # Lazy initialization - only create when first needed
+        self._llm_client = None
+        self._prompt = None
 
-        # Create prompt template
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """You are an expert at summarizing transcriptions from speech-to-text systems.
+        # State tracking (use inherited accumulated_data from base class)
+        self.text_length_at_last_summary = 0  # Track text length at last summary for new text trigger
+        self.last_inference = None
+        self.inference_callbacks = []
+
+        # Statistics - lightweight initialization
+        self.stats = SummarizerStats()
+
+    @property
+    def llm_client(self) -> UniversalLLM:
+        """Lazy initialization of LLM client to speed up startup."""
+        if self._llm_client is None:
+            llm_config = LLMConfig(model_id=self.model_id, api_key=self.api_key, timeout=20.0)
+            self._llm_client = UniversalLLM(llm_config)
+            logger.debug(f"Lazy-initialized LLM client for model: {self.model_id}")
+        return self._llm_client
+
+    @property
+    def prompt(self) -> ChatPromptTemplate:
+        """Lazy initialization of prompt template to speed up startup."""
+        if self._prompt is None:
+            self._prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        """You are an expert at summarizing transcriptions from speech-to-text systems.
             
 Your task is to analyze the transcription and provide:
 1. A concise summary of what was discussed
@@ -139,10 +156,10 @@ IMPORTANT: Always respond in the same language and script as the transcription.
 - If the transcription is in French, respond in French. 
 - If it's in English, respond in English. 
 - Match the exact language, script, and regional conventions of the input content.""",
-                ),
-                (
-                    "human",
-                    """Please summarize this transcription:
+                    ),
+                    (
+                        "human",
+                        """Please summarize this transcription:
 
 Transcription:
 {transcription}
@@ -153,17 +170,11 @@ Additional context:
 - Number of lines: {num_lines}
 
 Provide a structured summary with key points. Remember to respond in the same language, script, and regional conventions as the transcription above.""",
-                ),
-            ]
-        )
-
-        # State tracking (use inherited accumulated_data from base class)
-        self.text_length_at_last_summary = 0  # Track text length at last summary for new text trigger
-        self.last_inference = None
-        self.inference_callbacks = []
-
-        # Statistics
-        self.stats = SummarizerStats()
+                    ),
+                ]
+            )
+            logger.debug("Lazy-initialized prompt template")
+        return self._prompt
 
     async def _process_item(self, item: Any):
         """Process a single inference request from the queue.
@@ -209,7 +220,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         self.add_inference_callback(callback)
 
     def update_transcription(self, new_text: str, speaker_info: Optional[Dict] = None):
-        """Update with new transcription text.
+        """Update with new transcription text - COMPLETELY NON-BLOCKING.
 
         Args:
             new_text: New transcription text to add
@@ -218,24 +229,37 @@ Provide a structured summary with key points. Remember to respond in the same la
         if not new_text.strip():
             return
 
-        # Add to accumulated text with speaker info if available
-        if speaker_info and "speaker" in speaker_info:
-            formatted_text = f"[Speaker {speaker_info['speaker']}]: {new_text}"
-        else:
-            formatted_text = new_text
+        try:
+            # Add to accumulated text with speaker info if available
+            if speaker_info and "speaker" in speaker_info:
+                formatted_text = f"[Speaker {speaker_info['speaker']}]: {new_text}"
+            else:
+                formatted_text = new_text
 
-        if self.accumulated_data:
-            self.accumulated_data += " " + formatted_text
-        else:
-            self.accumulated_data = formatted_text
+            if self.accumulated_data:
+                self.accumulated_data += " " + formatted_text
+            else:
+                self.accumulated_data = formatted_text
 
-        logger.debug(f"Updated transcription: {len(self.accumulated_data)} chars total")
+            logger.debug(f"Updated transcription: {len(self.accumulated_data)} chars total")
 
-        # Check if we should trigger inference
-        self._check_inference_triggers()
+            # CRITICAL: Defer inference checking to avoid blocking transcription
+            # Schedule inference check for next event loop iteration
+            try:
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                loop.call_soon(self._check_inference_triggers)
+            except Exception:
+                # If we can't schedule, just skip inference checking to avoid blocking
+                pass
+
+        except Exception as e:
+            # Never let transcription updates fail or block
+            logger.debug(f"Non-critical transcription update error: {e}")
 
     def _check_inference_triggers(self):
-        """Check if conditions are met for inference and queue request if needed."""
+        """Check if conditions are met for inference and queue request if needed - NON-BLOCKING."""
         if not self.accumulated_data.strip():
             return
 
@@ -258,9 +282,13 @@ Provide a structured summary with key points. Remember to respond in the same la
         if has_enough_new_text or has_been_long_enough:
             trigger_reason = "new_text" if has_enough_new_text else "time_interval"
 
-            # Use base class method to queue for processing
-            if self.queue_for_processing(trigger_reason):
-                logger.debug(f"Queued inference request: {trigger_reason}")
+            # Use base class method to queue for processing - NON-BLOCKING
+            try:
+                if self.queue_for_processing(trigger_reason):
+                    logger.debug(f"Queued inference request: {trigger_reason}")
+            except Exception as e:
+                # Don't let inference errors block transcription
+                logger.debug(f"Non-critical inference queue error: {e}")
 
     async def start_monitoring(self):
         """Start monitoring for inference triggers."""

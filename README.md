@@ -45,26 +45,76 @@ AudioInsight solves the fundamental challenge of real-time speech recognition by
 ### 🏗️ Architecture Overview
 
 ```mermaid
-flowchart LR
-    A["🌐 Browser UI<br/>(WebSocket)"] --> B["⚡ FastAPI Server<br/>(Multi-Module)"]
-    B --> C["🔧 Core Engine<br/>(ASR + Diart)"]  
-    C --> D["🧠 LLM Analysis<br/>(Non-Blocking)"]
-    
-    A -.-> A1["Audio Capture<br/>MediaRecorder"]
-    B -.-> B1["server/config<br/>server/handlers<br/>server/websocket<br/>server/utils"]
-    C -.-> C1["LocalAgreement Policy<br/>Specialized Processors"]
-    D -.-> D1["Event-Based Workers<br/>Parser (2x)<br/>Summarizer (2x)"]
+flowchart TD
+    subgraph Client["<b>🌐 CLIENT LAYER</b>"]
+        direction LR
+        Browser["🖥️ Browser UI<br/>WebSocket + File Upload"]
+        Audio["🎙️ Audio Capture<br/>MediaRecorder API"]
+    end
+
+    subgraph Server["<b>⚡ FASTAPI SERVER LAYER</b>"]
+        direction LR
+        WS["🔄 WebSocket Handler<br/>Real-time Processing"]
+        Files["📁 File Handler<br/>Upload & Streaming"]
+    end
+
+    subgraph Core["<b>🔧 CORE PROCESSING LAYER</b>"]
+        direction LR
+        ASR["🗣️ Whisper ASR<br/>LocalAgreement Streaming"]
+        Diarization["👥 Speaker Diarization<br/>Real-time Identification"]
+    end
+
+    subgraph LLM["<b>🧠 NON-BLOCKING LLM LAYER</b>"]
+        direction TB
+        Queue["🔄 Fire-and-Forget Queues<br/>Zero Transcription Lag"]
+        subgraph Workers["<b>Parallel Workers</b>"]
+            direction LR
+            Parser["📝 Text Parser<br/>⚡ 2 Workers"]
+            Summarizer["📊 Conversation Analysis<br/>⚡ 2 Workers"]
+        end
+    end
+
+    %% Main processing flow (solid arrows)
+    Browser --> WS
+    Audio --> WS
+    Files --> WS
+    WS --> ASR
+    ASR --> Diarization
+
+    %% Non-blocking LLM flow (dashed arrows)
+    ASR -.-> Queue
+    Diarization -.-> Queue
+    Queue --> Workers
+
+    %% Output flow
+    ASR --> WS
+    Diarization --> WS
+    Workers -.-> WS
+    WS --> Browser
+
+    %% Meaningful color categorization
+    classDef frontend fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#01579B
+    classDef communication fill:#E8F5E8,stroke:#4CAF50,stroke-width:2px,color:#1B5E20
+    classDef processing fill:#FFF3E0,stroke:#FF9800,stroke-width:2px,color:#E65100
+    classDef intelligence fill:#F3E5F5,stroke:#9C27B0,stroke-width:2px,color:#4A148C
+    classDef infrastructure fill:#F5F5F5,stroke:#757575,stroke-width:2px,color:#212121
+
+    %% Apply colors by function
+    class Browser,Audio frontend
+    class WS,Files communication
+    class ASR,Diarization processing
+    class Parser,Summarizer intelligence
+    class Queue,Workers infrastructure
+    class LLM background_llm
 ```
 
-**Four-Layer Non-Blocking Modular Design:**
-- **Frontend**: HTML5/JavaScript interface with WebSocket streaming and file upload
-- **Server**: Modular FastAPI architecture with specialized components:
-  - **Configuration Management** (`server/config.py`): CORS, audio validation, processing settings
-  - **File Handlers** (`server/file_handlers.py`): Upload processing, SSE streaming, unified pipeline
-  - **WebSocket Management** (`server/websocket_handlers.py`): Connection lifecycle, real-time processing
-  - **Utilities** (`server/utils.py`): Audio processing, FFmpeg integration, streaming simulation
-- **Core**: Advanced streaming algorithms with modular processors and speaker diarization
-- **LLM Layer**: **Non-Blocking Event-Based Processing** with fire-and-forget queues, deferred execution, and truly parallel worker architecture for zero transcription lag
+**🎯 Key Architecture Principles:**
+
+🔄 **Non-Blocking Design**: LLM processing runs in parallel without affecting real-time transcription  
+⚡ **Zero-Lag Streaming**: Words appear instantly as spoken with LocalAgreement algorithms  
+🧠 **Intelligent Background Analysis**: 4 concurrent workers (2 parsers + 2 summarizers) enhance transcripts  
+🌐 **Unified Processing**: Same engine handles live audio and file uploads seamlessly  
+🎙️ **Multi-Speaker Aware**: Real-time speaker identification integrated with transcription flow
 
 ---
 

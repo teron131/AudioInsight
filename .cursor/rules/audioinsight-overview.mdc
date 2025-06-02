@@ -6,7 +6,7 @@ alwaysApply: true
 # AudioInsight Project Overview
 
 ## Project Description
-AudioInsight is a comprehensive audio processing platform that provides real-time transcription, speaker diarization, and intelligent analysis of audio content. The project combines advanced AI models with a modern web interface for seamless audio processing workflows.
+AudioInsight is a comprehensive audio processing platform that provides real-time transcription, speaker diarization, and intelligent analysis of audio content. The project combines advanced AI models with a modern web interface for seamless audio processing workflows featuring non-blocking concurrent LLM analysis that never interrupts real-time transcription.
 
 ## Key Components
 
@@ -18,13 +18,13 @@ The core backend is located in the `audioinsight/` package:
 - **Audio Processing**: Core audio processing logic and Whisper integration
 - **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation
 - **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing
-- **LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Language model features
+- **Non-Blocking LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Fire-and-forget language model features
 
 ### Frontend (Next.js/React)
 The web interface is located in `audioinsight-ui/`:
 
 - Modern React-based UI for audio upload and processing
-- Real-time progress tracking and results display
+- Real-time progress tracking and results display with 20 FPS smooth updates
 - Integration with backend via REST APIs and WebSockets
 
 ### Infrastructure
@@ -39,6 +39,7 @@ The web interface is located in `audioinsight-ui/`:
 - Whisper-based speech-to-text
 - Multiple model sizes for accuracy vs speed tradeoffs
 - Support for multiple audio formats
+- Zero-lag real-time output with 20 FPS UI updates
 
 ### Speaker Diarization
 - Automatic speaker identification
@@ -47,8 +48,15 @@ The web interface is located in `audioinsight-ui/`:
 
 ### Real-time Processing
 - Streaming audio processing
-- WebSocket-based live updates
+- WebSocket-based live updates with 0.05s intervals
 - Progressive result delivery
+- Non-blocking background LLM analysis
+
+### LLM-Powered Analysis (Non-Blocking)
+- Fire-and-forget transcript correction with 2 concurrent workers
+- Background conversation summarization with 2 concurrent workers
+- Exception isolation ensuring LLM failures never affect transcription
+- Intelligent text processing that operates transparently
 
 ## Development Workflow
 
@@ -79,5 +87,6 @@ cd audioinsight-ui && npm run dev:frontend
 - **Backend**: FastAPI, Python, Whisper, PyTorch
 - **Frontend**: Next.js, React, TypeScript
 - **Audio Processing**: librosa, soundfile, numpy
-- **AI/ML**: OpenAI Whisper, PyAnnote for diarization
+- **AI/ML**: OpenAI Whisper, PyAnnote for diarization, Non-blocking LLM integration
 - **Infrastructure**: Docker support, environment-based configuration
+- **Concurrency**: Event-based non-blocking architecture, shared thread pools, fire-and-forget queuing

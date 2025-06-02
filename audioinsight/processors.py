@@ -624,9 +624,9 @@ class TranscriptionProcessor:
                     self._last_chunk_log = 0
                 self._transcription_log_counter += 1
 
-                # Log every 120 seconds instead of 60 seconds for less spam
+                # Log every 30 seconds instead of 120 seconds for better visibility
                 current_log_time = time()
-                if current_log_time - self._last_chunk_log > 120.0:
+                if current_log_time - self._last_chunk_log > 30.0:
                     logger.info(f"🎵 Transcription: {self._transcription_log_counter} chunks processed")
                     self._last_chunk_log = current_log_time
 
@@ -646,7 +646,7 @@ class TranscriptionProcessor:
                 if not hasattr(self, "_last_asr_log_time"):
                     self._last_asr_log_time = 0
                 current_time = time()
-                if current_time - self._last_asr_log_time > 60.0:  # Log every 60 seconds (increased from 20s)
+                if current_time - self._last_asr_log_time > 15.0:  # Log every 15 seconds (reduced from 60s)
                     logger.info(f"ASR: buffer={asr_internal_buffer_duration_s:.1f}s, lag={transcription_lag_s:.1f}s")
                     self._last_asr_log_time = current_time
 
@@ -656,7 +656,9 @@ class TranscriptionProcessor:
 
                 if new_tokens:
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
-                    # Remove token generation logging entirely - too verbose
+                    # Add minimal token generation logging for UI debugging
+                    if len(new_tokens) > 0:
+                        logger.debug(f"🎤 Generated {len(new_tokens)} new tokens: '{new_tokens[0].text[:30]}...'")
 
                     # Get buffer information
                     _buffer = self.online.get_buffer()
@@ -676,15 +678,19 @@ class TranscriptionProcessor:
                         new_text_converted = s2hk(new_text) if new_text else new_text
 
                         if new_text_converted.strip():
-                            # CRITICAL FIX: Update LLM with new transcription text for real-time inference
+                            # NON-BLOCKING: Update LLM with new transcription text in background
                             if self.coordinator.llm:
                                 # Get speaker info for LLM context
                                 speaker_info_dict = None
                                 if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
                                     speaker_info_dict = {"speaker": new_tokens[0].speaker}
 
-                                self.coordinator.llm.update_transcription(new_text_converted, speaker_info_dict)
-                                logger.debug(f"🔄 Updated LLM with {len(new_text_converted)} chars: '{new_text_converted[:50]}...'")
+                                # Make this completely non-blocking - fire and forget
+                                try:
+                                    self.coordinator.llm.update_transcription(new_text_converted, speaker_info_dict)
+                                    logger.debug(f"🔄 Updated LLM with {len(new_text_converted)} chars: '{new_text_converted[:50]}...'")
+                                except Exception as e:
+                                    logger.debug(f"Non-critical LLM update error: {e}")
 
                             # Accumulate text for parser
                             if self.accumulated_text_for_parser:
@@ -697,7 +703,7 @@ class TranscriptionProcessor:
                             if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
                                 speaker_info = [{"speaker": new_tokens[0].speaker}]
 
-                            # Use new event-based Parser system instead of manual queue management
+                            # Use new event-based Parser system without blocking
                             min_batch_size = 200  # Maintain threshold for batching
 
                             if len(self.accumulated_text_for_parser) >= min_batch_size:
@@ -705,19 +711,21 @@ class TranscriptionProcessor:
                                 text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
 
                                 if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
-                                    # Use the new event-based parser queue system
-                                    success = await self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, speaker_info, None)
-
-                                    if success:
-                                        logger.info(f"✅ Queued {len(text_to_parse)} chars for incremental parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
+                                    # CRITICAL FIX: Make parser request completely non-blocking
+                                    try:
+                                        # Fire and forget - don't await the parser queue
+                                        asyncio.create_task(self._queue_parser_non_blocking(text_to_parse, speaker_info))
+                                        logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
 
                                         # Update last parsed text to track progress - CRITICAL: Must be BEFORE reset
                                         self.last_parsed_text = self.accumulated_text_for_parser
 
                                         # Reset accumulation AFTER tracking what was parsed
                                         self.accumulated_text_for_parser = ""
-                                    else:
-                                        logger.info(f"⏳ Parser queue busy, accumulating text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+                                    except Exception as e:
+                                        logger.debug(f"Non-critical parser queue error: {e}")
+                                        # Continue accumulating on error
+                                        logger.info(f"⏳ Parser queue error, continuing to accumulate text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
                                 else:
                                     logger.info("⚠️ No new text to parse, skipping this update")
                                     self.accumulated_text_for_parser = ""
@@ -748,6 +756,18 @@ class TranscriptionProcessor:
         except Exception as e:
             # Log errors but don't let them affect transcription
             logger.warning(f"Transcript parsing update failed (non-critical): {e}")
+
+    async def _queue_parser_non_blocking(self, text_to_parse: str, speaker_info):
+        """Queue parser request without blocking transcription processing."""
+        try:
+            if self.coordinator and self.coordinator.transcript_parser:
+                success = await self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, speaker_info, None)
+                if success:
+                    logger.debug(f"✅ Parser queue accepted {len(text_to_parse)} chars")
+                else:
+                    logger.debug(f"⏳ Parser queue busy, will retry later")
+        except Exception as e:
+            logger.debug(f"Parser queue error (non-critical): {e}")
 
     async def _get_end_buffer(self):
         """Get current end buffer value - to be implemented by coordinator."""
@@ -1313,9 +1333,28 @@ class AudioProcessor:
                 # Only yield if content has changed (use final converted content for comparison) - optimize string building
                 response_content = " ".join(f"{line['speaker']} {line['text']}" for line in final_lines) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
 
-                if response_content != self.last_response_content and (final_lines or final_buffer_transcription or final_buffer_diarization):
-                    yield response
-                    self.last_response_content = response_content
+                # CRITICAL FIX: More aggressive yielding for real-time UI updates
+                should_yield = False
+
+                # Always yield if content has actually changed
+                if response_content != self.last_response_content:
+                    should_yield = True
+
+                # Also yield periodically even if content hasn't changed (for progress updates)
+                current_time = time()
+                if not hasattr(self, "_last_yield_time"):
+                    self._last_yield_time = 0
+
+                # Force yield every 0.5 seconds even without content changes (for progress indicators)
+                if current_time - self._last_yield_time > 0.5:
+                    should_yield = True
+
+                # Always yield if we have any content at all (even empty buffer for UI progress)
+                if final_lines or final_buffer_transcription or final_buffer_diarization:
+                    if should_yield:
+                        yield response
+                        self.last_response_content = response_content
+                        self._last_yield_time = current_time
 
                 # Check for termination condition
                 if self.is_stopping:
@@ -1424,7 +1463,7 @@ class AudioProcessor:
                         yield final_response
                         return
 
-                await asyncio.sleep(0.2)  # OPTIMIZATION: Increased from 0.1 to reduce client update frequency
+                await asyncio.sleep(0.05)  # CRITICAL FIX: Reduced from 0.2s to 0.05s for real-time responsiveness (20 updates/second)
 
             except Exception as e:
                 logger.warning(f"Exception in results_formatter: {e}")
@@ -1485,11 +1524,34 @@ class AudioProcessor:
             self.all_tasks_for_cleanup.append(self.llm_task)
             logger.info("LLM inference processor monitoring task started")
 
+            # DISABLED: Scale up workers after initial startup for better performance
+            # This was causing delays in real-time processing
+            # asyncio.create_task(self._scale_up_workers_after_startup())
+
         # Monitor overall system health
         self.watchdog_task = asyncio.create_task(self.watchdog(processing_tasks_for_watchdog))
         self.all_tasks_for_cleanup.append(self.watchdog_task)
 
         return self.results_formatter()
+
+    async def _scale_up_workers_after_startup(self):
+        """Scale up workers after initial startup to improve performance."""
+        try:
+            # Wait for initial startup to complete
+            await asyncio.sleep(2.0)
+
+            # Scale up summarizer workers to optimal count
+            if self.llm:
+                await self.llm.scale_workers(3)  # Scale up to 3 workers
+
+            # Scale up parser workers if available
+            if self.transcript_parser:
+                await self.transcript_parser.scale_workers(4)  # Scale up to 4 workers
+
+            logger.info("✅ Worker scaling completed - system at full performance capacity")
+
+        except Exception as e:
+            logger.warning(f"Failed to scale up workers: {e}")
 
     async def watchdog(self, tasks_to_monitor):
         """Monitors the health of critical processing tasks."""

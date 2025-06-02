@@ -70,10 +70,20 @@ class EventBasedProcessor(ABC):
         self.last_processed_data = ""
 
     async def start_worker(self):
-        """Start the worker task for processing."""
+        """Start the worker task for processing with staggered startup to reduce bottlenecks."""
         if self.worker_tasks == [] and not self.is_running:
             self.is_running = True
-            self.worker_tasks = [asyncio.create_task(self._worker()) for _ in range(self.max_concurrent_workers)]
+
+            # Start workers gradually to reduce initialization bottleneck
+            self.worker_tasks = []
+            for i in range(self.max_concurrent_workers):
+                worker_task = asyncio.create_task(self._worker())
+                self.worker_tasks.append(worker_task)
+
+                # Small delay between worker creations to stagger initialization load
+                if i < self.max_concurrent_workers - 1:  # Don't delay after the last worker
+                    await asyncio.sleep(0.01)  # 10ms delay between workers
+
             logger.info(f"{self.__class__.__name__} workers started")
 
     async def stop_worker(self):
@@ -84,7 +94,14 @@ class EventBasedProcessor(ABC):
                 # Signal workers to stop
                 for _ in range(len(self.worker_tasks)):
                     await self.processing_queue.put(None)
-                await asyncio.gather(*self.worker_tasks)
+
+                # Wait for all workers to complete with timeout
+                await asyncio.wait_for(asyncio.gather(*self.worker_tasks, return_exceptions=True), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout stopping {self.__class__.__name__} workers, cancelling remaining tasks")
+                for task in self.worker_tasks:
+                    if not task.done():
+                        task.cancel()
             except Exception as e:
                 logger.warning(f"Error stopping {self.__class__.__name__} workers: {e}")
             finally:
@@ -218,6 +235,45 @@ class EventBasedProcessor(ABC):
             "total_processed": self.total_processed,
             "avg_processing_time": avg_processing_time,
         }
+
+    async def scale_workers(self, target_workers: int):
+        """Dynamically scale the number of workers up or down.
+
+        Args:
+            target_workers: Target number of concurrent workers
+        """
+        if not self.is_running:
+            logger.warning(f"Cannot scale {self.__class__.__name__} workers when not running")
+            return
+
+        current_workers = len(self.worker_tasks)
+
+        if target_workers == current_workers:
+            return  # Already at target
+
+        if target_workers > current_workers:
+            # Scale up - add new workers
+            for i in range(target_workers - current_workers):
+                worker_task = asyncio.create_task(self._worker())
+                self.worker_tasks.append(worker_task)
+                await asyncio.sleep(0.01)  # Small delay between new workers
+
+            self.max_concurrent_workers = target_workers
+            logger.info(f"Scaled {self.__class__.__name__} workers up to {target_workers}")
+
+        else:
+            # Scale down - stop excess workers
+            workers_to_stop = current_workers - target_workers
+            for _ in range(workers_to_stop):
+                await self.processing_queue.put(None)  # Signal worker to stop
+
+            # Wait a bit for workers to stop gracefully
+            await asyncio.sleep(0.1)
+
+            # Remove stopped tasks from the list
+            self.worker_tasks = [task for task in self.worker_tasks if not task.done()]
+            self.max_concurrent_workers = target_workers
+            logger.info(f"Scaled {self.__class__.__name__} workers down to {target_workers}")
 
 
 class UniversalLLM:
