@@ -136,8 +136,9 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # Initialize base class with optimized worker configuration for better throughput
-        super().__init__(queue_maxsize=100, cooldown_seconds=0.02, max_concurrent_workers=3)  # Increased from 75 to handle more concurrent requests  # Reduced from 0.05 for faster response  # Increased from 2 to 3 workers for better parallel processing
+        # Initialize base class with adaptive frequency optimized for text parsing
+        # Start with fast initial cooldown but let adaptive system adjust based on actual LLM performance
+        super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=3)  # Large queue to handle bursts  # Conservative start, will adapt to actual processing times  # Multiple workers for better parallel processing
 
         self.config = config or ParserConfig(model_id=model_id)
         self.api_key = api_key  # Store for lazy initialization
@@ -223,8 +224,8 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         Returns:
             bool: True if successfully queued, False otherwise
         """
-        if not self.should_process(text, min_size=30):  # Reduced threshold for better responsiveness
-            logger.debug(f"⏳ Parser: Accumulating text for batching: {len(text)} chars")
+        if not self.should_process(text, min_size=15):  # Further reduced from 20 - more event-driven
+            logger.debug(f"⏳ Parser: Accumulating text for optimal frequency: {len(text)} chars")
             return False
 
         return await self.queue_for_processing((text, speaker_info, timestamps))

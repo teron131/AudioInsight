@@ -704,20 +704,20 @@ class TranscriptionProcessor:
                                 speaker_info = [{"speaker": new_tokens[0].speaker}]
 
                             # Use new event-based Parser system without blocking
-                            min_batch_size = 200  # Maintain threshold for batching
+                            min_batch_size = 150  # Reduced from 200 for more event-driven processing
 
                             if len(self.accumulated_text_for_parser) >= min_batch_size:
                                 # OPTIMIZATION: Use intelligent incremental parsing
                                 text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
 
                                 if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
-                                    # OPTIMIZATION: Smart batching to reduce API calls
-                                    # Only parse if we have substantial new content or enough time has passed
+                                    # OPTIMIZATION: More event-driven batching to improve responsiveness
+                                    # Prioritize processing events as they come rather than strict timing
                                     current_time = time()
                                     time_since_last_parse = current_time - getattr(self, "_last_parse_time", 0)
-                                    min_parse_interval = 2.0  # Minimum 2 seconds between parsing requests
+                                    min_parse_interval = 1.5  # Reduced from 2.0 seconds for more responsiveness
 
-                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval  # Large enough batch  # Enough time passed
+                                    should_parse_now = len(text_to_parse) >= 300 or time_since_last_parse >= min_parse_interval  # Reduced from 400 chars  # More frequent parsing
 
                                     if should_parse_now:
                                         # CRITICAL FIX: Make parser request completely non-blocking
@@ -1091,13 +1091,16 @@ class AudioProcessor:
 
     def _initialize_llm_components(self):
         """Pre-initialize LLM components to reduce first-connection latency."""
-        # Initialize LLM if enabled in features
-        if getattr(self.args, "llm_inference", False):
+        # Initialize LLM - always enable by default as per config.py defaults
+        # Check both the args and the default config to ensure LLM is enabled
+        llm_enabled = getattr(self.args, "llm_inference", True)  # Default to True if not set
+
+        if llm_enabled:
             logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
                     summary_interval_seconds=getattr(self.args, "llm_summary_interval", 1.0),
-                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 100),
+                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),  # Reduced from 100 for more responsiveness
                 )
 
                 self.llm = Summarizer(
@@ -1109,6 +1112,9 @@ class AudioProcessor:
             except Exception as e:
                 logger.warning(f"Failed to pre-initialize LLM inference processor: {e}")
                 self.llm = None
+        else:
+            logger.info("LLM inference disabled in configuration")
+            self.llm = None
 
         # Initialize transcript parser
         try:
@@ -1405,11 +1411,17 @@ class AudioProcessor:
 
                 # Add LLM inference processor stats if available
                 if self.llm:
-                    response["llm_stats"] = self.llm.get_stats()
+                    llm_stats = self.llm.get_stats()
+                    response["llm_stats"] = llm_stats
+                    # Add adaptive frequency info for debugging/monitoring
+                    response["llm_adaptive_frequency"] = {"current_hz": llm_stats.get("optimal_frequency_hz", 0), "cooldown_seconds": llm_stats.get("adaptive_cooldown", 0), "avg_processing_time": llm_stats.get("avg_processing_time", 0), "recent_times": llm_stats.get("recent_processing_times", [])}
 
                 # Add parsed transcript data if available
                 if self.transcript_parser and self._parser_enabled:
-                    response["transcript_parser"] = {"enabled": True, "stats": self.transcript_parser.get_stats(), "last_parsed": self.last_parsed_transcript.model_dump() if self.last_parsed_transcript else None, "total_parsed": len(self.parsed_transcripts)}
+                    parser_stats = self.transcript_parser.get_stats()
+                    response["transcript_parser"] = {"enabled": True, "stats": parser_stats, "last_parsed": self.last_parsed_transcript.model_dump() if self.last_parsed_transcript else None, "total_parsed": len(self.parsed_transcripts)}
+                    # Add parser adaptive frequency info
+                    response["parser_adaptive_frequency"] = {"current_hz": parser_stats.get("optimal_frequency_hz", 0), "cooldown_seconds": parser_stats.get("adaptive_cooldown", 0), "avg_processing_time": parser_stats.get("avg_processing_time", 0), "recent_times": parser_stats.get("recent_processing_times", [])}
 
                 # Only yield if content has changed (use final converted content for comparison) - optimize string building
                 response_content = " ".join(f"{line['speaker']} {line['text']}" for line in final_lines) + f" | {final_buffer_transcription} | {final_buffer_diarization}"
@@ -1942,7 +1954,11 @@ class AudioProcessor:
         self.beg_loop = time()
         self.is_stopping = False
 
-        # DO NOT re-initialize components here - let them be created on demand
+        # CRITICAL FIX: Re-initialize LLM components after reset so they're available for next session
+        # This prevents the "self.llm exists: False" issue in final processing
+        self._initialize_llm_components()
+
+        # DO NOT re-initialize other components here - let them be created on demand
         # This avoids the FFmpeg restart loop issue
         logger.info("🧹 Force reset completed - components will be re-initialized on demand")
 

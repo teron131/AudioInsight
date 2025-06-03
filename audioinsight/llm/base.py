@@ -37,6 +37,7 @@ class EventBasedProcessor(ABC):
     - Worker task management
     - Trigger condition checking
     - Concurrent processing for better performance
+    - Adaptive frequency matching actual processing times
     """
 
     def __init__(self, queue_maxsize: int = 10, cooldown_seconds: float = 2.0, max_concurrent_workers: int = 2):
@@ -44,7 +45,7 @@ class EventBasedProcessor(ABC):
 
         Args:
             queue_maxsize: Maximum size of the processing queue
-            cooldown_seconds: Minimum time between processing operations
+            cooldown_seconds: Initial cooldown time (will be adapted based on actual processing)
             max_concurrent_workers: Maximum number of concurrent worker tasks
         """
         # Event-based triggering
@@ -57,8 +58,21 @@ class EventBasedProcessor(ABC):
         self.is_running = False
         self.is_processing = False
         self.last_processing_time = 0.0
+
+        # Initialize completion time to current time so first call isn't delayed
+        import time
+
+        self.last_completion_time = time.time()
+
         self.cooldown_seconds = cooldown_seconds
         self.active_workers = 0
+
+        # Adaptive frequency tracking
+        self.recent_processing_times = []  # Rolling window of recent processing times
+        self.max_recent_samples = 10  # Keep last 10 processing times for adaptive calculation
+        self.adaptive_cooldown = cooldown_seconds  # Dynamic cooldown based on actual performance
+        self.min_cooldown = 0.1  # Minimum cooldown to prevent overwhelming
+        self.max_cooldown = 10.0  # Maximum cooldown as safety limit
 
         # Performance tracking
         self.total_processed = 0
@@ -112,7 +126,7 @@ class EventBasedProcessor(ABC):
                 logger.info(f"{self.__class__.__name__} workers stopped")
 
     async def _worker(self):
-        """Worker task that processes queued items serially."""
+        """Worker task that processes queued items serially with adaptive frequency tracking."""
         worker_id = id(asyncio.current_task())
         logger.info(f"{self.__class__.__name__} worker {worker_id} started")
 
@@ -132,16 +146,19 @@ class EventBasedProcessor(ABC):
                     # Process the item
                     await self._process_item(item)
 
-                    # Track performance metrics
+                    # Track performance metrics with adaptive frequency
                     processing_time = time.time() - start_time
                     self.total_processed += 1
                     self.total_processing_time += processing_time
+
+                    # Record completion for adaptive frequency calculation
+                    self._record_processing_completion(processing_time)
 
                     # Log performance occasionally
                     current_time = time.time()
                     if current_time - self.last_performance_log > 60.0:  # Every minute
                         avg_time = self.total_processing_time / max(self.total_processed, 1)
-                        logger.info(f"{self.__class__.__name__} performance: {self.total_processed} items processed, avg time: {avg_time:.2f}s")
+                        logger.info(f"{self.__class__.__name__} performance: {self.total_processed} items processed, avg time: {avg_time:.2f}s, adaptive cooldown: {self.adaptive_cooldown:.2f}s")
                         self.last_performance_log = current_time
 
                 except Exception as e:
@@ -168,7 +185,10 @@ class EventBasedProcessor(ABC):
         pass
 
     def should_process(self, data: str, min_size: int = 100) -> bool:
-        """Check if processing should be triggered based on conditions.
+        """Check if processing should be triggered based on adaptive frequency matching actual processing times.
+
+        Prioritizes event-driven processing over strict timing - allows more frequent calls
+        when there's significant new content to ensure responsiveness.
 
         Args:
             data: Current accumulated data
@@ -181,22 +201,110 @@ class EventBasedProcessor(ABC):
 
         current_time = time.time()
 
-        # Skip if in cooldown - but reduced threshold for better responsiveness
-        cooldown_threshold = self.cooldown_seconds * 0.8  # 20% reduction
-        if (current_time - self.last_processing_time) < cooldown_threshold:
-            return False
+        # Calculate adaptive cooldown based on recent processing times
+        self._update_adaptive_cooldown()
 
-        # Skip if queue is getting full (but not completely full)
-        queue_threshold = int(self.processing_queue.maxsize * 0.9)  # 90% capacity
+        # Use completion time rather than queue time for frequency calculation
+        time_since_completion = current_time - self.last_completion_time
+
+        # More permissive threshold - favor event-driven processing over strict timing
+        # Use 70% of adaptive cooldown to allow more frequent processing when needed
+        base_threshold = self.adaptive_cooldown * 0.7
+
+        # Dynamic threshold based on data size - larger data can trigger sooner
+        data_size = len(data)
+        if data_size > min_size * 3:  # Significantly more data than minimum
+            # Allow processing with even less waiting for large batches
+            dynamic_threshold = base_threshold * 0.8
+        elif data_size > min_size * 1.5:  # Moderately more data
+            # Slightly reduce threshold for medium batches
+            dynamic_threshold = base_threshold * 0.9
+        else:
+            # Use base threshold for normal-sized data
+            dynamic_threshold = base_threshold
+
+        # Event-driven override: If we have active workers but queue is empty,
+        # allow processing even sooner to maintain throughput
+        if self.active_workers > 0 and self.processing_queue.qsize() == 0:
+            dynamic_threshold *= 0.6  # Even more aggressive when workers are idle
+
+        # Skip only if we haven't waited long enough AND it's not an urgent case
+        if time_since_completion < dynamic_threshold:
+            # But allow override for very large data accumulations (emergency processing)
+            if data_size > min_size * 5:  # Emergency case - very large backlog
+                logger.debug(f"{self.__class__.__name__}: Emergency processing triggered - large data backlog ({data_size} chars)")
+                pass  # Allow processing
+            else:
+                logger.debug(f"{self.__class__.__name__}: Waiting for adaptive frequency (completed {time_since_completion:.2f}s ago, need {dynamic_threshold:.2f}s, data_size={data_size})")
+                return False
+
+        # Skip if queue is getting full (but allow more room before throttling)
+        queue_threshold = int(self.processing_queue.maxsize * 0.95)  # Allow 95% capacity instead of 90%
         if self.processing_queue.qsize() >= queue_threshold:
-            logger.warning(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
+            logger.debug(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
             return False
 
         # Check minimum size requirement
         if len(data) < min_size:
             return False
 
+        logger.debug(f"{self.__class__.__name__}: Processing allowed - waited {time_since_completion:.2f}s (threshold: {dynamic_threshold:.2f}s), data_size={data_size}")
         return True
+
+    def _update_adaptive_cooldown(self):
+        """Update adaptive cooldown based on recent processing times.
+
+        This ensures call frequency matches actual LLM processing speed:
+        - If LLM calls take 1 second on average, trigger new calls every ~1 second
+        - If LLM calls take 3 seconds, trigger every ~3 seconds
+        - Always maintain non-blocking behavior
+        """
+        if not self.recent_processing_times:
+            return
+
+        # Calculate average processing time from recent samples
+        avg_processing_time = sum(self.recent_processing_times) / len(self.recent_processing_times)
+
+        # Set adaptive cooldown to match processing time for optimal frequency
+        # Add small buffer (10%) to account for variance and prevent queue buildup
+        target_cooldown = avg_processing_time * 1.1
+
+        # Apply bounds to prevent extreme values
+        previous_cooldown = self.adaptive_cooldown
+        self.adaptive_cooldown = max(self.min_cooldown, min(self.max_cooldown, target_cooldown))
+
+        # Log significant changes in adaptive frequency
+        if abs(self.adaptive_cooldown - previous_cooldown) > 0.1:
+            frequency_hz = 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0
+            logger.info(f"{self.__class__.__name__}: 🎯 Adaptive frequency updated to {frequency_hz:.1f} Hz (every {self.adaptive_cooldown:.2f}s) based on avg processing time {avg_processing_time:.2f}s")
+        else:
+            logger.debug(f"{self.__class__.__name__}: Adaptive cooldown updated to {self.adaptive_cooldown:.2f}s (avg processing: {avg_processing_time:.2f}s)")
+
+    def _record_processing_completion(self, processing_time: float):
+        """Record completion of a processing operation for adaptive frequency calculation.
+
+        Args:
+            processing_time: Time taken to complete the processing
+        """
+        import time
+
+        # Update completion time
+        self.last_completion_time = time.time()
+
+        # Add to recent processing times for adaptive calculation
+        self.recent_processing_times.append(processing_time)
+
+        # Keep only recent samples
+        if len(self.recent_processing_times) > self.max_recent_samples:
+            self.recent_processing_times.pop(0)
+
+        # Update adaptive cooldown immediately
+        self._update_adaptive_cooldown()
+
+        # Log processing completion for visibility
+        if len(self.recent_processing_times) >= 3:  # After a few samples
+            frequency_hz = 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0
+            logger.debug(f"{self.__class__.__name__}: ✅ Processing completed in {processing_time:.2f}s, optimal frequency: {frequency_hz:.1f} Hz")
 
     async def queue_for_processing(self, item: Any) -> bool:
         """Queue an item for processing.
@@ -222,7 +330,7 @@ class EventBasedProcessor(ABC):
         self.last_processing_time = time.time()
 
     def get_queue_status(self) -> Dict[str, Any]:
-        """Get current queue status.
+        """Get current queue status including adaptive frequency information.
 
         Returns:
             dict: Queue status information
@@ -237,6 +345,9 @@ class EventBasedProcessor(ABC):
             "max_workers": self.max_concurrent_workers,
             "total_processed": self.total_processed,
             "avg_processing_time": avg_processing_time,
+            "adaptive_cooldown": self.adaptive_cooldown,
+            "recent_processing_times": self.recent_processing_times[-3:],  # Last 3 samples for debugging
+            "optimal_frequency_hz": 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0,
         }
 
     async def scale_workers(self, target_workers: int):

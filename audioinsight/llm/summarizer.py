@@ -101,8 +101,9 @@ class Summarizer(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """
-        # Initialize base class with optimized worker configuration for better throughput
-        super().__init__(queue_maxsize=200, cooldown_seconds=0.1, max_concurrent_workers=3)  # Increased from 150 to handle more concurrent requests  # Reduced from 0.3 for faster response  # Increased from 2 to 3 workers for better parallel processing
+        # Initialize base class with adaptive frequency optimized for summarization
+        # Start with reasonable initial cooldown but let adaptive system adjust based on actual LLM performance
+        super().__init__(queue_maxsize=200, cooldown_seconds=1.0, max_concurrent_workers=3)  # Large queue to handle conversation bursts  # Conservative start, will adapt to actual processing times (typically 2-5s)  # Multiple workers for better parallel processing
 
         self.model_id = model_id
         self.api_key = api_key  # Store for lazy initialization
@@ -284,11 +285,26 @@ Provide a structured summary with key points. Remember to respond in the same la
 
             # Use base class method to queue for processing - NON-BLOCKING
             try:
-                if self.queue_for_processing(trigger_reason):
-                    logger.debug(f"Queued inference request: {trigger_reason}")
+                # Create a task to handle the async queue operation
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                loop.create_task(self._queue_inference_async(trigger_reason))
+                logger.debug(f"Queued inference request: {trigger_reason}")
             except Exception as e:
                 # Don't let inference errors block transcription
                 logger.debug(f"Non-critical inference queue error: {e}")
+
+    async def _queue_inference_async(self, trigger_reason: str):
+        """Async helper to queue inference requests."""
+        try:
+            success = await self.queue_for_processing(trigger_reason)
+            if success:
+                logger.debug(f"Successfully queued inference: {trigger_reason}")
+            else:
+                logger.debug(f"Inference queue full for: {trigger_reason}")
+        except Exception as e:
+            logger.debug(f"Error queuing inference: {e}")
 
     async def start_monitoring(self):
         """Start monitoring for inference triggers."""

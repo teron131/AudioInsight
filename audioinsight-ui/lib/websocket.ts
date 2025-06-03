@@ -36,6 +36,20 @@ export interface WebSocketMessage {
       key_points: string[];
     }>;
   };
+
+  // Adaptive frequency monitoring
+  llm_adaptive_frequency?: {
+    current_hz: number;
+    cooldown_seconds: number;
+    avg_processing_time: number;
+    recent_times: number[];
+  };
+  parser_adaptive_frequency?: {
+    current_hz: number;
+    cooldown_seconds: number;
+    avg_processing_time: number;
+    recent_times: number[];
+  };
 }
 
 export interface TranscriptData {
