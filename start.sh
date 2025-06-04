@@ -37,6 +37,6 @@ echo ""
 audioinsight-server \
     --backend faster-whisper \
     --model large-v3-turbo \
-    --llm-inference \
-    --base-llm "openai/gpt-4.1-mini" \
-    --fast-llm "openai/gpt-4.1-nano" \
+    --llm_inference \
+    --base_llm "openai/gpt-4.1-mini" \
+    --fast_llm "openai/gpt-4.1-nano" \

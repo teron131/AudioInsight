@@ -224,7 +224,7 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         Returns:
             bool: True if successfully queued, False otherwise
         """
-        if not self.should_process(text, min_size=15):  # Further reduced from 20 - more event-driven
+        if not self.should_process(text, min_size=20):  # Reduced from 30 - adaptive frequency handles timing
             logger.debug(f"⏳ Parser: Accumulating text for optimal frequency: {len(text)} chars")
             return False
 

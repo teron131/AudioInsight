@@ -704,20 +704,20 @@ class TranscriptionProcessor:
                                 speaker_info = [{"speaker": new_tokens[0].speaker}]
 
                             # Use new event-based Parser system without blocking
-                            min_batch_size = 150  # Reduced from 200 for more event-driven processing
+                            min_batch_size = 200  # Maintain threshold for batching
 
                             if len(self.accumulated_text_for_parser) >= min_batch_size:
                                 # OPTIMIZATION: Use intelligent incremental parsing
                                 text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
 
                                 if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
-                                    # OPTIMIZATION: More event-driven batching to improve responsiveness
-                                    # Prioritize processing events as they come rather than strict timing
+                                    # OPTIMIZATION: Smart batching to reduce API calls
+                                    # Only parse if we have substantial new content or enough time has passed
                                     current_time = time()
                                     time_since_last_parse = current_time - getattr(self, "_last_parse_time", 0)
-                                    min_parse_interval = 1.5  # Reduced from 2.0 seconds for more responsiveness
+                                    min_parse_interval = 2.0  # Minimum 2 seconds between parsing requests
 
-                                    should_parse_now = len(text_to_parse) >= 300 or time_since_last_parse >= min_parse_interval  # Reduced from 400 chars  # More frequent parsing
+                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval  # Large enough batch  # Enough time passed
 
                                     if should_parse_now:
                                         # CRITICAL FIX: Make parser request completely non-blocking
@@ -1091,16 +1091,13 @@ class AudioProcessor:
 
     def _initialize_llm_components(self):
         """Pre-initialize LLM components to reduce first-connection latency."""
-        # Initialize LLM - always enable by default as per config.py defaults
-        # Check both the args and the default config to ensure LLM is enabled
-        llm_enabled = getattr(self.args, "llm_inference", True)  # Default to True if not set
-
-        if llm_enabled:
+        # Initialize LLM if enabled in features
+        if getattr(self.args, "llm_inference", False):
             logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
                     summary_interval_seconds=getattr(self.args, "llm_summary_interval", 1.0),
-                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),  # Reduced from 100 for more responsiveness
+                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 100),
                 )
 
                 self.llm = Summarizer(
@@ -1112,9 +1109,6 @@ class AudioProcessor:
             except Exception as e:
                 logger.warning(f"Failed to pre-initialize LLM inference processor: {e}")
                 self.llm = None
-        else:
-            logger.info("LLM inference disabled in configuration")
-            self.llm = None
 
         # Initialize transcript parser
         try:
@@ -1711,6 +1705,12 @@ class AudioProcessor:
             parser_start_task = None
             if self.transcript_parser:
                 parser_start_task = asyncio.create_task(self.transcription_processor.start_parser_worker())
+            else:
+                # If no parser instance but LLM features are enabled, create it
+                logger.warning("Transcript parser not found - re-initializing...")
+                self._initialize_llm_components()
+                if self.transcript_parser:
+                    parser_start_task = asyncio.create_task(self.transcription_processor.start_parser_worker())
 
             # FIXED: Now self.llm is properly initialized before creating transcription task
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
@@ -1720,6 +1720,7 @@ class AudioProcessor:
             # Wait for parser to start if it was created
             if parser_start_task:
                 await parser_start_task
+                logger.info("Started parser worker from transcript parser")
 
         # Initialize diarization components if needed
         if self.args.diarization:
@@ -1739,12 +1740,21 @@ class AudioProcessor:
         self.all_tasks_for_cleanup.append(self.ffmpeg_reader_task)
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
 
-        # Start LLM inference processor monitoring if enabled - AFTER initialization
+        # Start LLM inference processor monitoring if enabled - ALWAYS start monitoring
         llm_start_task = None
         if self.llm:
             llm_start_task = asyncio.create_task(self.llm.start_monitoring())
             self.all_tasks_for_cleanup.append(llm_start_task)
             logger.info("LLM inference processor monitoring task started")
+        else:
+            # If no LLM instance, check if we should create one
+            if getattr(self.args, "llm_inference", False):
+                logger.warning("LLM inference enabled but no LLM instance - re-initializing...")
+                self._initialize_llm_components()
+                if self.llm:
+                    llm_start_task = asyncio.create_task(self.llm.start_monitoring())
+                    self.all_tasks_for_cleanup.append(llm_start_task)
+                    logger.info("LLM inference processor monitoring task started after re-initialization")
 
         # Monitor overall system health
         self.watchdog_task = asyncio.create_task(self.watchdog(processing_tasks_for_watchdog))
@@ -1914,12 +1924,26 @@ class AudioProcessor:
                 logger.warning(f"Error cleaning up diarization processor: {e}")
             self.diarization_processor = None
 
+        # CRITICAL FIX: Stop LLM monitoring but preserve the LLM instance for re-use
         if self.llm:
             try:
                 await self.llm.stop_monitoring()
+                # DO NOT set self.llm = None - keep the instance for re-use
+                logger.info("LLM monitoring stopped but instance preserved for re-use")
             except Exception as e:
                 logger.warning(f"Error stopping LLM monitoring: {e}")
-            self.llm = None
+                # Only null the LLM if there was an error stopping it
+                self.llm = None
+
+        # Similarly preserve transcript parser
+        if self.transcript_parser:
+            try:
+                await self.transcript_parser.stop_worker()
+                logger.info("Parser workers stopped but instance preserved for re-use")
+            except Exception as e:
+                logger.warning(f"Error stopping parser workers: {e}")
+                # Only null if there was an error
+                self.transcript_parser = None
 
         # Clear all memory buffers and state
         async with self.lock:
@@ -1954,12 +1978,11 @@ class AudioProcessor:
         self.beg_loop = time()
         self.is_stopping = False
 
-        # CRITICAL FIX: Re-initialize LLM components after reset so they're available for next session
-        # This prevents the "self.llm exists: False" issue in final processing
-        self._initialize_llm_components()
+        # CRITICAL FIX: Re-initialize LLM components if they were lost during reset
+        if not self.llm or not self.transcript_parser:
+            logger.info("🔧 Re-initializing LLM components after reset...")
+            self._initialize_llm_components()
 
-        # DO NOT re-initialize other components here - let them be created on demand
-        # This avoids the FFmpeg restart loop issue
         logger.info("🧹 Force reset completed - components will be re-initialized on demand")
 
     async def process_audio(self, message):

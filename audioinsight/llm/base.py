@@ -187,9 +187,6 @@ class EventBasedProcessor(ABC):
     def should_process(self, data: str, min_size: int = 100) -> bool:
         """Check if processing should be triggered based on adaptive frequency matching actual processing times.
 
-        Prioritizes event-driven processing over strict timing - allows more frequent calls
-        when there's significant new content to ensure responsiveness.
-
         Args:
             data: Current accumulated data
             min_size: Minimum data size to trigger processing
@@ -205,50 +202,26 @@ class EventBasedProcessor(ABC):
         self._update_adaptive_cooldown()
 
         # Use completion time rather than queue time for frequency calculation
+        # This ensures we trigger new requests as soon as the previous ones actually complete
         time_since_completion = current_time - self.last_completion_time
 
-        # More permissive threshold - favor event-driven processing over strict timing
-        # Use 70% of adaptive cooldown to allow more frequent processing when needed
-        base_threshold = self.adaptive_cooldown * 0.7
+        # Skip if we haven't waited long enough based on adaptive frequency
+        # Use 90% of adaptive cooldown to slightly favor higher frequency
+        adaptive_threshold = self.adaptive_cooldown * 0.9
+        if time_since_completion < adaptive_threshold:
+            logger.debug(f"{self.__class__.__name__}: Waiting for adaptive frequency (completed {time_since_completion:.2f}s ago, need {adaptive_threshold:.2f}s)")
+            return False
 
-        # Dynamic threshold based on data size - larger data can trigger sooner
-        data_size = len(data)
-        if data_size > min_size * 3:  # Significantly more data than minimum
-            # Allow processing with even less waiting for large batches
-            dynamic_threshold = base_threshold * 0.8
-        elif data_size > min_size * 1.5:  # Moderately more data
-            # Slightly reduce threshold for medium batches
-            dynamic_threshold = base_threshold * 0.9
-        else:
-            # Use base threshold for normal-sized data
-            dynamic_threshold = base_threshold
-
-        # Event-driven override: If we have active workers but queue is empty,
-        # allow processing even sooner to maintain throughput
-        if self.active_workers > 0 and self.processing_queue.qsize() == 0:
-            dynamic_threshold *= 0.6  # Even more aggressive when workers are idle
-
-        # Skip only if we haven't waited long enough AND it's not an urgent case
-        if time_since_completion < dynamic_threshold:
-            # But allow override for very large data accumulations (emergency processing)
-            if data_size > min_size * 5:  # Emergency case - very large backlog
-                logger.debug(f"{self.__class__.__name__}: Emergency processing triggered - large data backlog ({data_size} chars)")
-                pass  # Allow processing
-            else:
-                logger.debug(f"{self.__class__.__name__}: Waiting for adaptive frequency (completed {time_since_completion:.2f}s ago, need {dynamic_threshold:.2f}s, data_size={data_size})")
-                return False
-
-        # Skip if queue is getting full (but allow more room before throttling)
-        queue_threshold = int(self.processing_queue.maxsize * 0.95)  # Allow 95% capacity instead of 90%
+        # Skip if queue is getting full (but not completely full)
+        queue_threshold = int(self.processing_queue.maxsize * 0.9)  # 90% capacity
         if self.processing_queue.qsize() >= queue_threshold:
-            logger.debug(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
+            logger.warning(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
             return False
 
         # Check minimum size requirement
         if len(data) < min_size:
             return False
 
-        logger.debug(f"{self.__class__.__name__}: Processing allowed - waited {time_since_completion:.2f}s (threshold: {dynamic_threshold:.2f}s), data_size={data_size}")
         return True
 
     def _update_adaptive_cooldown(self):
