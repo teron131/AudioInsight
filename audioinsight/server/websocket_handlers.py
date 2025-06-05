@@ -248,19 +248,58 @@ async def get_or_create_audio_processor() -> AudioProcessor:
         if _global_audio_processor is None:
             logger.info("🔧 Creating new AudioProcessor instance")
             _global_audio_processor = AudioProcessor()
+            # Add connection tracking to reduce unnecessary resets
+            _global_audio_processor._connection_count = 0
         else:
-            # Reset the existing processor for a fresh session
-            logger.info("🔄 Resetting existing AudioProcessor for new session")
-            try:
-                await _global_audio_processor.force_reset()
-            except Exception as e:
-                logger.warning(f"Error during processor reset, creating new instance: {e}")
-                # If reset fails, create a completely new instance
+            # Only reset if processor has been used for actual processing
+            # Check if there's accumulated data, stopping state, or if it's been idle for a while
+            should_reset = False
+
+            # Reset if processor is in stopping state (finished previous file)
+            if hasattr(_global_audio_processor, "is_stopping") and _global_audio_processor.is_stopping:
+                should_reset = True
+                logger.info("🔄 Resetting AudioProcessor - processor is in stopping state from previous session")
+
+            # Reset if there's accumulated transcription data from previous session
+            elif hasattr(_global_audio_processor, "global_transcript") and (_global_audio_processor.global_transcript.get("committed_tokens") or _global_audio_processor.global_transcript.get("current_buffer")):
+                should_reset = True
+                logger.info("🔄 Resetting AudioProcessor - has accumulated data from previous session")
+
+            # Reset if there are tokens from previous session
+            elif hasattr(_global_audio_processor, "tokens") and _global_audio_processor.tokens:
+                should_reset = True
+                logger.info("🔄 Resetting AudioProcessor - has tokens from previous session")
+
+            # Reset if LLM has accumulated data
+            elif hasattr(_global_audio_processor, "llm") and _global_audio_processor.llm and hasattr(_global_audio_processor.llm, "accumulated_data") and _global_audio_processor.llm.accumulated_data:
+                should_reset = True
+                logger.info("🔄 Resetting AudioProcessor - LLM has accumulated data")
+
+            # Reset if connection count is high (every 10 connections to prevent memory leaks)
+            elif hasattr(_global_audio_processor, "_connection_count") and _global_audio_processor._connection_count > 10:
+                should_reset = True
+                logger.info(f"🔄 Resetting AudioProcessor - connection count reached {_global_audio_processor._connection_count}")
+                _global_audio_processor._connection_count = 0
+
+            else:
+                # Just increment connection count for light reuse
+                if not hasattr(_global_audio_processor, "_connection_count"):
+                    _global_audio_processor._connection_count = 0
+                _global_audio_processor._connection_count += 1
+                logger.info(f"🔄 Reusing AudioProcessor (connection #{_global_audio_processor._connection_count}) - no reset needed, preserving warm components")
+
+            if should_reset:
                 try:
-                    await _global_audio_processor.cleanup()
-                except:
-                    pass
-                _global_audio_processor = AudioProcessor()
+                    await _global_audio_processor.force_reset()
+                except Exception as e:
+                    logger.warning(f"Error during processor reset, creating new instance: {e}")
+                    # If reset fails, create a completely new instance
+                    try:
+                        await _global_audio_processor.cleanup()
+                    except:
+                        pass
+                    _global_audio_processor = AudioProcessor()
+                    _global_audio_processor._connection_count = 0
 
         return _global_audio_processor
 

@@ -220,6 +220,41 @@ export function useAudioInsight(): UseAudioInsightReturn {
   }, [toast]);
 
   const initializeWebSocket = useCallback(async (diarizationSetting: boolean) => {
+    // First, check if backend is ready
+    try {
+      const baseUrl = typeof window !== 'undefined' 
+        ? `${window.location.protocol}//${window.location.hostname}:8080`
+        : '';
+      const healthResponse = await fetch(`${baseUrl}/health`);
+      const healthData = await healthResponse.json();
+      
+      if (!healthData.backend_ready) {
+        console.log("Backend not ready, waiting...");
+        // Wait up to 30 seconds for backend to be ready
+        let attempts = 0;
+        const maxAttempts = 30; // 30 seconds with 1 second intervals
+        let currentHealthData = healthData;
+        
+        while (!currentHealthData.backend_ready && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const retryResponse = await fetch(`${baseUrl}/health`);
+          currentHealthData = await retryResponse.json();
+          if (currentHealthData.backend_ready) {
+            console.log("Backend is now ready!");
+            break;
+          }
+          attempts++;
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error("Backend failed to become ready within 30 seconds");
+        }
+      }
+    } catch (error) {
+      console.warn("Could not check backend readiness, proceeding anyway:", error);
+      // Continue with connection attempt even if health check fails
+    }
+
     if (websocketRef.current && websocketRef.current.getConnectionState()) {
       // Check if diarization setting is different from the one used for current connection
       // This requires AudioInsightWebSocket to expose its currentDiarizationSetting or a way to check it.
@@ -341,11 +376,46 @@ export function useAudioInsight(): UseAudioInsightReturn {
     }
   }, [transcriptData, toast]);
 
-  const clearSession = useCallback(() => {
-    setTranscriptData(null);
-    setAnalysis(null);
-    toast({ title: "Session Cleared", description: "Transcript and analysis data have been cleared." });
-  }, [toast]);
+  const clearSession = useCallback(async () => {
+    try {
+      // Disconnect WebSocket first
+      if (websocketRef.current) {
+        websocketRef.current.disconnect();
+      }
+      
+      // Stop any ongoing recording
+      if (audioCtx.isRecording) {
+        audioCtx.stopRecording();
+      }
+      
+      // Call backend to reset everything
+      await apiRef.current.cleanupSession();
+      
+      // Clear all frontend state
+      setTranscriptData(null);
+      setAnalysis(null);
+      setIsProcessingFile(false);
+      
+      // Wait a moment for backend cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Reconnect WebSocket with current diarization setting
+      await initializeWebSocket(diarizationEnabled);
+      
+      toast({ 
+        title: "Session Reset", 
+        description: "All data cleared and system reset to fresh state." 
+      });
+      
+    } catch (error) {
+      console.error("Error during session reset:", error);
+      toast({ 
+        title: "Reset Error", 
+        description: "Failed to completely reset session. You may need to refresh the page.", 
+        variant: "destructive" 
+      });
+    }
+  }, [toast, audioCtx, diarizationEnabled, initializeWebSocket]);
   
   useEffect(() => {
     checkHealth();

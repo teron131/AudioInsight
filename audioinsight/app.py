@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 # Global AudioInsight kit instance
 kit = None
+backend_ready = False  # Flag to track if backend is fully warmed up
 
 
 # =============================================================================
@@ -74,7 +75,9 @@ def handle_api_exception(operation: str, error: Exception) -> Dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan and initialize AudioInsight."""
-    global kit
+    global kit, backend_ready
+    logger.info("🚀 Starting AudioInsight backend initialization...")
+
     # Instantiate AudioInsight with the same CLI arguments as the server entrypoint
     args = parse_args()
     kit = AudioInsight(**vars(args))
@@ -93,7 +96,31 @@ async def lifespan(app: FastAPI):
     enable_display_parsing(True)
     logger.info(f"Display text parsing enabled with fast LLM model: {fast_llm_model}")
 
+    # Warm up the AudioProcessor system to ensure workers are ready
+    logger.info("🔥 Warming up AudioProcessor system...")
+    try:
+        from .processors import AudioProcessor
+
+        await AudioProcessor.warm_up_system()
+
+        # Create a test processor to pre-initialize components
+        test_processor = AudioProcessor()
+        logger.info("✅ Test AudioProcessor created - components pre-initialized")
+
+        # Clean it up
+        await test_processor.cleanup()
+        logger.info("✅ Backend warmup completed - system ready for connections")
+        backend_ready = True
+
+    except Exception as e:
+        logger.error(f"❌ Backend warmup failed: {e}")
+        # Still set ready=True to allow connections, but log the issue
+        backend_ready = True
+
     yield
+
+    # Cleanup on shutdown
+    backend_ready = False
 
 
 # Create FastAPI application
@@ -109,9 +136,37 @@ async def get_root():
     return HTMLResponse(kit.web_interface())
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint that includes backend readiness status."""
+    global backend_ready, kit
+
+    health_status = {"status": "ok", "backend_ready": backend_ready, "kit_initialized": kit is not None, "timestamp": time.time()}
+
+    # Additional readiness checks
+    if kit:
+        try:
+            # Check if key models are loaded
+            health_status["whisper_loaded"] = hasattr(kit, "asr") and kit.asr is not None
+            health_status["diarization_available"] = hasattr(kit, "diarization") and kit.diarization is not None
+        except Exception as e:
+            logger.warning(f"Error checking kit status: {e}")
+            health_status["kit_status_error"] = str(e)
+
+    return health_status
+
+
 @app.websocket("/asr")
 async def websocket_endpoint(websocket: WebSocket):
     """Unified WebSocket endpoint for both live recording and file upload."""
+    global backend_ready
+
+    # Check if backend is ready before proceeding
+    if not backend_ready:
+        logger.warning("❌ WebSocket connection attempted before backend is ready")
+        await websocket.close(code=1013, reason="Backend not ready")
+        return
+
     await handle_websocket_connection(websocket)
 
 
@@ -159,6 +214,55 @@ async def cleanup_temp_file(file_path: str):
     return await handle_temp_file_cleanup(file_path)
 
 
+@app.post("/api/sessions/reset")
+async def reset_session():
+    """Reset current session with complete clean state."""
+    global kit, backend_ready
+
+    try:
+        logger.info("🧹 Starting comprehensive session reset...")
+
+        # First, clean up the global audio processor
+        await cleanup_global_processor()
+        logger.info("🧹 Global audio processor cleaned up")
+
+        # Clear display parser cache
+        try:
+            display_parser = get_display_parser()
+            display_parser.clear_cache()
+            logger.info("🧹 Display parser cache cleared")
+        except Exception as e:
+            logger.warning(f"Failed to clear display parser cache: {e}")
+
+        # Reset the AudioInsight singleton instance to clear all cached state
+        if kit:
+            try:
+                kit.reset_instance()
+                logger.info("🧹 AudioInsight kit instance reset")
+            except Exception as e:
+                logger.warning(f"Failed to reset kit instance: {e}")
+
+        # Re-initialize with same arguments to ensure fresh state
+        args = parse_args()
+        kit = AudioInsight(**vars(args))
+
+        # Re-configure display text parsing
+        from .llm import ParserConfig
+
+        fast_llm_model = getattr(args, "fast_llm", "openai/gpt-4.1-nano")
+        display_config = ParserConfig(model_id=fast_llm_model)
+        display_parser = get_display_parser()
+        display_parser.config = display_config
+        enable_display_parsing(True)
+
+        logger.info("🧹 Comprehensive session reset completed - all resources reset to fresh state")
+        return {"status": "success", "message": "Session reset completely - fresh state restored", "timestamp": time.time(), "backend_ready": backend_ready}
+
+    except Exception as e:
+        logger.error(f"Error during comprehensive session reset: {e}")
+        return {"status": "error", "message": f"Reset failed: {str(e)}"}
+
+
 @app.post("/cleanup-session")
 async def cleanup_session():
     """Force cleanup of all audio processing resources.
@@ -166,26 +270,8 @@ async def cleanup_session():
     This endpoint clears all memory, resets processors, and prepares for a fresh session.
     Useful to prevent memory leaks between file uploads or when the UI is refreshed.
     """
-    global kit
-    try:
-        # First, clean up the global audio processor
-        await cleanup_global_processor()
-        logger.info("🧹 Global audio processor cleaned up")
-
-        # Reset the AudioInsight singleton instance to clear all cached state
-        if kit:
-            kit.reset_instance()
-
-        # Re-initialize with same arguments to ensure fresh state
-        args = parse_args()
-        kit = AudioInsight(**vars(args))
-
-        logger.info("🧹 Session cleanup completed - all resources reset")
-        return {"status": "success", "message": "Session cleaned up successfully"}
-
-    except Exception as e:
-        logger.error(f"Error during session cleanup: {e}")
-        return {"status": "error", "message": f"Cleanup failed: {str(e)}"}
+    # Use the enhanced reset function
+    return await reset_session()
 
 
 @app.post("/api/display-parser/enable")
@@ -392,19 +478,62 @@ async def get_current_session():
 
 @app.post("/api/sessions/reset")
 async def reset_session():
-    """Reset current session with clean state."""
-    try:
-        # Use existing cleanup functionality
-        result = await cleanup_session()
+    """Reset current session with complete clean state."""
+    global kit, backend_ready
 
-        if result.get("status") == "success":
-            return {"status": "success", "message": "Session reset successfully", "timestamp": time.time()}
-        else:
-            return result
+    try:
+        logger.info("🧹 Starting comprehensive session reset...")
+
+        # First, clean up the global audio processor
+        await cleanup_global_processor()
+        logger.info("🧹 Global audio processor cleaned up")
+
+        # Clear display parser cache
+        try:
+            display_parser = get_display_parser()
+            display_parser.clear_cache()
+            logger.info("🧹 Display parser cache cleared")
+        except Exception as e:
+            logger.warning(f"Failed to clear display parser cache: {e}")
+
+        # Reset the AudioInsight singleton instance to clear all cached state
+        if kit:
+            try:
+                kit.reset_instance()
+                logger.info("🧹 AudioInsight kit instance reset")
+            except Exception as e:
+                logger.warning(f"Failed to reset kit instance: {e}")
+
+        # Re-initialize with same arguments to ensure fresh state
+        args = parse_args()
+        kit = AudioInsight(**vars(args))
+
+        # Re-configure display text parsing
+        from .llm import ParserConfig
+
+        fast_llm_model = getattr(args, "fast_llm", "openai/gpt-4.1-nano")
+        display_config = ParserConfig(model_id=fast_llm_model)
+        display_parser = get_display_parser()
+        display_parser.config = display_config
+        enable_display_parsing(True)
+
+        logger.info("🧹 Comprehensive session reset completed - all resources reset to fresh state")
+        return {"status": "success", "message": "Session reset completely - fresh state restored", "timestamp": time.time(), "backend_ready": backend_ready}
 
     except Exception as e:
-        logger.error(f"Error resetting session: {e}")
-        return {"status": "error", "message": f"Error resetting session: {str(e)}"}
+        logger.error(f"Error during comprehensive session reset: {e}")
+        return {"status": "error", "message": f"Reset failed: {str(e)}"}
+
+
+@app.post("/cleanup-session")
+async def cleanup_session():
+    """Force cleanup of all audio processing resources.
+
+    This endpoint clears all memory, resets processors, and prepares for a fresh session.
+    Useful to prevent memory leaks between file uploads or when the UI is refreshed.
+    """
+    # Use the enhanced reset function
+    return await reset_session()
 
 
 # =============================================================================

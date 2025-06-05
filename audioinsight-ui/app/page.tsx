@@ -15,6 +15,7 @@ import { useRef, useState } from 'react';
 export default function AudioInsightPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [diarizationEnabled, setDiarizationEnabled] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   
   const {
     isConnected,
@@ -28,6 +29,7 @@ export default function AudioInsightPage() {
     exportTranscript,
     clearSession,
     systemHealth,
+    setDiarizationEnabled: setDiarizationEnabledHook,
   } = useAudioInsight();
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,6 +43,20 @@ export default function AudioInsightPage() {
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleClearSession = async () => {
+    setIsClearing(true);
+    try {
+      await clearSession();
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  const handleDiarizationChange = (enabled: boolean) => {
+    setDiarizationEnabled(enabled);
+    setDiarizationEnabledHook(enabled);
   };
 
   const hasTranscriptData = transcriptData && transcriptData.lines.length > 0;
@@ -104,7 +120,7 @@ export default function AudioInsightPage() {
               <Switch 
                 id="diarization-toggle"
                 checked={diarizationEnabled}
-                onCheckedChange={setDiarizationEnabled}
+                onCheckedChange={handleDiarizationChange}
                 disabled={isRecording || isProcessingFile}
               />
               <Label htmlFor="diarization-toggle" className="text-base">Diarization</Label>
@@ -113,13 +129,20 @@ export default function AudioInsightPage() {
           
           <div>
             <Button 
-              onClick={clearSession}
+              onClick={handleClearSession}
               variant="outline"
               size="sm"
-              disabled={isRecording || isProcessingFile}
+              disabled={isRecording || isProcessingFile || isClearing}
               className="text-base"
             >
-              Clear Session
+              {isClearing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Clearing...
+                </>
+              ) : (
+                "Clear Session"
+              )}
             </Button>
           </div>
         </div>

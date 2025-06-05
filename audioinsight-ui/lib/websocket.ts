@@ -119,10 +119,17 @@ export class AudioInsightWebSocket {
           reject(new Error('WebSocket connection failed'));
         };
 
-        this.websocket.onclose = () => {
+        this.websocket.onclose = (event) => {
           console.log('WebSocket closed');
           this.isConnected = false;
           this.onStatusChange(false);
+          
+          // Don't reconnect if backend is not ready (code 1013)
+          if (event && event.code === 1013) {
+            console.log('Backend not ready, will not attempt reconnection');
+            this.onError('Backend is starting up, please wait...');
+            return;
+          }
           
           if (this.reconnectAttempts < this.maxReconnectAttempts) {
             setTimeout(() => {

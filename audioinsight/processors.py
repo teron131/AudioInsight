@@ -66,6 +66,7 @@ class FFmpegProcessor:
 
     def __init__(self, args):
         self.args = args
+        self._is_shutting_down = False  # Track cleanup state to prevent restart loops
         self.sample_rate = 16000
         self.channels = 1
         self.bytes_per_sample = 2
@@ -233,6 +234,7 @@ class FFmpegProcessor:
                 self.ffmpeg_process = self.start_ffmpeg_decoder()
                 self.pcm_buffer_length = 0  # Reset buffer length for new process
                 self.last_ffmpeg_activity = time()
+                self._is_shutting_down = False  # Reset shutdown flag on successful restart
                 logger.info("FFmpeg process restarted successfully")
                 return
 
@@ -361,10 +363,19 @@ class FFmpegProcessor:
         retry_count = 0
         max_retries = 1  # Reduce max retries to prevent restart loops
 
+        # Check if we're in cleanup/shutdown mode - don't process if so
+        if hasattr(self, "_is_shutting_down") and self._is_shutting_down:
+            logger.debug("FFmpeg processor is shutting down, ignoring audio chunk")
+            return
+
         while retry_count < max_retries:
             try:
                 # Check if FFmpeg process is available and healthy
                 if not self.ffmpeg_process or not hasattr(self.ffmpeg_process, "stdin") or self.ffmpeg_process.poll() is not None:
+                    # Don't restart if we're shutting down
+                    if hasattr(self, "_is_shutting_down") and self._is_shutting_down:
+                        logger.debug("FFmpeg process unavailable during shutdown, not restarting")
+                        return
                     logger.warning("FFmpeg process not available, restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
@@ -372,6 +383,10 @@ class FFmpegProcessor:
 
                 # Check if stdin is still open
                 if self.ffmpeg_process.stdin.closed:
+                    # Don't restart if we're shutting down
+                    if hasattr(self, "_is_shutting_down") and self._is_shutting_down:
+                        logger.debug("FFmpeg stdin closed during shutdown, not restarting")
+                        return
                     logger.warning("FFmpeg stdin is closed, restarting...")
                     await self.restart_ffmpeg()
                     retry_count += 1
@@ -420,6 +435,9 @@ class FFmpegProcessor:
     def cleanup(self):
         """Clean up FFmpeg resources."""
         logger.info("Starting FFmpeg cleanup...")
+
+        # Set shutdown flag to prevent restart loops during cleanup
+        self._is_shutting_down = True
 
         if self.ffmpeg_process:
             try:
@@ -515,7 +533,7 @@ class TranscriptionProcessor:
         # Incremental parsing optimization - track what's already been parsed
         self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
         self.min_text_threshold = 100  # Variable: parse all if text < this many chars
-        self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
+        self.sentence_percentage = 0.4  # Variable: parse last 40% of sentences if text >= threshold
 
     async def start_parser_worker(self):
         """Start the parser worker task that processes queued text."""
@@ -1111,7 +1129,7 @@ class AudioProcessor:
         self._parser_enabled = True  # Enable transcript parsing by default
         self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
         self.min_text_threshold = 100  # Variable: parse all if text < this many chars
-        self.sentence_percentage = 0.25  # Variable: parse last 25% of sentences if text >= threshold
+        self.sentence_percentage = 0.40  # Variable: parse last 40% of sentences if text >= threshold
 
         # OPTIMIZATION: Pre-initialize LLM components for faster first connection
         self._initialize_llm_components()
@@ -1961,6 +1979,8 @@ class AudioProcessor:
             try:
                 # Ensure FFmpeg cleanup happens synchronously and completely
                 await asyncio.get_event_loop().run_in_executor(None, self.ffmpeg_processor.cleanup)
+                # Reset the shutdown flag for the next session
+                self.ffmpeg_processor._is_shutting_down = False
                 # Wait a moment for cleanup to complete
                 await asyncio.sleep(0.5)
             except Exception as e:
