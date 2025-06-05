@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import time
+import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -27,6 +29,25 @@ def get_shared_executor() -> ThreadPoolExecutor:
     return _shared_executor
 
 
+class WorkItem:
+    """Wrapper for work items with deduplication support."""
+
+    def __init__(self, data: Any, item_id: Optional[str] = None):
+        self.data = data
+        self.item_id = item_id or str(uuid.uuid4())
+        self.created_at = time.time()
+
+    def get_content_hash(self) -> str:
+        """Get a hash of the content for deduplication."""
+        if isinstance(self.data, str):
+            return hashlib.md5(self.data.encode()).hexdigest()
+        elif isinstance(self.data, (tuple, list)) and len(self.data) > 0 and isinstance(self.data[0], str):
+            # For tuples like (text, speaker_info, timestamps)
+            return hashlib.md5(str(self.data[0]).encode()).hexdigest()
+        else:
+            return hashlib.md5(str(self.data).encode()).hexdigest()
+
+
 class EventBasedProcessor(ABC):
     """
     Base class for event-based processing with queue management and worker tasks.
@@ -34,25 +55,28 @@ class EventBasedProcessor(ABC):
     Provides common functionality for:
     - Event-based triggering instead of polling
     - Queue-based processing to prevent overflow
-    - Worker task management
+    - Worker task management with coordination
     - Trigger condition checking
     - Concurrent processing for better performance
     - Adaptive frequency matching actual processing times
+    - Work deduplication and atomic state management
     """
 
-    def __init__(self, queue_maxsize: int = 10, cooldown_seconds: float = 2.0, max_concurrent_workers: int = 2):
+    def __init__(self, queue_maxsize: int = 10, cooldown_seconds: float = 2.0, max_concurrent_workers: int = 2, enable_work_coordination: bool = True):
         """Initialize the event-based processor.
 
         Args:
             queue_maxsize: Maximum size of the processing queue
             cooldown_seconds: Initial cooldown time (will be adapted based on actual processing)
             max_concurrent_workers: Maximum number of concurrent worker tasks
+            enable_work_coordination: Enable work coordination to prevent duplicate processing
         """
         # Event-based triggering
         self.new_event = asyncio.Event()
         self.processing_queue = asyncio.Queue(maxsize=queue_maxsize)
         self.worker_tasks = []
         self.max_concurrent_workers = max_concurrent_workers
+        self.enable_work_coordination = enable_work_coordination
 
         # Processing state
         self.is_running = False
@@ -83,16 +107,31 @@ class EventBasedProcessor(ABC):
         self.accumulated_data = ""
         self.last_processed_data = ""
 
+        # Work coordination and deduplication
+        if self.enable_work_coordination:
+            self._coordination_lock = asyncio.Lock()
+            self._processing_items: Set[str] = set()  # Track items being processed
+            self._processed_hashes: Set[str] = set()  # Track completed work by content hash
+            self._max_processed_hashes = 100  # Limit memory usage
+            logger.info(f"{self.__class__.__name__}: Work coordination enabled")
+
     async def start_worker(self):
-        """Start the worker task for processing with parallel startup to reduce bottlenecks."""
+        """Start the worker task for processing with coordination support."""
         if self.worker_tasks == [] and not self.is_running:
             self.is_running = True
 
-            # Start all workers in parallel for faster initialization
+            # For stateful operations, use single worker to avoid race conditions
+            # For stateless operations, use multiple workers for performance
+            actual_workers = 1 if self.enable_work_coordination and self._is_stateful_processor() else self.max_concurrent_workers
+
+            if actual_workers != self.max_concurrent_workers:
+                logger.info(f"{self.__class__.__name__}: Using single worker mode for stateful operations (requested {self.max_concurrent_workers}, using {actual_workers})")
+
+            # Start workers in parallel for faster initialization
             self.worker_tasks = []
             worker_tasks_creation = []
 
-            for i in range(self.max_concurrent_workers):
+            for i in range(actual_workers):
                 # Create worker tasks in parallel - don't await each one
                 worker_task = asyncio.create_task(self._worker())
                 self.worker_tasks.append(worker_task)
@@ -101,7 +140,15 @@ class EventBasedProcessor(ABC):
             # Small delay to allow workers to start up properly
             await asyncio.sleep(0.01)
 
-            logger.info(f"{self.__class__.__name__} {len(self.worker_tasks)} workers started in parallel")
+            logger.info(f"{self.__class__.__name__} {len(self.worker_tasks)} workers started (coordination: {self.enable_work_coordination})")
+
+    def _is_stateful_processor(self) -> bool:
+        """Check if this processor manages stateful operations that require coordination.
+
+        Override in subclasses that manage incremental state like parsing.
+        """
+        # Default: assume stateless unless overridden
+        return False
 
     async def stop_worker(self):
         """Stop the worker task."""
@@ -123,10 +170,14 @@ class EventBasedProcessor(ABC):
                 logger.warning(f"Error stopping {self.__class__.__name__} workers: {e}")
             finally:
                 self.worker_tasks = []
+                # Clear coordination state
+                if self.enable_work_coordination:
+                    self._processing_items.clear()
+                    self._processed_hashes.clear()
                 logger.info(f"{self.__class__.__name__} workers stopped")
 
     async def _worker(self):
-        """Worker task that processes queued items serially with adaptive frequency tracking."""
+        """Worker task that processes queued items with coordination."""
         worker_id = id(asyncio.current_task())
         logger.info(f"{self.__class__.__name__} worker {worker_id} started")
 
@@ -138,13 +189,23 @@ class EventBasedProcessor(ABC):
                 if item is None:  # Shutdown signal
                     break
 
+                # Handle work coordination if enabled
+                if self.enable_work_coordination:
+                    should_process, work_item = await self._coordinate_work(item, worker_id)
+                    if not should_process:
+                        self.processing_queue.task_done()
+                        continue
+                    actual_item = work_item.data
+                else:
+                    actual_item = item
+
                 # Track active workers for better queue status
                 self.active_workers += 1
                 start_time = time.time()
 
                 try:
                     # Process the item
-                    await self._process_item(item)
+                    await self._process_item(actual_item)
 
                     # Track performance metrics with adaptive frequency
                     processing_time = time.time() - start_time
@@ -165,6 +226,11 @@ class EventBasedProcessor(ABC):
                     logger.warning(f"{self.__class__.__name__} worker {worker_id} processing failed: {e}")
                 finally:
                     self.active_workers -= 1
+
+                    # Clean up coordination state
+                    if self.enable_work_coordination and isinstance(item, WorkItem):
+                        await self._cleanup_work_coordination(item)
+
                     self.processing_queue.task_done()
 
             except asyncio.TimeoutError:
@@ -174,6 +240,49 @@ class EventBasedProcessor(ABC):
                 logger.error(f"Error in {self.__class__.__name__} worker {worker_id}: {e}")
 
         logger.info(f"{self.__class__.__name__} worker {worker_id} stopped")
+
+    async def _coordinate_work(self, item: Any, worker_id: int) -> tuple[bool, Optional[WorkItem]]:
+        """Coordinate work to prevent duplicate processing.
+
+        Returns:
+            tuple: (should_process, work_item)
+        """
+        work_item = item if isinstance(item, WorkItem) else WorkItem(item)
+
+        async with self._coordination_lock:
+            # Check if this exact item is already being processed
+            if work_item.item_id in self._processing_items:
+                logger.debug(f"Worker {worker_id}: Skipping duplicate item {work_item.item_id}")
+                return False, None
+
+            # Check if we've already processed this content
+            content_hash = work_item.get_content_hash()
+            if content_hash in self._processed_hashes:
+                logger.debug(f"Worker {worker_id}: Skipping already processed content {content_hash[:8]}")
+                return False, None
+
+            # Mark as being processed
+            self._processing_items.add(work_item.item_id)
+            logger.debug(f"Worker {worker_id}: Processing item {work_item.item_id} (hash: {content_hash[:8]})")
+
+            return True, work_item
+
+    async def _cleanup_work_coordination(self, work_item: WorkItem):
+        """Clean up coordination state after processing."""
+        async with self._coordination_lock:
+            # Remove from processing set
+            self._processing_items.discard(work_item.item_id)
+
+            # Add to processed hashes
+            content_hash = work_item.get_content_hash()
+            self._processed_hashes.add(content_hash)
+
+            # Limit memory usage for processed hashes
+            if len(self._processed_hashes) > self._max_processed_hashes:
+                # Remove oldest hashes (simple FIFO approximation)
+                oldest_hashes = list(self._processed_hashes)[:10]
+                for old_hash in oldest_hashes:
+                    self._processed_hashes.discard(old_hash)
 
     @abstractmethod
     async def _process_item(self, item: Any):
@@ -280,7 +389,7 @@ class EventBasedProcessor(ABC):
             logger.debug(f"{self.__class__.__name__}: ✅ Processing completed in {processing_time:.2f}s, optimal frequency: {frequency_hz:.1f} Hz")
 
     async def queue_for_processing(self, item: Any) -> bool:
-        """Queue an item for processing.
+        """Queue an item for processing with deduplication support.
 
         Args:
             item: Item to queue
@@ -289,7 +398,21 @@ class EventBasedProcessor(ABC):
             bool: True if successfully queued, False otherwise
         """
         try:
-            self.processing_queue.put_nowait(item)
+            # Wrap item for coordination if enabled
+            if self.enable_work_coordination:
+                work_item = item if isinstance(item, WorkItem) else WorkItem(item)
+
+                # Quick check for recent duplicates before queuing
+                async with self._coordination_lock:
+                    content_hash = work_item.get_content_hash()
+                    if content_hash in self._processed_hashes:
+                        logger.debug(f"Skipping duplicate content before queuing: {content_hash[:8]}")
+                        return False
+
+                self.processing_queue.put_nowait(work_item)
+            else:
+                self.processing_queue.put_nowait(item)
+
             self.new_event.set()
             return True
         except asyncio.QueueFull:
@@ -310,7 +433,7 @@ class EventBasedProcessor(ABC):
         """
         avg_processing_time = self.total_processing_time / max(self.total_processed, 1)
 
-        return {
+        status = {
             "queue_size": self.processing_queue.qsize(),
             "active_workers": self.active_workers,
             "is_running": self.is_running,
@@ -323,6 +446,18 @@ class EventBasedProcessor(ABC):
             "optimal_frequency_hz": 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0,
         }
 
+        # Add coordination info if enabled
+        if self.enable_work_coordination:
+            status.update(
+                {
+                    "work_coordination_enabled": True,
+                    "processing_items": len(getattr(self, "_processing_items", set())),
+                    "processed_hashes": len(getattr(self, "_processed_hashes", set())),
+                }
+            )
+
+        return status
+
     async def scale_workers(self, target_workers: int):
         """Dynamically scale the number of workers up or down.
 
@@ -331,6 +466,12 @@ class EventBasedProcessor(ABC):
         """
         if not self.is_running:
             logger.warning(f"Cannot scale {self.__class__.__name__} workers when not running")
+            return
+
+        # For stateful processors, enforce single worker
+        if self.enable_work_coordination and self._is_stateful_processor():
+            if target_workers != 1:
+                logger.info(f"{self.__class__.__name__}: Stateful processor - maintaining single worker (requested {target_workers})")
             return
 
         current_workers = len(self.worker_tasks)

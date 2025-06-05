@@ -86,6 +86,8 @@ class Summarizer(EventBasedProcessor):
     LLM-based transcription processor that monitors transcription activity
     and generates inference after periods of inactivity or after a certain number of conversations.
     Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
+
+    This processor is mostly stateless but uses coordination to prevent duplicate summaries.
     """
 
     def __init__(
@@ -101,9 +103,9 @@ class Summarizer(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             trigger_config: Configuration for when to trigger LLM inference
         """
-        # Initialize base class with adaptive frequency optimized for summarization
-        # Start with reasonable initial cooldown but let adaptive system adjust based on actual LLM performance
-        super().__init__(queue_maxsize=200, cooldown_seconds=1.0, max_concurrent_workers=3)  # Large queue to handle conversation bursts  # Conservative start, will adapt to actual processing times (typically 2-5s)  # Multiple workers for better parallel processing
+        # Initialize base class with coordination enabled for deduplication
+        # Use fewer workers to reduce duplicate processing while maintaining performance
+        super().__init__(queue_maxsize=100, cooldown_seconds=1.0, max_concurrent_workers=2, enable_work_coordination=True)  # Moderate queue to handle conversation bursts  # Conservative start, will adapt to actual processing times (typically 2-5s)  # Reduced from 3 to 2 workers to minimize duplicates  # Enable coordination for deduplication
 
         self.model_id = model_id
         self.api_key = api_key  # Store for lazy initialization
@@ -120,6 +122,12 @@ class Summarizer(EventBasedProcessor):
 
         # Statistics - lightweight initialization
         self.stats = SummarizerStats()
+
+        logger.info(f"Summarizer initialized with {self.max_concurrent_workers} workers and work coordination")
+
+    def _is_stateful_processor(self) -> bool:
+        """Mark this processor as stateless to allow multiple workers with coordination."""
+        return False  # Summarizer is mostly stateless, just uses coordination for deduplication
 
     @property
     def llm_client(self) -> UniversalLLM:

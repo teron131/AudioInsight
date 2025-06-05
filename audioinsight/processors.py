@@ -3,6 +3,7 @@ import math
 import re
 import traceback
 from datetime import timedelta
+from difflib import SequenceMatcher
 from time import sleep, time
 from typing import Optional
 
@@ -505,8 +506,7 @@ class TranscriptionProcessor:
         self.full_transcription = ""
         self.sep = " "  # Default separator
 
-        # Simplified event-based triggering - use the new Parser base class
-        self.accumulated_text_for_parser = ""
+        # No separate accumulation - will read from coordinator's global memory
 
         # Initialize transcription engine if enabled
         if self.args.transcription:
@@ -665,13 +665,36 @@ class TranscriptionProcessor:
                     buffer = _buffer.text
                     end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
-                    # Avoid duplicating content
-                    if buffer in self.full_transcription:
-                        buffer = ""
+                    # ENHANCED: Avoid duplicating content with proper overlap detection
+                    if buffer and self.full_transcription:
+                        # Check for exact substring match
+                        if buffer in self.full_transcription:
+                            buffer = ""
+                        else:
+                            # Check for partial overlap using fuzzy matching
+                            similarity = SequenceMatcher(None, buffer.lower().strip(), self.full_transcription[-len(buffer) * 2 :].lower().strip()).ratio()
+                            if similarity > 0.8:  # 80% similarity threshold
+                                logger.debug(f"Detected buffer overlap (similarity: {similarity:.2f}), clearing buffer")
+                                buffer = ""
+                            else:
+                                # Check for suffix overlap - common case where buffer repeats end of transcript
+                                transcript_words = self.full_transcription.lower().split()
+                                buffer_words = buffer.lower().split()
+
+                                if len(buffer_words) > 0 and len(transcript_words) > 0:
+                                    # Check if buffer words appear at the end of transcript
+                                    max_overlap = min(len(buffer_words), len(transcript_words))
+                                    for i in range(1, max_overlap + 1):
+                                        if transcript_words[-i:] == buffer_words[:i]:
+                                            # Found overlap - remove overlapping part from buffer
+                                            remaining_buffer_words = buffer_words[i:]
+                                            buffer = " ".join(remaining_buffer_words) if remaining_buffer_words else ""
+                                            logger.debug(f"Removed {i}-word suffix overlap from buffer")
+                                            break
 
                     await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
 
-                    # Accumulate text for parser with event-based triggering
+                    # Work with GLOBAL MEMORY instead of local accumulation
                     if self.coordinator and new_tokens:
                         new_text = self.sep.join([t.text for t in new_tokens])
                         # Convert to Traditional Chinese for consistency
@@ -692,58 +715,53 @@ class TranscriptionProcessor:
                                 except Exception as e:
                                     logger.debug(f"Non-critical LLM update error: {e}")
 
-                            # Accumulate text for parser
-                            if self.accumulated_text_for_parser:
-                                self.accumulated_text_for_parser += self.sep + new_text_converted
-                            else:
-                                self.accumulated_text_for_parser = new_text_converted
+                            # ATOMIC: Get current global transcript content for parsing decisions
+                            async with self.coordinator.lock:
+                                # Build current full text from global memory
+                                committed_text = self.coordinator.sep.join([token.text for token in self.coordinator.global_transcript["committed_tokens"] if token.text and token.text.strip()])
+                                current_buffer = self.coordinator.global_transcript["current_buffer"]
+                                full_current_text = (committed_text + " " + current_buffer).strip() if current_buffer else committed_text
 
                             # Get accumulated speaker info (use most recent speaker)
                             speaker_info = None
                             if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
                                 speaker_info = [{"speaker": new_tokens[0].speaker}]
 
-                            # Use new event-based Parser system without blocking
+                            # Use event-based Parser system reading from global memory
                             min_batch_size = 200  # Maintain threshold for batching
 
-                            if len(self.accumulated_text_for_parser) >= min_batch_size:
-                                # OPTIMIZATION: Use intelligent incremental parsing
-                                text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
+                            if len(full_current_text) >= min_batch_size:
+                                # OPTIMIZATION: Use intelligent incremental parsing from global memory
+                                text_to_parse = self._get_text_to_parse(full_current_text)
 
                                 if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
                                     # OPTIMIZATION: Smart batching to reduce API calls
-                                    # Only parse if we have substantial new content or enough time has passed
                                     current_time = time()
                                     time_since_last_parse = current_time - getattr(self, "_last_parse_time", 0)
                                     min_parse_interval = 2.0  # Minimum 2 seconds between parsing requests
 
-                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval  # Large enough batch  # Enough time passed
+                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval
 
                                     if should_parse_now:
-                                        # CRITICAL FIX: Make parser request completely non-blocking
+                                        # CRITICAL: Make parser request completely non-blocking
                                         try:
                                             # Fire and forget - don't await the parser queue
                                             asyncio.create_task(self._queue_parser_non_blocking(text_to_parse, speaker_info))
-                                            logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(self.accumulated_text_for_parser)} total accumulated)")
+                                            logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(full_current_text)} total in global memory)")
 
-                                            # Update last parsed text to track progress - CRITICAL: Must be BEFORE reset
-                                            self.last_parsed_text = self.accumulated_text_for_parser
+                                            # Update last parsed text to track progress
+                                            self.last_parsed_text = full_current_text
                                             self._last_parse_time = current_time
 
-                                            # Reset accumulation AFTER tracking what was parsed
-                                            self.accumulated_text_for_parser = ""
                                         except Exception as e:
                                             logger.debug(f"Non-critical parser queue error: {e}")
-                                            # Continue accumulating on error
-                                            logger.info(f"⏳ Parser queue error, continuing to accumulate text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
                                     else:
                                         logger.debug(f"⏳ Delaying parse - batch size: {len(text_to_parse)}, time since last: {time_since_last_parse:.1f}s")
                                 else:
-                                    logger.info("⚠️ No new text to parse, skipping this update")
-                                    self.accumulated_text_for_parser = ""
+                                    logger.debug("⚠️ No new text to parse from global memory")
                             else:
-                                # Continue accumulating text until batch size is reached
-                                logger.debug(f"⏳ Accumulating text: {len(self.accumulated_text_for_parser)}/{min_batch_size} chars")
+                                # Continue building text in global memory until batch size is reached
+                                logger.debug(f"⏳ Building text in global memory: {len(full_current_text)}/{min_batch_size} chars")
 
                     # Get accumulated speaker info (use most recent speaker)
                     speaker_info = None
@@ -787,34 +805,52 @@ class TranscriptionProcessor:
 
     def finish_transcription(self):
         """Finish the transcription to get any remaining tokens."""
-        # Flush any remaining accumulated text to parser using the new event-based system
-        if self.coordinator and self.accumulated_text_for_parser.strip():
-            # CRITICAL FIX: Also update LLM with remaining accumulated text before parsing
-            if self.coordinator.llm:
-                self.coordinator.llm.update_transcription(self.accumulated_text_for_parser, None)
-                logger.info(f"🔄 Updated LLM with remaining accumulated text: {len(self.accumulated_text_for_parser)} chars")
-
-            # Try to queue remaining text for processing using the new event-based parser
+        # Work with global memory instead of local accumulation
+        if self.coordinator:
             try:
-                if self.coordinator.transcript_parser:
-                    # Use incremental parsing for remaining text
-                    text_to_parse = self._get_text_to_parse(self.accumulated_text_for_parser)
+                # ATOMIC: Get final content from global memory
+                async def flush_global_memory():
+                    async with self.coordinator.lock:
+                        # Build final text from global memory
+                        committed_text = self.coordinator.sep.join([token.text for token in self.coordinator.global_transcript["committed_tokens"] if token.text and token.text.strip()])
+                        current_buffer = self.coordinator.global_transcript["current_buffer"]
+                        final_text = (committed_text + " " + current_buffer).strip() if current_buffer else committed_text
 
-                    if text_to_parse and text_to_parse.strip():
-                        # Use the new async queue method
-                        asyncio.create_task(self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, None, None))
-                        # Update tracking
-                        self.last_parsed_text = self.accumulated_text_for_parser
-                        logger.info(f"Queued remaining {len(text_to_parse)} chars for incremental parsing (from {len(self.accumulated_text_for_parser)} total)")
-                    else:
-                        logger.info("No new text in remaining buffer to parse")
+                        # Clear buffer since we're finishing
+                        self.coordinator.global_transcript["current_buffer"] = ""
 
-                    self.accumulated_text_for_parser = ""
-                else:
-                    logger.warning("No transcript parser available during finish")
+                        return final_text
+
+                # Get final text from global memory
+                import asyncio
+
+                try:
+                    # Try to get event loop, create one if needed
+                    loop = asyncio.get_running_loop()
+                    final_text = loop.run_until_complete(flush_global_memory())
+                except RuntimeError:
+                    # No event loop running
+                    final_text = asyncio.run(flush_global_memory())
+
+                if final_text.strip():
+                    # Update LLM with final text
+                    if self.coordinator.llm:
+                        self.coordinator.llm.update_transcription(final_text, None)
+                        logger.info(f"🔄 Updated LLM with final text from global memory: {len(final_text)} chars")
+
+                    # Queue final text for parsing
+                    if self.coordinator.transcript_parser:
+                        text_to_parse = self._get_text_to_parse(final_text)
+                        if text_to_parse and text_to_parse.strip():
+                            # Use the async queue method
+                            asyncio.create_task(self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, None, None))
+                            self.last_parsed_text = final_text
+                            logger.info(f"Queued final {len(text_to_parse)} chars for parsing from global memory")
+
             except Exception as e:
-                logger.warning(f"Failed to queue remaining text to parser: {e}")
+                logger.warning(f"Failed to process final text from global memory: {e}")
 
+        # Finish the ASR engine
         if self.online:
             try:
                 return self.online.finish()
@@ -822,10 +858,15 @@ class TranscriptionProcessor:
                 logger.warning(f"Failed to finish transcription: {e}")
         return None
 
-    def reset_parsing_state(self):
+    async def reset_parsing_state(self):
         """Reset the incremental parsing state for fresh sessions."""
         self.last_parsed_text = ""
-        self.accumulated_text_for_parser = ""
+        # No local accumulation to reset - using global memory
+
+        # Also reset parser state if available
+        if self.coordinator and self.coordinator.transcript_parser:
+            await self.coordinator.transcript_parser.reset_state()
+
         logger.debug("Reset incremental parsing state")
 
 
@@ -1000,7 +1041,18 @@ class Formatter:
                 lines.append({"speaker": speaker, "text": token.text, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
                 previous_speaker = speaker
             elif token.text:  # Only append if text isn't empty
-                lines[-1]["text"] += sep + token.text
+                # ENHANCED: Check for duplicate content before concatenating
+                existing_text = lines[-1]["text"]
+                new_token_text = token.text.strip()
+
+                # Skip if this token text is already contained in the existing text
+                if new_token_text and new_token_text not in existing_text:
+                    # Also check for substantial overlap using fuzzy matching
+                    similarity = SequenceMatcher(None, new_token_text.lower(), existing_text.lower()).ratio()
+                    if similarity < 0.8:  # Only append if less than 80% similar
+                        lines[-1]["text"] += sep + token.text
+                    # else: skip adding duplicate/highly similar content
+
                 lines[-1]["end"] = format_time(token.end)
                 lines[-1]["diff"] = round(token.end - last_end_diarized, 2)
 
@@ -1038,18 +1090,30 @@ class AudioProcessor:
         self.ffmpeg_health_check_interval = 10  # Less frequent health checks
         self.ffmpeg_max_idle_time = 30  # Allow much longer idle time before restart
 
-        # State management
+        # State management - SINGLE SOURCE OF TRUTH
         self.is_stopping = False
+        self.lock = asyncio.Lock()
+        self.beg_loop = time()
+        self.sep = " "  # Default separator
+        self.last_response_content = ""
+
+        # SINGLE GLOBAL MEMORY STORE - all workers access this atomically
+        self.global_transcript = {
+            "committed_tokens": [],  # Committed ASR tokens
+            "current_buffer": "",  # Current ASR buffer text
+            "parsed_content": "",  # Processed/parsed text
+            "end_buffer": 0,  # Buffer end time
+            "end_attributed_speaker": 0,  # Diarization progress
+        }
+
+        # Legacy fields for compatibility - will be populated from global_transcript
         self.tokens = []
         self.buffer_transcription = ""
         self.buffer_diarization = ""
         self.full_transcription = ""
         self.end_buffer = 0
         self.end_attributed_speaker = 0
-        self.lock = asyncio.Lock()
-        self.beg_loop = time()
-        self.sep = " "  # Default separator
-        self.last_response_content = ""
+
         self.summaries = []  # Initialize summaries list
         self._has_summaries = False  # Efficient flag to track summary availability
         self._last_summary_check = 0  # Timestamp of last summary check
@@ -1074,6 +1138,7 @@ class AudioProcessor:
         # Initialize LLM inference processor early if enabled
         self.llm = None
         self.llm_task = None
+        self._final_summary_generated = False  # Flag to prevent multiple final summaries
 
         # Initialize transcript parser for structured processing
         self.transcript_parser = None
@@ -1181,8 +1246,14 @@ class AudioProcessor:
             logger.debug(f"LLM client warm-up failed: {e} (non-critical)")
 
     async def update_transcription(self, new_tokens, buffer, end_buffer, full_transcription, sep):
-        """Thread-safe update of transcription with new data."""
+        """Thread-safe update of transcription with SINGLE GLOBAL MEMORY."""
         async with self.lock:
+            # Update the single source of truth
+            self.global_transcript["committed_tokens"].extend(new_tokens)
+            self.global_transcript["current_buffer"] = buffer
+            self.global_transcript["end_buffer"] = end_buffer
+
+            # Update legacy fields for compatibility
             self.tokens.extend(new_tokens)
             self.buffer_transcription = buffer
             self.end_buffer = end_buffer
@@ -1212,6 +1283,11 @@ class AudioProcessor:
             if not hasattr(self, "summaries"):
                 self.summaries = []
 
+            # FIXED: Allow final summaries during stopping state - only block AFTER final summary is generated
+            if getattr(self, "_final_summary_generated", False):
+                logger.info(f"⚠️ Ignoring inference result - final summary already generated")
+                return
+
             # Check for duplicate results (same result text)
             new_result = {
                 "timestamp": time(),
@@ -1220,15 +1296,34 @@ class AudioProcessor:
                 "text_length": len(transcription_text),
             }
 
-            # Only add if it's not a duplicate
-            is_duplicate = any(existing["summary"] == new_result["summary"] for existing in self.summaries)
+            # Enhanced duplicate detection - check both summary content and similarity
+            is_duplicate = False
+
+            # Check for exact matches and fuzzy similarity
+            for existing in self.summaries:
+                if existing["summary"] == new_result["summary"]:
+                    is_duplicate = True
+                    logger.info("⚠️ Exact duplicate inference result detected, not adding")
+                    break
+
+                similarity = SequenceMatcher(None, existing["summary"], new_result["summary"]).ratio()
+                if similarity > 0.8:  # Lowered threshold for better duplicate detection
+                    is_duplicate = True
+                    logger.info(f"⚠️ Highly similar inference result detected (similarity: {similarity:.3f}), not adding")
+                    break
+
+                # Check for highly similar content (same key points)
+                if set(existing.get("key_points", [])) == set(new_result.get("key_points", [])) and len(existing.get("key_points", [])) > 0:
+                    is_duplicate = True
+                    logger.info("⚠️ Similar inference result (same key points) detected, not adding")
+                    break
 
             if not is_duplicate:
                 self.summaries.append(new_result)
                 self._has_summaries = True  # Set efficient flag
                 logger.info(f"✅ Added new inference result (total: {len(self.summaries)})")
             else:
-                logger.info("⚠️ Duplicate inference result detected, not adding")
+                logger.info(f"⚠️ Duplicate or excessive inference result not added (current total: {len(self.summaries)})")
 
     async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
         """Parse transcript text and store it for sharing across the application.
@@ -1320,18 +1415,31 @@ class AudioProcessor:
     async def reset(self):
         """Reset all state variables to initial values."""
         async with self.lock:
+            # SINGLE SOURCE OF TRUTH - reset global memory
+            self.global_transcript = {
+                "committed_tokens": [],
+                "current_buffer": "",
+                "parsed_content": "",
+                "end_buffer": 0,
+                "end_attributed_speaker": 0,
+            }
+
+            # Reset legacy fields for compatibility
             self.tokens.clear()
             self.buffer_transcription = self.buffer_diarization = ""
             self.end_buffer = self.end_attributed_speaker = 0
             self.full_transcription = self.last_response_content = ""
             self.beg_loop = time()
+
             # Reset parsed transcript data
             self.parsed_transcripts.clear()
             self.last_parsed_transcript = None
+            # Reset final summary flag
+            self._final_summary_generated = False
 
         # Reset transcription processor's incremental parsing state
         if self.transcription_processor:
-            self.transcription_processor.reset_parsing_state()
+            await self.transcription_processor.reset_parsing_state()
 
     async def results_formatter(self):
         """Format processing results for output."""
@@ -1484,47 +1592,91 @@ class AudioProcessor:
                             except Exception as e:
                                 logger.warning(f"Failed to finish ASR: {e}")
 
-                        # Collect any accumulated parser text
-                        accumulated_parser_text = ""
-                        if self.transcription_processor and hasattr(self.transcription_processor, "accumulated_text_for_parser"):
-                            accumulated_parser_text = self.transcription_processor.accumulated_text_for_parser
-                            if accumulated_parser_text and accumulated_parser_text.strip():
-                                logger.info(f"🔄 Added accumulated parser text: '{accumulated_parser_text[:50]}...'")
+                        # SINGLE SOURCE: Get all content from global memory atomically
+                        async with self.lock:
+                            # Get final content from global memory
+                            committed_text = self.sep.join([token.text for token in self.global_transcript["committed_tokens"] if token.text and token.text.strip()])
+                            buffer_text = self.global_transcript["current_buffer"]
+                            final_global_text = (committed_text + " " + buffer_text).strip() if buffer_text else committed_text
 
-                        # Create additional tokens from remaining content (avoid duplicates)
+                            logger.info(f"🔄 Final global memory content: '{final_global_text[:100]}...' ({len(final_global_text)} chars)")
+
+                        # Create additional tokens from remaining content (no duplication by design)
                         additional_tokens_created = 0
                         tokens_to_add = []
 
-                        # Collect unique content sources
+                        # Get ASR finish() content
                         asr_text = final_transcript_from_asr.text if final_transcript_from_asr and final_transcript_from_asr.text else ""
-                        parser_text = accumulated_parser_text if accumulated_parser_text and accumulated_parser_text.strip() else ""
 
-                        # Check for overlap to avoid duplicates
-                        if asr_text and parser_text:
-                            # If parser text is contained in ASR text, only use ASR text
-                            if parser_text.strip() in asr_text:
-                                logger.info("🔄 Parser text found in ASR text - using ASR text only to avoid duplication")
-                                parser_text = ""
-                            # If ASR text is contained in parser text, only use parser text
-                            elif asr_text.strip() in parser_text:
-                                logger.info("🔄 ASR text found in parser text - using parser text only to avoid duplication")
-                                asr_text = ""
+                        # Simple check: only add ASR text if it's not already in global memory
+                        unique_asr_text = ""
+                        if asr_text.strip() and final_global_text:
+                            # Check if ASR text is already in global memory
+                            if asr_text.strip() not in final_global_text:
+                                unique_asr_text = asr_text.strip()
+                                logger.info(f"🔄 Found unique ASR text: '{unique_asr_text[:50]}...'")
+                            else:
+                                logger.info("🔄 ASR text already in global memory, skipping")
+                        elif asr_text.strip():
+                            unique_asr_text = asr_text.strip()
+                            logger.info(f"🔄 Using ASR text (no global memory): '{unique_asr_text[:50]}...'")
 
-                        # Create token from ASR content if available
-                        if asr_text and asr_text.strip():
-                            final_token = ASRToken(start=final_transcript_from_asr.start or (final_state["tokens"][-1].end if final_state["tokens"] else 0), end=final_transcript_from_asr.end or (final_transcript_from_asr.start + 5.0 if final_transcript_from_asr.start else 5.0), text=asr_text, speaker=0)  # Default speaker
-                            tokens_to_add.append(final_token)
-                            logger.info(f"🔄 Prepared final ASR token ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
+                        # No complex deduplication needed - single source of truth prevents duplicates
+                        text_sources = []
+                        if unique_asr_text:
+                            text_sources.append(("asr", unique_asr_text))
 
-                        # Create token from parser text if available and not duplicate
-                        if parser_text and parser_text.strip():
+                        # ENHANCED DEDUPLICATION: Remove duplicates and overlaps with fuzzy matching
+                        unique_texts = []
+                        for source_name, text in text_sources:
+                            is_duplicate = False
+
+                            # First check exact substring containment
+                            for existing_text in unique_texts:
+                                if text in existing_text or existing_text in text:
+                                    logger.info(f"🔄 {source_name} text is substring of existing text - skipping to avoid duplication")
+                                    is_duplicate = True
+                                    break
+
+                            # Then check fuzzy similarity for substantial overlaps
+                            if not is_duplicate:
+                                for existing_text in unique_texts:
+                                    similarity = SequenceMatcher(None, text.lower(), existing_text.lower()).ratio()
+                                    if similarity > 0.8:  # 80% similarity threshold
+                                        logger.info(f"🔄 {source_name} text is {similarity:.2f} similar to existing text - skipping to avoid duplication")
+                                        is_duplicate = True
+                                        break
+
+                            # Also check against existing committed tokens to avoid repeating what's already there
+                            if not is_duplicate and final_state["tokens"]:
+                                existing_full_text = (final_state.get("sep", " ") or " ").join([token.text for token in final_state["tokens"] if token.text and token.text.strip()])
+
+                                # Check exact containment
+                                if text in existing_full_text:
+                                    logger.info(f"🔄 {source_name} text already in committed tokens - skipping duplication")
+                                    is_duplicate = True
+                                else:
+                                    # Check fuzzy similarity against committed text
+                                    similarity = SequenceMatcher(None, text.lower(), existing_full_text.lower()).ratio()
+                                    if similarity > 0.7:  # Slightly lower threshold for committed tokens
+                                        logger.info(f"🔄 {source_name} text is {similarity:.2f} similar to committed tokens - skipping duplication")
+                                        is_duplicate = True
+
+                            if not is_duplicate:
+                                unique_texts.append(text)
+                                logger.info(f"🔄 Added unique {source_name} text: '{text[:50]}...'")
+
+                        # Create tokens from unique texts only
+                        for i, unique_text in enumerate(unique_texts):
                             last_end = final_state["tokens"][-1].end if final_state["tokens"] else 0
-                            if tokens_to_add:  # If we already have an ASR token, use its end time
+                            if tokens_to_add:  # Use end time of last added token
                                 last_end = tokens_to_add[-1].end
 
-                            parser_token = ASRToken(start=last_end, end=last_end + 5.0, text=parser_text, speaker=0)  # Estimated duration  # Default speaker
-                            tokens_to_add.append(parser_token)
-                            logger.info(f"🔄 Prepared final parser token ({parser_token.start:.1f}s-{parser_token.end:.1f}s): '{parser_token.text[:50]}...'")
+                            # Create token with estimated timing
+                            estimated_duration = max(2.0, len(unique_text) / 20)  # ~20 chars per second speaking rate
+                            final_token = ASRToken(start=last_end, end=last_end + estimated_duration, text=unique_text, speaker=0)  # Default speaker
+                            tokens_to_add.append(final_token)
+                            logger.info(f"🔄 Prepared final token {i+1} ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
 
                         # Add all tokens at once to avoid race conditions
                         if tokens_to_add:
@@ -1540,28 +1692,18 @@ class AudioProcessor:
                                     self.full_transcription = (final_state.get("sep", " ") or " ").join(all_token_texts)
                                     logger.info(f"🔄 Updated full transcription (now {len(self.full_transcription)} chars)")
 
-                        # Process any remaining accumulated parser text for final parsing
-                        if accumulated_parser_text and accumulated_parser_text.strip():
-                            logger.info(f"🔄 Processing accumulated parser text: '{accumulated_parser_text[:50]}...'")
-                            # Add as final token for parsing
-                            final_combined_text = accumulated_parser_text
-                            logger.info(f"🔄 Added accumulated text as final token: '{final_combined_text[:50]}...'")
+                        # SINGLE SOURCE: All content is now in global memory
+                        logger.info(f"🔄 Using global memory for final processing: '{final_global_text[:100]}...' ({len(final_global_text)} chars)")
 
-                        # Force commit any remaining buffer text for final processing
-                        final_buffer_text = final_state["buffer_transcription"]
-                        if final_buffer_text and self.transcription_processor:
-                            # Try to finish the transcription to get any remaining tokens
-                            remaining_transcript = self.transcription_processor.finish_transcription()
-                            if remaining_transcript and remaining_transcript.text:
-                                logger.info(f"Retrieved remaining transcript: '{remaining_transcript.text[:50]}...'")
-                                # Update LLM with any remaining text
-                                if self.llm:
-                                    remaining_text_converted = s2hk(remaining_transcript.text) if remaining_transcript.text else ""
-                                    if remaining_text_converted.strip():
-                                        self.llm.update_transcription(remaining_text_converted, None)
-                                        logger.info(f"Updated LLM with remaining text: '{remaining_text_converted[:50]}...'")
+                        # Update LLM with final global memory content
+                        if self.llm and final_global_text.strip():
+                            remaining_text_converted = s2hk(final_global_text)
+                            self.llm.update_transcription(remaining_text_converted, None)
+                            logger.info(f"Updated LLM with final global memory content: '{remaining_text_converted[:50]}...'")
+                        else:
+                            logger.info("No final content in global memory to process")
 
-                        # Generate final inference if no summaries were created during processing
+                        # Generate final inference if needed - check before stopping monitoring
                         async with self.lock:
                             summaries_count = len(getattr(self, "summaries", []))
 
@@ -1578,14 +1720,11 @@ class AudioProcessor:
                             logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
                             logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
 
-                            # SINGLE PATH: Either use existing data or populate with full transcript
-                            should_generate_summary = False
-
                             if self.llm.accumulated_data.strip():
-                                # Already has data - use it
+                                # Generate final comprehensive summary
                                 should_generate_summary = True
                                 if summaries_count == 0:
-                                    logger.info("🔄 Generating final inference (no summaries created during processing)...")
+                                    logger.info("🔄 Generating final summary (no summaries created during processing)...")
                                 else:
                                     logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
                             else:
@@ -1594,7 +1733,7 @@ class AudioProcessor:
                                     logger.info("🔧 Populating LLM with full transcription for final summary...")
                                     self.llm.update_transcription(self.full_transcription, None)
                                     logger.info(f"🔧 LLM now has {len(self.llm.accumulated_data)} chars of accumulated data")
-                                    should_generate_summary = self.llm.accumulated_data.strip()
+                                    should_generate_summary = self.llm.accumulated_data.strip()  # Always generate if we have data
                                     if should_generate_summary:
                                         logger.info("🔄 Generating final summary after populating LLM data...")
                                     else:
@@ -1602,7 +1741,7 @@ class AudioProcessor:
                                 else:
                                     logger.warning("❌ Final summary NOT generated - no full transcription available")
 
-                            # SINGLE FORCE_INFERENCE CALL
+                            # SINGLE FORCE_INFERENCE CALL WITH DUPLICATE PREVENTION
                             if should_generate_summary:
                                 # Update with complete transcript to ensure comprehensive summary
                                 complete_transcript = self.full_transcription
@@ -1615,8 +1754,8 @@ class AudioProcessor:
                                 final_summary_generated = True
 
                                 # Wait for the final inference to complete
-                                max_wait_time = 5.0  # Reduced wait time
-                                poll_interval = 0.5
+                                max_wait_time = 5.0  # Increased wait time for final summary
+                                poll_interval = 0.3
                                 waited_time = 0.0
                                 initial_summary_count = summaries_count
 
@@ -1635,6 +1774,18 @@ class AudioProcessor:
                                     if waited_time >= max_wait_time:
                                         logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
                                         break
+
+                        # CRITICAL: Set final summary flag AFTER final processing to prevent blocking final summary
+                        self._final_summary_generated = True
+                        logger.info("🛑 Set final summary flag AFTER final processing completed")
+
+                        # Stop LLM monitoring after final processing is complete
+                        if self.llm:
+                            try:
+                                await self.llm.stop_monitoring()
+                                logger.info("🛑 Stopped LLM background monitoring after final processing")
+                            except Exception as e:
+                                logger.warning(f"Error stopping LLM monitoring: {e}")
 
                         if not final_summary_generated:
                             logger.warning("❌ Final summary NOT generated - LLM unavailable or no content")
@@ -1980,6 +2131,7 @@ class AudioProcessor:
         # Reset timing and state flags
         self.beg_loop = time()
         self.is_stopping = False
+        self._final_summary_generated = False  # Reset final summary flag
 
         # CRITICAL FIX: Re-initialize LLM components if they were lost during reset
         if not self.llm or not self.transcript_parser:

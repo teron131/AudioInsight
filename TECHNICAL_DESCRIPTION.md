@@ -18,18 +18,23 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Fire-and-forget queuing system that never blocks transcription processing
 - Adaptive cooldown system based on actual processing performance
 
-#### **`audioinsight/llm/parser.py`** - Non-Blocking Text Processing
-- `Parser`: Real-time text correction with 2 non-blocking concurrent workers
-- Queue-based processing with intelligent batching (10-item default capacity)
+#### **`audioinsight/llm/parser.py`** - Stateful Non-Blocking Text Processing
+- `Parser`: Real-time text correction with **single worker** for stateful incremental parsing
+- **Atomic state management** preventing race conditions on shared parsing state
+- **Work coordination system** with content hashing for duplicate detection
+- Incremental processing that only parses new text portions to avoid re-processing
+- Queue-based processing with intelligent batching (50-item capacity for single worker)
 - Adaptive cooldown optimization for ultra-responsive processing
 - Fire-and-forget queuing that returns immediately without blocking transcription
 - Performance monitoring and statistics tracking
 
 #### **`audioinsight/llm/summarizer.py`** - Non-Blocking Conversation Analysis
-- `Summarizer`: Intelligent conversation summarization with 2 non-blocking concurrent workers
-- Large queue capacity for handling burst processing without blocking
+- `Summarizer`: Intelligent conversation summarization with 2 coordinated concurrent workers
+- **Work coordination system** preventing duplicate summaries of identical content
+- Moderate queue capacity (100 items) for handling burst processing without blocking
 - Adaptive cooldown for balanced performance and API efficiency
 - Deferred trigger checking that never interrupts real-time transcription flow
+- **Continuous summary generation** with no artificial limits until processing ends
 - Conversation state management and context preservation
 
 #### **`audioinsight/llm/config.py`** - LLM Configuration Management
@@ -187,12 +192,12 @@ def _update_adaptive_cooldown(self):
 
 Optimized queue sizes and cooldowns for different processing types with zero transcription lag:
 
-| Component | Queue Size | Workers | Cooldown | Purpose | Blocking Behavior |
-|-----------|------------|---------|----------|---------|-------------------|
-| Parser | 10 items | 2 workers | Adaptive | Fast text correction | Never blocks |
-| Summarizer | 10 items | 2 workers | Adaptive | Conversation analysis | Never blocks |
-| Display Parser | Cached | 1 worker | Immediate | UI text enhancement | Never blocks |
-| UI Updates | N/A | 1 worker | 0.05s | Real-time display | 20 FPS smooth updates |
+| Component | Queue Size | Workers | Coordination | Purpose | Blocking Behavior |
+|-----------|------------|---------|--------------|---------|-------------------|
+| Parser | 50 items | **1 worker** | **Stateful + Dedup** | Incremental text correction | Never blocks |
+| Summarizer | 100 items | 2 workers | **Content Dedup** | Conversation analysis | Never blocks |
+| Display Parser | Cached | 1 worker | Cache Only | UI text enhancement | Never blocks |
+| UI Updates | N/A | 1 worker | None | Real-time display | 20 FPS smooth updates |
 
 ## Theoretical Foundation: The Streaming Challenge
 

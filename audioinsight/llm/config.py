@@ -1,19 +1,31 @@
+import os
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from ..config import get_config
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Simple LLM config for UniversalLLM client
 class LLMConfig(BaseModel):
-    """Simple LLM configuration for UniversalLLM client."""
+    """Configuration for LLM operations.
 
-    model_id: str = Field(default="openai/gpt-4.1-nano", description="LLM model identifier")
-    api_key: Optional[str] = Field(default=None, description="API key for LLM service")
-    temperature: float = Field(default=0.0, description="Sampling temperature (fixed at 0.0 for consistency)")
-    max_output_tokens: Optional[int] = Field(default=4000, gt=0, le=100000, description="Maximum output tokens")
-    timeout: float = Field(default=30.0, gt=0, le=300, description="Request timeout in seconds")
+    Uses environment variables for secure API key management.
+    """
+
+    model_id: str = Field(default="openai/gpt-4.1-mini", description="Model identifier")
+    api_key: Optional[str] = Field(default=None, description="API key (optional, uses env vars)")
+    max_output_tokens: int = Field(default=6000, description="Maximum output tokens")
+    temperature: float = Field(default=0.3, description="Temperature for generation")
+    timeout: float = Field(default=15.0, description="Request timeout in seconds")
+
+    class Config:
+        """Pydantic model configuration."""
+
+        arbitrary_types_allowed = True
 
     def model_post_init(self, __context) -> None:
         """Ensure temperature is always 0.0 for consistent results."""
@@ -21,59 +33,43 @@ class LLMConfig(BaseModel):
 
 
 class LLMTrigger(BaseModel):
-    """Configuration for when to trigger LLM inference with validation."""
+    """Configuration for LLM trigger conditions."""
 
-    # Text length limits are for memory management, not token limits
-    max_text_length: int = Field(default=2000000, gt=10000, le=8000000, description="Maximum text length for memory management")
-    min_text_length: int = Field(default=100, gt=0, le=1000, description="Minimum text length before considering triggers")
-    summary_interval_seconds: float = Field(default=1.0, gt=0, le=300, description="Minimum time between summaries")
-    new_text_trigger_chars: int = Field(default=50, gt=10, le=5000, description="Characters of new text to trigger summary")
+    # ENHANCED: More aggressive triggering for better coverage
+    summary_interval_seconds: float = Field(default=8.0, description="Trigger summary after this many seconds (reduced from 15.0)")
+    new_text_trigger_chars: int = Field(default=150, description="Trigger summary after this many new characters (reduced from 200)")
+    min_text_length: int = Field(default=80, description="Minimum text length to process (reduced from 100)")
+    max_text_length: int = Field(default=25000, description="Maximum text length to process")
+
+    # Additional triggering conditions for more comprehensive coverage
+    force_summary_on_silence: bool = Field(default=True, description="Force summary when processing stops")
+    min_words_for_summary: int = Field(default=15, description="Minimum words needed for summary (reduced from 20)")
 
 
-class ParserConfig(BaseModel):
-    """Configuration for text parser - focused on OUTPUT token limits for 1-to-1 conversion."""
+class ParserConfig(LLMConfig):
+    """Configuration for transcript parsing operations."""
 
-    model_id: str = Field(default="openai/gpt-4.1-nano", description="Model ID for text parsing")
-    max_output_tokens: int = Field(default=33000, gt=1000, le=100000, description="Maximum output tokens")
-    trigger_interval_seconds: float = Field(default=1.0, gt=0.1, le=60.0, description="Minimum time between parser calls")
+    model_id: str = Field(default="openai/gpt-4.1-nano", description="Fast model for parsing")
+    max_output_tokens: int = Field(default=33000, description="Large token limit for comprehensive parsing")
+    trigger_interval_seconds: float = Field(default=0.8, description="Minimum time between parsing triggers")
 
-    def estimate_output_tokens(self, input_text: str) -> int:
-        """Estimate output tokens for parser (1-to-1 conversion)."""
-        if not input_text:
-            return 0
-        # ~4 chars per token average
-        estimated_tokens = int(len(input_text) * 0.25)
-        return max(1, estimated_tokens)
-
-    def needs_chunking(self, input_text: str) -> bool:
-        """Check if input text needs chunking based on output token limits."""
-        estimated_output = self.estimate_output_tokens(input_text)
-        return estimated_output > self.max_output_tokens
+    def needs_chunking(self) -> bool:
+        """Check if input needs to be chunked based on model limits."""
+        # For nano models, chunk if input exceeds ~16K chars (safe estimate)
+        return "nano" in self.model_id.lower()
 
     def get_chunk_size_chars(self) -> int:
-        """Get approximate input chunk size in characters."""
-        # Convert output tokens back to input characters with 15% buffer
-        return int(self.max_output_tokens * 4 * 0.85)
+        """Get appropriate chunk size for the model."""
+        if "nano" in self.model_id.lower():
+            return 15000  # Conservative chunk size for nano models
+        return 50000  # Larger chunk size for bigger models
 
 
-class SummarizerConfig(BaseModel):
-    """Configuration for summarizer - massive input capacity, small output needs."""
+class SummarizerConfig(LLMConfig):
+    """Configuration for conversation summarization."""
 
-    model_id: str = Field(default="openai/gpt-4.1-mini", description="Model ID for summarization")
-    max_output_tokens: int = Field(default=4000, gt=100, le=8000, description="Maximum output tokens for summaries")
-    max_input_length: int = Field(default=2000000, gt=10000, le=8000000, description="Maximum input length in characters")
-
-    def can_handle_input(self, text: str) -> bool:
-        """Check if input text can be handled without truncation."""
-        return len(text) <= self.max_input_length
-
-    def truncate_if_needed(self, text: str) -> str:
-        """Truncate text if it exceeds input limits."""
-        if len(text) <= self.max_input_length:
-            return text
-        # Truncate from the beginning, keeping the most recent content
-        truncated = text[-self.max_input_length :]
-        return f"[...truncated...]\n{truncated}"
+    model_id: str = Field(default="openai/gpt-4.1-mini", description="Model for summarization")
+    max_output_tokens: int = Field(default=6000, description="Output tokens for summaries")
 
 
 # =============================================================================
@@ -97,7 +93,6 @@ def get_summarizer_config() -> SummarizerConfig:
     return SummarizerConfig(
         model_id=config.llm.base_llm,
         max_output_tokens=config.llm.summarizer_output_tokens,
-        max_input_length=config.llm.summarizer_max_input_length,
     )
 
 

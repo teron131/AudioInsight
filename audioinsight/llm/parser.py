@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -5,7 +6,7 @@ from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
-from .base import EventBasedProcessor, UniversalLLM
+from .base import EventBasedProcessor, UniversalLLM, WorkItem
 from .config import LLMConfig, ParserConfig
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .utils import contains_chinese, s2hk
@@ -121,6 +122,9 @@ class Parser(EventBasedProcessor):
     LLM-based text parser that fixes typos, punctuation, and creates smooth sentences.
     Returns structured ParsedTranscript objects for sharing between UI and summarizer.
     Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
+
+    This is a STATEFUL processor that manages incremental parsing state, so it uses single-worker
+    mode to prevent race conditions and duplicate processing.
     """
 
     def __init__(
@@ -136,9 +140,9 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # Initialize base class with adaptive frequency optimized for text parsing
-        # Start with fast initial cooldown but let adaptive system adjust based on actual LLM performance
-        super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=3)  # Large queue to handle bursts  # Conservative start, will adapt to actual processing times  # Multiple workers for better parallel processing
+        # Initialize base class with coordination enabled for stateful operations
+        # Single worker to avoid race conditions on incremental parsing state
+        super().__init__(queue_maxsize=50, cooldown_seconds=0.5, max_concurrent_workers=1, enable_work_coordination=True)  # Smaller queue since single worker  # Conservative start, will adapt to actual processing times  # Force single worker for stateful operations  # Enable coordination for deduplication
 
         self.config = config or ParserConfig(model_id=model_id)
         self.api_key = api_key  # Store for lazy initialization
@@ -149,6 +153,17 @@ class Parser(EventBasedProcessor):
 
         # Statistics using the new standardized class - lightweight initialization
         self.stats = ParserStats()
+
+        # Stateful incremental parsing management - CRITICAL: Atomic state management
+        self._state_lock = asyncio.Lock()  # Protect shared state
+        self._last_processed_text = ""  # Track what was last processed to avoid duplicates
+        self._processing_in_progress = False  # Prevent concurrent processing
+
+        logger.info(f"Parser initialized in stateful mode with work coordination and single worker")
+
+    def _is_stateful_processor(self) -> bool:
+        """Mark this processor as stateful to enable single-worker coordination."""
+        return True
 
     @property
     def llm_client(self) -> UniversalLLM:
@@ -181,7 +196,7 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         return self._prompt
 
     async def _process_item(self, item: Tuple[str, Optional[List[Dict]], Optional[Dict[str, float]]]):
-        """Process a single parsing request from the queue.
+        """Process a single parsing request from the queue with atomic state management.
 
         Args:
             item: Tuple of (text, speaker_info, timestamps)
@@ -191,117 +206,194 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
         try:
             text, speaker_info, timestamps = item
-            result = await self.parse_transcript(text, speaker_info, timestamps)
-            self.update_processing_time()
 
-            # Record successful processing
-            processing_time = time.time() - start_time
-            monitor.record_request("parser", processing_time)
+            # Atomic check for incremental processing
+            async with self._state_lock:
+                # Check if this text was already processed
+                if text == self._last_processed_text:
+                    logger.debug(f"Skipping already processed text: {text[:50]}...")
+                    return
 
-            # Log performance periodically
-            log_performance_if_needed()
+                # Check if we're already processing something
+                if self._processing_in_progress:
+                    logger.debug(f"Processing already in progress, queuing: {text[:50]}...")
+                    return
 
-            return result
+                # Mark as processing and update state atomically
+                self._processing_in_progress = True
+                current_last_processed = self._last_processed_text
+
+            try:
+                # Get only the incremental text to process
+                incremental_text = self._get_incremental_text(text, current_last_processed)
+
+                if not incremental_text or not incremental_text.strip():
+                    logger.debug("No new incremental text to process")
+                    return
+
+                logger.info(f"Processing incremental text: {len(incremental_text)} chars (from {len(text)} total)")
+
+                # Process the incremental text
+                result = await self.parse_transcript(incremental_text, speaker_info, timestamps)
+                self.update_processing_time()
+
+                # Atomically update the processed text state
+                async with self._state_lock:
+                    self._last_processed_text = text
+                    logger.debug(f"Updated last processed text to: {len(text)} chars")
+
+                # Record successful processing
+                processing_time = time.time() - start_time
+                monitor.record_request("parser", processing_time)
+
+                # Log performance periodically
+                log_performance_if_needed()
+
+                # Record statistics
+                self.stats.record_processing(processing_time, len(incremental_text))
+
+                logger.info(f"Parser processed {len(incremental_text)} chars in {processing_time:.2f}s")
+
+            finally:
+                # Always clear the processing flag
+                async with self._state_lock:
+                    self._processing_in_progress = False
 
         except Exception as e:
-            # Record error
-            processing_time = time.time() - start_time
-            if "timeout" in str(e).lower():
-                monitor.record_error("parser", "timeout")
-            else:
-                monitor.record_error("parser", "general")
-            logger.error(f"Parser processing failed after {processing_time:.2f}s: {e}")
+            logger.error(f"Parser processing failed: {e}")
+            # Clear processing flag on error
+            async with self._state_lock:
+                self._processing_in_progress = False
             raise
 
-    async def queue_parsing_request(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> bool:
-        """Queue a parsing request for event-based processing.
+    def _get_incremental_text(self, current_text: str, last_processed_text: str) -> str:
+        """Get only the new incremental text that needs processing.
 
         Args:
-            text: The transcript text to parse
+            current_text: The full current accumulated text
+            last_processed_text: The text that was last processed
+
+        Returns:
+            str: Only the new text that needs to be parsed
+        """
+        if not last_processed_text:
+            # First time processing - return all text if reasonable size
+            if len(current_text) < 500:
+                logger.debug(f"First time processing: returning all {len(current_text)} chars")
+                return current_text
+            else:
+                # For very long text, just return the last portion
+                incremental = current_text[-300:]  # Last 300 chars
+                logger.debug(f"First time processing long text: returning last 300 chars from {len(current_text)} total")
+                return incremental
+
+        # Find the new text since last processing
+        if last_processed_text in current_text:
+            # Find the last occurrence of the processed text
+            last_index = current_text.rfind(last_processed_text)
+            new_start = last_index + len(last_processed_text)
+            incremental_text = current_text[new_start:].strip()
+
+            if incremental_text:
+                logger.debug(f"Incremental text: {len(incremental_text)} new chars from position {new_start}")
+                return incremental_text
+            else:
+                logger.debug("No new text found since last processing")
+                return ""
+        else:
+            # Text doesn't contain last processed - might be a reset or different content
+            # In this case, process the last reasonable portion
+            if len(current_text) < 500:
+                logger.debug(f"Text changed, processing all {len(current_text)} chars")
+                return current_text
+            else:
+                incremental = current_text[-400:]  # Last 400 chars for changed content
+                logger.debug(f"Text changed, processing last 400 chars from {len(current_text)} total")
+                return incremental
+
+    async def queue_parsing_request(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> bool:
+        """Queue a parsing request with proper work item wrapping for deduplication.
+
+        Args:
+            text: Text to parse
             speaker_info: Optional speaker information
             timestamps: Optional timestamp information
 
         Returns:
             bool: True if successfully queued, False otherwise
         """
-        if not self.should_process(text, min_size=20):  # Reduced from 30 - adaptive frequency handles timing
-            logger.debug(f"⏳ Parser: Accumulating text for optimal frequency: {len(text)} chars")
+        if not text.strip():
             return False
 
-        return await self.queue_for_processing((text, speaker_info, timestamps))
+        # Create work item with content-based ID for deduplication
+        work_item = WorkItem((text, speaker_info, timestamps))
+        return await self.queue_for_processing(work_item)
 
     async def parse_transcript(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> ParsedTranscript:
-        """Parse and structure a transcript with full metadata.
+        """Parse and correct a transcript text with incremental processing support.
 
         Args:
-            text: The transcript text to parse and correct
-            speaker_info: Optional speaker information
+            text: Original transcript text to parse
+            speaker_info: Optional speaker information for context
             timestamps: Optional timestamp information
 
         Returns:
-            ParsedTranscript: Structured transcript data
+            ParsedTranscript: Structured parsing result
         """
-        if not text.strip():
-            return ParsedTranscript(original_text=text, parsed_text=text, segments=[], timestamps=timestamps or {}, speakers=speaker_info or [], parsing_time=0.0)
-
         start_time = time.time()
-        chunks_used = 0
 
         try:
-            # Parse the text - check if it needs chunking based on output token limits
-            if self.config.needs_chunking(text):
-                # Process in chunks for longer text
-                corrected_text, chunks_used = await self._process_in_chunks(text)
+            # Quick validation
+            if not text.strip():
+                return ParsedTranscript(original_text=text, parsed_text="", parsing_time=time.time() - start_time)
+
+            logger.debug(f"Parsing {len(text)} characters: '{text[:50]}...'")
+
+            # Process text (with chunking if needed)
+            if self.config.needs_chunking():
+                parsed_text, chunks_used = await self._process_in_chunks(text)
+                self.stats.record_processing(time.time() - start_time, len(text), chunks_used)
             else:
-                corrected_text = await self._process_chunk(text)
-                chunks_used = 1
+                parsed_text = await self._process_chunk(text)
+                self.stats.record_processing(time.time() - start_time, len(text), 1)
 
-            # Apply s2hk conversion to ensure Traditional Chinese output if input was Chinese
-            if contains_chinese(corrected_text):
-                corrected_text = s2hk(corrected_text)
+            # Apply s2hk conversion if the text contains Chinese
+            if contains_chinese(parsed_text):
+                parsed_text = s2hk(parsed_text)
 
-            # Create segments from the parsed text
-            segments = self._create_segments(text, corrected_text, speaker_info, timestamps)
+            # Create segments from the parsed content
+            segments = self._create_segments(text, parsed_text, speaker_info, timestamps)
 
-            # Update statistics using the new class
-            processing_time = time.time() - start_time
-            self.stats.record_processing(processing_time, len(text), chunks_used)
+            parsing_time = time.time() - start_time
 
-            parsed_transcript = ParsedTranscript(
-                original_text=text,
-                parsed_text=corrected_text,
-                segments=segments,
-                timestamps=timestamps or {},
-                speakers=speaker_info or [],
-                parsing_time=processing_time,
-            )
+            result = ParsedTranscript(original_text=text, parsed_text=parsed_text, segments=segments, timestamps=timestamps or {}, speakers=speaker_info or [], parsing_time=parsing_time)
 
-            logger.info(f"Parsed transcript in {processing_time:.2f}s: {len(text)} -> {len(corrected_text)} chars")
-            return parsed_transcript
+            logger.debug(f"Parsed transcript in {parsing_time:.2f}s: '{parsed_text[:50]}...'")
+            return result
 
         except Exception as e:
             logger.error(f"Failed to parse transcript: {e}")
-            # Return original text wrapped in ParsedTranscript structure
-            return ParsedTranscript(original_text=text, parsed_text=text, segments=[{"text": text, "speaker": None, "timestamp": None}], timestamps=timestamps or {}, speakers=speaker_info or [], parsing_time=time.time() - start_time)
+            # Return original text as fallback
+            return ParsedTranscript(original_text=text, parsed_text=text, parsing_time=time.time() - start_time)  # Fallback to original
 
     async def parse_text(self, text: str) -> str:
-        """Parse and correct a text string (legacy method for backward compatibility).
+        """Parse text and return only the corrected text string.
 
         Args:
-            text: The text to parse and correct
+            text: Text to parse
 
         Returns:
-            str: The corrected text
+            str: Corrected text
         """
-        parsed_transcript = await self.parse_transcript(text)
-        return parsed_transcript.parsed_text
+        result = await self.parse_transcript(text)
+        return result.parsed_text
 
     def _create_segments(self, original_text: str, corrected_text: str, speaker_info: Optional[List[Dict]], timestamps: Optional[Dict[str, float]]) -> List[Dict]:
-        """Create segments from parsed text with metadata.
+        """Create text segments with metadata.
 
         Args:
             original_text: Original transcript text
-            corrected_text: Corrected text
+            corrected_text: Corrected text from LLM
             speaker_info: Speaker information
             timestamps: Timestamp information
 
@@ -310,137 +402,128 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         """
         segments = []
 
-        # For now, create a simple segment structure
-        # In the future, this could be enhanced to split by sentences, speakers, etc.
+        # Simple segmentation by sentences for now
+        sentences = corrected_text.split(". ")
+        start_pos = 0
 
-        # Split by sentences or meaningful breaks
-        import re
-
-        sentence_endings = re.split(r"[.!?。！？]\s*", corrected_text)
-        sentence_endings = [s.strip() for s in sentence_endings if s.strip()]
-
-        current_position = 0
-        for i, sentence in enumerate(sentence_endings):
-            if not sentence:
+        for i, sentence in enumerate(sentences):
+            if not sentence.strip():
                 continue
 
             segment = {
-                "text": sentence,
-                "position": i,
-                "character_start": current_position,
-                "character_end": current_position + len(sentence),
-                "speaker": None,
-                "timestamp_start": None,
-                "timestamp_end": None,
+                "text": sentence.strip(),
+                "start_char": start_pos,
+                "end_char": start_pos + len(sentence),
+                "segment_id": i,
+                "confidence": 1.0,  # Placeholder
             }
 
-            # Try to match with speaker info if available
-            if speaker_info and i < len(speaker_info):
-                segment["speaker"] = speaker_info[i].get("speaker")
+            # Add speaker info if available
+            if speaker_info and len(speaker_info) > i:
+                segment["speaker"] = speaker_info[i]
 
-            # Add timestamp info if available
+            # Add timing info if available
             if timestamps:
-                segment["timestamp_start"] = timestamps.get(f"segment_{i}_start")
-                segment["timestamp_end"] = timestamps.get(f"segment_{i}_end")
+                segment["timestamps"] = timestamps
 
             segments.append(segment)
-            current_position += len(sentence) + 1  # +1 for the punctuation
+            start_pos += len(sentence) + 2  # +2 for '. '
 
         return segments
 
     async def _process_chunk(self, text: str) -> str:
-        """Process a single chunk of text.
+        """Process a single chunk of text through the LLM.
 
         Args:
-            text: The text chunk to process
+            text: Text chunk to process
 
         Returns:
-            str: The corrected text directly
+            str: Processed text
         """
-        result = await self.llm_client.invoke_text(self.prompt, {"text": text})
-        return result
+        try:
+            result = await self.llm_client.invoke_text(self.prompt, {"text": text})
+            return result
+        except Exception as e:
+            logger.warning(f"LLM processing failed: {e}")
+            return text  # Fallback to original
 
     async def _process_in_chunks(self, text: str) -> tuple[str, int]:
-        """Process long text in chunks based on output token limits.
+        """Process long text by splitting into chunks.
 
         Args:
-            text: The full text to process
+            text: Long text to process
 
         Returns:
-            tuple: (corrected_text, chunks_used)
+            tuple: (processed_text, chunks_used)
         """
-        # Check if chunking is needed based on output token limits
-        if not self.config.needs_chunking(text):
-            # Text is small enough to process in one go
-            corrected_text = await self._process_chunk(text)
-            return corrected_text, 1
-
-        # Need to chunk based on output token limits
-        logger.debug(f"Text requires chunking for output token limits...")
-
         chunks = self._split_by_output_tokens(text)
-        corrected_chunks = []
+        processed_chunks = []
 
-        for i, chunk in enumerate(chunks):
-            logger.debug(f"Processing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
-            corrected_chunk = await self._process_chunk(chunk)
-            corrected_chunks.append(corrected_chunk)
+        for chunk in chunks:
+            processed_chunk = await self._process_chunk(chunk)
+            processed_chunks.append(processed_chunk)
 
-        # Merge chunks back together
-        corrected_text = " ".join(corrected_chunks)
-        return corrected_text, len(chunks)
+        return " ".join(processed_chunks), len(chunks)
 
     def _split_by_output_tokens(self, text: str) -> list[str]:
-        """Split text into chunks based on output token limits.
+        """Split text into chunks based on estimated output token limits.
 
         Args:
-            text: The text to split
+            text: Text to split
 
         Returns:
-            list[str]: List of text chunks
+            list: Text chunks
         """
+        # Use config method to get chunk size
+        max_chars = self.config.get_chunk_size_chars()
         chunks = []
-        chunk_size_chars = self.config.get_chunk_size_chars()
-        overlap_chars = int(chunk_size_chars * 0.1)  # 10% overlap for context
 
         start = 0
         while start < len(text):
-            end = start + chunk_size_chars
+            end = start + max_chars
+            if end >= len(text):
+                chunks.append(text[start:])
+                break
 
-            # If this isn't the last chunk, try to break at a sentence boundary
-            if end < len(text):
-                # Look for sentence breaks in the overlap region
-                overlap_start = max(start, end - overlap_chars)
-                sentence_breaks = []
-
-                # Find sentence-ending punctuation
-                for i in range(overlap_start, min(end + overlap_chars, len(text))):
-                    if text[i] in ".!?。！？；：":
-                        sentence_breaks.append(i + 1)
-
-                # Use the best sentence break, otherwise use the original boundary
-                if sentence_breaks:
-                    # Choose the sentence break closest to our target end
-                    best_break = min(sentence_breaks, key=lambda x: abs(x - end))
-                    end = best_break
-
-            chunk = text[start:end].strip()
-            if chunk:
+            # Try to break at a sentence boundary
+            chunk = text[start:end]
+            last_period = chunk.rfind(". ")
+            if last_period > max_chars * 0.7:  # At least 70% of chunk size
+                end = start + last_period + 2
+                chunks.append(text[start:end])
+                start = end
+            else:
                 chunks.append(chunk)
-
-            start = end
+                start = end
 
         return chunks
 
     def get_stats(self) -> dict:
-        """Get processing statistics.
+        """Get processing statistics with coordination info.
 
         Returns:
-            dict: Dictionary of processing statistics
+            dict: Statistics including base stats and coordination details
         """
-        base_stats = self.get_queue_status()
+        base_stats = super().get_queue_status()
         parser_stats = self.stats.to_dict()
+
+        # Add parser-specific state info
+        parser_stats.update(
+            {
+                "stateful_processor": True,
+                "last_processed_length": len(getattr(self, "_last_processed_text", "")),
+                "processing_in_progress": getattr(self, "_processing_in_progress", False),
+            }
+        )
+
         return {**base_stats, **parser_stats}
+
+    async def reset_state(self):
+        """Reset the incremental parsing state for fresh sessions."""
+        async with self._state_lock:
+            self._last_processed_text = ""
+            self._processing_in_progress = False
+            logger.info("Parser state reset for fresh session")
 
 
 # Convenience function for quick text parsing (returns structured data)
