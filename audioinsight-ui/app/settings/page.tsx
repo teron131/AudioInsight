@@ -389,7 +389,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateProcessingParam('base_llm', e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Model for complex operations and summarization
+                    Model for complex operations and analysis
                   </p>
                 </div>
                 <div className="space-y-1">

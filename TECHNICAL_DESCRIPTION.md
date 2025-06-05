@@ -28,8 +28,8 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Fire-and-forget queuing that returns immediately without blocking transcription
 - Performance monitoring and statistics tracking
 
-#### **`audioinsight/llm/summarizer.py`** - Non-Blocking Conversation Analysis
-- `Summarizer`: Intelligent conversation summarization with 2 coordinated concurrent workers
+#### **`audioinsight/llm/analyzer.py`** - Non-Blocking Conversation Analysis
+- `Analyzer`: Intelligent conversation analysis with 2 coordinated concurrent workers
 - **Work coordination system** preventing duplicate summaries of identical content
 - Moderate queue capacity (100 items) for handling burst processing without blocking
 - Adaptive cooldown for balanced performance and API efficiency
@@ -40,7 +40,7 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 #### **`audioinsight/llm/config.py`** - LLM Configuration Management
 - `LLMConfig`: Base configuration for LLM models with environment variable support
 - `ParserConfig`: Specialized configuration for text parsing operations
-- `SummarizerConfig`: Specialized configuration for conversation summarization
+- `AnalyzerConfig`: Specialized configuration for conversation analysis
 - `LLMTrigger`: Trigger condition management for processing events
 - Environment-based configuration with secure API key management
 
@@ -217,7 +217,7 @@ Optimized queue sizes and cooldowns for different processing types with zero tra
 | Component | Queue Size | Workers | Coordination | Purpose | Blocking Behavior |
 |-----------|------------|---------|--------------|---------|-------------------|
 | Parser | 50 items | **1 worker** | **Stateful + Dedup** | Incremental text correction | Never blocks |
-| Summarizer | 100 items | 2 workers | **Content Dedup** | Conversation analysis | Never blocks |
+| Analyzer | 100 items | 2 workers | **Content Dedup** | Conversation analysis | Never blocks |
 | Display Parser | Cached | 1 worker | Cache Only | UI text enhancement | Never blocks |
 | UI Updates | N/A | 1 worker | None | Real-time display | 20 FPS smooth updates |
 
@@ -582,7 +582,7 @@ AudioInsight's enhanced non-blocking streaming architecture solves the fundament
 2. **Non-Blocking Event-Based Processing**: Eliminates all transcription blocking with fire-and-forget queuing
 3. **Shared Thread Pool Optimization**: 90% reduction in LLM processing overhead with 8-worker pool
 4. **Fire-and-Forget Queue Management**: Adaptive queue sizes with non-blocking puts prevent any delays
-5. **Non-Blocking Worker Pools**: 2 parser + 2 summarizer workers for background processing
+5. **Non-Blocking Worker Pools**: 2 parser + 2 analyzer workers for background processing
 6. **Exception Isolation**: LLM failures never affect transcription flow
 7. **Ultra-Responsive UI**: 0.05s update intervals (20 FPS) for smooth real-time display
 8. **Adaptive Performance**: Dynamic cooldown adjustment based on actual processing performance

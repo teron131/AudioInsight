@@ -65,10 +65,10 @@ class ParserConfig(LLMConfig):
         return 50000  # Larger chunk size for bigger models
 
 
-class SummarizerConfig(LLMConfig):
-    """Configuration for conversation summarization."""
+class AnalyzerConfig(LLMConfig):
+    """Configuration for conversation analysis."""
 
-    model_id: str = Field(default="openai/gpt-4.1-mini", description="Model for summarization")
+    model_id: str = Field(default="openai/gpt-4.1-mini", description="Model for analysis")
     max_output_tokens: int = Field(default=6000, description="Output tokens for summaries")
 
 
@@ -87,12 +87,12 @@ def get_parser_config() -> ParserConfig:
     )
 
 
-def get_summarizer_config() -> SummarizerConfig:
-    """Get summarizer configuration from main config."""
+def get_analyzer_config() -> AnalyzerConfig:
+    """Get analyzer configuration from main config."""
     config = get_config()
-    return SummarizerConfig(
+    return AnalyzerConfig(
         model_id=config.llm.base_llm,
-        max_output_tokens=config.llm.summarizer_output_tokens,
+        max_output_tokens=config.llm.analyzer_output_tokens,
     )
 
 
@@ -100,7 +100,7 @@ def get_llm_trigger() -> LLMTrigger:
     """Get LLM trigger configuration from main config."""
     config = get_config()
     return LLMTrigger(
-        max_text_length=config.llm.summarizer_max_input_length,
+        max_text_length=config.llm.analyzer_max_input_length,
         summary_interval_seconds=config.llm.llm_summary_interval,
         new_text_trigger_chars=config.llm.llm_new_text_trigger,
     )
@@ -123,8 +123,8 @@ def get_runtime_settings() -> dict:
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
         "llm_inference": config.features.llm_inference,
-        "summarizer_output_tokens": config.llm.summarizer_output_tokens,
-        "summarizer_max_input_length": config.llm.summarizer_max_input_length,
+        "analyzer_output_tokens": config.llm.analyzer_output_tokens,
+        "analyzer_max_input_length": config.llm.analyzer_max_input_length,
     }
 
 
@@ -145,7 +145,7 @@ def update_runtime_config(updates: dict) -> dict:
     updated = {}
 
     # LLM-specific fields that can be updated at runtime
-    llm_fields = {"fast_llm", "base_llm", "llm_summary_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "summarizer_output_tokens", "summarizer_max_input_length"}
+    llm_fields = {"fast_llm", "base_llm", "llm_summary_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "analyzer_output_tokens", "analyzer_max_input_length"}
 
     for key, value in updates.items():
         if key in llm_fields and hasattr(config.llm, key):

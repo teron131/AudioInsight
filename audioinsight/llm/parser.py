@@ -120,7 +120,7 @@ class DisplayParserStats(BaseStats):
 class Parser(EventBasedProcessor):
     """
     LLM-based text parser that fixes typos, punctuation, and creates smooth sentences.
-    Returns structured ParsedTranscript objects for sharing between UI and summarizer.
+    Returns structured ParsedTranscript objects for sharing between UI and analyzer.
     Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
 
     This is a STATEFUL processor that manages incremental parsing state, so it uses single-worker

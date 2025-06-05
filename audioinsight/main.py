@@ -59,7 +59,7 @@ def _get_argument_parser() -> ArgumentParser:
     llm_group.add_argument("--llm_inference", action="store_true", default=DEFAULT_CONFIG["features"]["llm_inference"], help="Enable LLM-based transcript analysis. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--no_llm_inference", action="store_true", help="Disable LLM-based transcript analysis. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--fast_llm", type=str, default=DEFAULT_CONFIG["llm"]["fast_llm"], help="Fast LLM model for text parsing. [RUNTIME CONFIGURABLE]")
-    llm_group.add_argument("--base_llm", type=str, default=DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model for summarization. [RUNTIME CONFIGURABLE]")
+    llm_group.add_argument("--base_llm", type=str, default=DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model for analysis. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--llm_summary_interval", type=float, default=DEFAULT_CONFIG["llm"]["llm_summary_interval"], help="LLM summary trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--llm_new_text_trigger", type=int, default=DEFAULT_CONFIG["llm"]["llm_new_text_trigger"], help="Text length trigger for LLM processing. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_trigger_interval", type=float, default=DEFAULT_CONFIG["llm"]["parser_trigger_interval"], help="Parser trigger interval in seconds. [RUNTIME CONFIGURABLE]")

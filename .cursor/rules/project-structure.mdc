@@ -27,7 +27,7 @@ AudioInsight/
 │       ├── __init__.py
 │       ├── base.py            # EventBasedProcessor & shared executor foundation
 │       ├── parser.py          # Non-blocking text parsing (1 stateful worker)
-│       ├── summarizer.py      # Non-blocking conversation analysis (2 workers)
+│       ├── analyzer.py      # Non-blocking conversation analysis (2 workers)
 │       ├── config.py          # LLM configuration & environment management
 │       ├── performance_monitor.py  # Performance tracking & metrics
 │       └── utils.py           # LLM utilities & helper functions
@@ -75,7 +75,7 @@ pip install -e .
 This allows importing from anywhere:
 ```python
 from audioinsight.processors import AudioProcessor
-from audioinsight.llm import Summarizer, Parser
+from audioinsight.llm import Analyzer, Parser
 from audioinsight.main import AudioInsight
 ```
 
@@ -130,7 +130,7 @@ The `llm/` module implements high-performance non-blocking concurrent processing
 #### **Core Components**
 - **`base.py`**: EventBasedProcessor abstract class with shared thread pool and fire-and-forget queuing
 - **`parser.py`**: Real-time text correction with **1 stateful worker** for atomic state management
-- **`summarizer.py`**: Conversation analysis with **2 concurrent workers** for high-throughput processing  
+- **`analyzer.py`**: Conversation analysis with **2 concurrent workers** for high-throughput processing  
 - **`config.py`**: LLM configuration classes with environment variable support
 - **`performance_monitor.py`**: Real-time performance tracking and adaptive optimization
 - **`utils.py`**: Shared utilities and helper functions for LLM operations
@@ -155,8 +155,8 @@ from .diarization.speaker_diarization import DiarizationProcessor
 # Non-blocking LLM imports
 from .llm.base import EventBasedProcessor, UniversalLLM
 from .llm.parser import Parser  
-from .llm.summarizer import Summarizer
-from .llm.config import LLMConfig, ParserConfig, SummarizerConfig
+from .llm.analyzer import Analyzer
+from .llm.config import LLMConfig, ParserConfig, AnalyzerConfig
 from .llm.performance_monitor import PerformanceMonitor
 ```
 
@@ -170,7 +170,7 @@ The main `AudioProcessor` coordinates all components including non-blocking LLM 
 class AudioProcessor:
     def __init__(self):
         # Initialize LLM components with non-blocking processing
-        self.llm = Summarizer()  # 2 non-blocking workers
+        self.llm = Analyzer()  # 2 non-blocking workers
         self.transcript_parser = Parser()  # 1 stateful worker
         
     async def create_tasks(self):

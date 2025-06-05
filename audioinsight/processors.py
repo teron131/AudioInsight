@@ -10,7 +10,7 @@ import ffmpeg
 import numpy as np
 import opencc
 
-from .llm import LLMTrigger, ParsedTranscript, Parser, ParserConfig, Summarizer
+from .llm import Analyzer, LLMTrigger, ParsedTranscript, Parser, ParserConfig
 from .logging_config import get_logger
 from .main import AudioInsight
 from .timed_objects import ASRToken
@@ -1147,7 +1147,7 @@ class AudioProcessor:
                     new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),
                 )
 
-                self.llm = Summarizer(
+                self.llm = Analyzer(
                     model_id=getattr(self.args, "base_llm", "openai/gpt-4.1-mini"),
                     trigger_config=trigger_config,
                 )
@@ -1203,7 +1203,7 @@ class AudioProcessor:
             from .llm.config import LLMConfig
 
             # Warm up both fast and base LLM models
-            models_to_warm = ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]  # Fast model for parsing  # Base model for summarization
+            models_to_warm = ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]  # Fast model for parsing  # Base model for analysis
 
             for model_id in models_to_warm:
                 try:
@@ -1309,7 +1309,7 @@ class AudioProcessor:
                 if len(self.parsed_transcripts) > 50:
                     self.parsed_transcripts = self.parsed_transcripts[-50:]
 
-            # Note: LLM summarizer is now triggered by parser worker to ensure proper event order
+            # Note: LLM analyzer is now triggered by parser worker to ensure proper event order
             logger.debug(f"📝 Parsed and stored transcript: {len(text)} -> {len(parsed_transcript.parsed_text)} chars")
             return parsed_transcript
 
@@ -1843,7 +1843,7 @@ class AudioProcessor:
             # Wait for initial startup to complete
             await asyncio.sleep(2.0)
 
-            # Scale up summarizer workers to optimal count
+            # Scale up analyzer workers to optimal count
             if self.llm:
                 await self.llm.scale_workers(3)  # Scale up to 3 workers
 

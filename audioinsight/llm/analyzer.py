@@ -18,14 +18,14 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-class SummarizerResponse(BaseModel):
+class AnalyzerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
     summary: str = Field(description="Concise summary of the transcription")
     key_points: List[str] = Field(default_factory=list, description="Main points discussed")
 
 
-class SummarizerStats:
+class AnalyzerStats:
     """Statistics tracking for LLM operations."""
 
     def __init__(self):
@@ -77,11 +77,11 @@ class SummarizerStats:
 
 
 # =============================================================================
-# LLM Summarizer Implementation
+# LLM Analyzer Implementation
 # =============================================================================
 
 
-class Summarizer(EventBasedProcessor):
+class Analyzer(EventBasedProcessor):
     """
     LLM-based transcription processor that monitors transcription activity
     and generates inference after periods of inactivity or after a certain number of conversations.
@@ -121,13 +121,13 @@ class Summarizer(EventBasedProcessor):
         self.inference_callbacks = []
 
         # Statistics - lightweight initialization
-        self.stats = SummarizerStats()
+        self.stats = AnalyzerStats()
 
-        logger.info(f"Summarizer initialized with {self.max_concurrent_workers} workers and work coordination")
+        logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination")
 
     def _is_stateful_processor(self) -> bool:
         """Mark this processor as stateless to allow multiple workers with coordination."""
-        return False  # Summarizer is mostly stateless, just uses coordination for deduplication
+        return False  # Analyzer is mostly stateless, just uses coordination for deduplication
 
     @property
     def llm_client(self) -> UniversalLLM:
@@ -201,7 +201,7 @@ Provide a structured summary with key points. Remember to respond in the same la
 
             # Record successful processing
             processing_time = time.time() - start_time
-            monitor.record_request("summarizer", processing_time)
+            monitor.record_request("analyzer", processing_time)
 
             # Log performance periodically
             log_performance_if_needed()
@@ -210,10 +210,10 @@ Provide a structured summary with key points. Remember to respond in the same la
             # Record error
             processing_time = time.time() - start_time
             if "timeout" in str(e).lower():
-                monitor.record_error("summarizer", "timeout")
+                monitor.record_error("analyzer", "timeout")
             else:
-                monitor.record_error("summarizer", "general")
-            logger.error(f"Summarizer processing failed after {processing_time:.2f}s: {e}")
+                monitor.record_error("analyzer", "general")
+            logger.error(f"Analyzer processing failed after {processing_time:.2f}s: {e}")
             raise
 
     def add_inference_callback(self, callback):
@@ -272,7 +272,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         if not self.accumulated_data.strip():
             return
 
-        # Check minimum text length requirement only (skip adaptive cooldown for summarizer)
+        # Check minimum text length requirement only (skip adaptive cooldown for analyzer)
         if len(self.accumulated_data) < self.trigger_config.min_text_length:
             return
 
@@ -367,7 +367,7 @@ Provide a structured summary with key points. Remember to respond in the same la
             duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
 
             # Generate structured response using universal LLM client
-            response: SummarizerResponse = await self.llm_client.invoke_structured(
+            response: AnalyzerResponse = await self.llm_client.invoke_structured(
                 self.prompt,
                 {
                     "transcription": text_to_process,
@@ -375,7 +375,7 @@ Provide a structured summary with key points. Remember to respond in the same la
                     "has_speakers": has_speakers,
                     "num_lines": len(lines),
                 },
-                SummarizerResponse,
+                AnalyzerResponse,
             )
 
             generation_time = time.time() - start_time
@@ -418,11 +418,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
 
-    def get_last_inference(self) -> Optional[SummarizerResponse]:
+    def get_last_inference(self) -> Optional[AnalyzerResponse]:
         """Get the most recent inference."""
         return self.last_inference
 
-    def get_last_summary(self) -> Optional[SummarizerResponse]:
+    def get_last_summary(self) -> Optional[AnalyzerResponse]:
         """Legacy method for backward compatibility. Use get_last_inference instead."""
         return self.get_last_inference()
 
@@ -432,7 +432,7 @@ Provide a structured summary with key points. Remember to respond in the same la
         inference_stats = self.stats.to_dict()
         return {**base_stats, **inference_stats}
 
-    async def force_inference(self) -> Optional[SummarizerResponse]:
+    async def force_inference(self) -> Optional[AnalyzerResponse]:
         """Force generate a inference of current accumulated text."""
         if not self.accumulated_data.strip():
             return None
@@ -441,6 +441,6 @@ Provide a structured summary with key points. Remember to respond in the same la
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
 
-    async def force_summary(self) -> Optional[SummarizerResponse]:
+    async def force_summary(self) -> Optional[AnalyzerResponse]:
         """Legacy method for backward compatibility. Use force_inference instead."""
         return await self.force_inference()

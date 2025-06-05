@@ -4,7 +4,7 @@
 
 > **Real-time, Fully Local Speech-to-Text with Speaker Diarization and LLM-powered Transcript Analysis**
 
-Transform speech into text instantly with AudioInsight - a production-ready streaming ASR system that runs entirely on your machine. Built on OpenAI's Whisper with advanced LocalAgreement streaming algorithms for low-latency, accurate transcription, enhanced with intelligent LLM-powered conversation analysis and summarization.
+Transform speech into text instantly with AudioInsight - a production-ready streaming ASR system that runs entirely on your machine. Built on OpenAI's Whisper with advanced LocalAgreement streaming algorithms for low-latency, accurate transcription, enhanced with intelligent LLM-powered conversation analysis.
 
 ---
 
@@ -24,14 +24,14 @@ audioinsight-server --llm-inference
 
 ## 🎯 Why AudioInsight?
 
-AudioInsight solves the fundamental challenge of real-time speech recognition by transforming OpenAI's batch-processing Whisper into a streaming system with **LocalAgreement-2** algorithms that ensure stable, coherent output. Enhanced with intelligent LLM-powered analysis for conversation understanding and summarization.
+AudioInsight solves the fundamental challenge of real-time speech recognition by transforming OpenAI's batch-processing Whisper into a streaming system with **LocalAgreement-2** algorithms that ensure stable, coherent output. Enhanced with intelligent LLM-powered analysis for conversation understanding and analysis.
 
 ### ✨ Core Advantages
 
 🔒 **100% Local Processing** - No data leaves your machine (except optional LLM API calls)  
 🎙️ **Real-time Streaming** - See words appear as you speak with 20 FPS updates  
 👥 **Multi-Speaker Support** - Identify different speakers automatically  
-🧠 **LLM-Powered Analysis** - Intelligent conversation summarization and text parsing  
+🧠 **LLM-Powered Analysis** - Intelligent conversation analysis and text parsing  
 🌐 **Multi-User Ready** - Handle multiple sessions simultaneously  
 ⚡ **Ultra-Low Latency** - Optimized streaming algorithms with non-blocking concurrent processing  
 🛠️ **Production Ready** - Built for real-world applications  
@@ -72,7 +72,7 @@ flowchart TD
         subgraph Workers["<b>Parallel Workers (8 Thread Pool)</b>"]
             direction LR
             Parser["📝 Text Parser<br/>⚡ 2 Workers"]
-            Summarizer["📊 Conversation Analysis<br/>⚡ 2 Workers"]
+            Analyzer["📊 Conversation Analysis<br/>⚡ 2 Workers"]
         end
     end
 
@@ -109,7 +109,7 @@ flowchart TD
     class Browser,Audio frontend
     class WS,Files,API communication
     class ASR,Diarization,Display processing
-    class Parser,Summarizer intelligence
+    class Parser,Analyzer intelligence
     class Queue,Workers infrastructure
 ```
 
@@ -232,7 +232,7 @@ audioinsight-server \
 
 **LLM-Enhanced Processing:**
 ```bash
-# Enable conversation summarization with custom settings
+# Enable conversation analysis with custom settings
 audioinsight-server \
   --model large-v3-turbo \
   --diarization \
@@ -326,28 +326,28 @@ async def websocket_endpoint(websocket: WebSocket):
 
 **LLM Integration Example:**
 ```python
-from audioinsight.llm import Summarizer, Parser, UniversalLLM
+from audioinsight.llm import Analyzer, Parser, UniversalLLM
 from audioinsight.llm.config import LLMConfig, LLMTrigger, ParserConfig
 import asyncio
 
 async def llm_transcript_analysis():
     """Example of using LLM components for transcript analysis."""
     
-    # Configure LLM for summarization with non-blocking processing
-    summarizer_config = LLMConfig(
+    # Configure LLM for analysis with non-blocking processing
+    analyzer_config = LLMConfig(
         model_id="openai/gpt-4.1-mini",
         temperature=0.0  # Fixed for consistent results
     )
     
-    # Initialize summarizer with 2 non-blocking workers
-    summarizer = Summarizer(config=summarizer_config)
+    # Initialize analyzer with 2 non-blocking workers
+    analyzer = Analyzer(config=analyzer_config)
     
     # Start monitoring (non-blocking)
-    await summarizer.start_worker()
+    await analyzer.start_worker()
     
     # Simulate transcript updates (fire-and-forget)
     transcript_text = "Speaker 1: Hello, how are you today? Speaker 2: I'm doing well, thanks for asking!"
-    await summarizer.update_transcription(transcript_text)
+    await analyzer.update_transcription(transcript_text)
     
     # Text parsing example with concurrent workers
     parser_config = ParserConfig(model_id="openai/gpt-4.1-nano")
@@ -389,7 +389,7 @@ async def llm_transcript_analysis():
 |-----------|-------------|---------|
 | `--llm-inference` | Enable LLM-based transcript analysis | `True` |
 | `--fast-llm` | Fast LLM model for text parsing | `openai/gpt-4.1-nano` |
-| `--base-llm` | Base LLM model for summarization | `openai/gpt-4.1-mini` |
+| `--base-llm` | Base LLM model for analysis | `openai/gpt-4.1-mini` |
 
 > **Note:** Model IDs follow the format `provider/model-name` (e.g., `openai/gpt-4.1-mini`, `anthropic/claude-3-haiku`)
 
@@ -426,7 +426,7 @@ AudioInsight provides comprehensive API endpoints for different processing modes
 
 **Processing Modes:**
 - **Live Recording**: Direct WebSocket connection with browser microphone and real-time LLM analysis
-- **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation and background LLM summarization
+- **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation and background LLM analysis
 - **Direct File Processing**: Immediate processing with complete JSON response including LLM insights
 - **Streaming File Processing**: Real-time progress updates via Server-Sent Events with background LLM analysis
 
@@ -466,10 +466,10 @@ async def analyze_conversation_non_blocking(transcript_text, speaker_info):
     loop = asyncio.get_event_loop()
     loop.call_soon(lambda: monitor_speaker_turns(speaker_info))
     
-    # 3. Background summarization (processes in worker threads)
+    # 3. Background analysis (processes in worker threads)
     if should_trigger_summary():
         # Queue for background processing - returns immediately
-        summarizer.queue_for_processing("conversation_trigger")
+        analyzer.queue_for_processing("conversation_trigger")
     
     # Transcription continues immediately while analysis happens in background
     return transcript_text  # Return immediately, no blocking
@@ -511,10 +511,10 @@ class EventBasedProcessor:
 ```
 
 **Performance Optimizations:**
-- **Fire-and-Forget Queuing**: Parser and summarizer requests return immediately
+- **Fire-and-Forget Queuing**: Parser and analyzer requests return immediately
 - **Shared Thread Pool**: 8-worker thread pool reused across all LLM operations
 - **Adaptive Cooldowns**: Dynamic processing frequency based on actual performance
-- **Non-Blocking Workers**: 2+ parser workers + 2+ summarizer workers process in background
+- **Non-Blocking Workers**: 2+ parser workers + 2+ analyzer workers process in background
 - **Exception Isolation**: LLM errors never affect transcription flow
 - **Ultra-Fast Updates**: 0.05s UI updates (20 FPS) for smooth real-time display
 
@@ -533,7 +533,7 @@ class EventBasedProcessor:
 3. **Streaming Buffer** → LocalAgreement-2 manages token validation
 4. **Speaker Diarization** → Parallel speaker identification (optional)
 5. **Display Enhancement** → Smart text formatting and presentation
-6. **Non-Blocking LLM Analysis** → Background text processing and conversation summarization
+6. **Non-Blocking LLM Analysis** → Background text processing and conversation analysis
 7. **Real-time Output** → JSON responses via WebSocket with enhanced insights (no delays)
 
 ---
@@ -655,13 +655,13 @@ docker-compose up -d
 
 **Meeting Transcription with AI Insights**
 - Real-time meeting notes with speaker identification
-- Automatic conversation summarization and key points extraction
+- Automatic conversation analysis and key points extraction
 - Action items detection and decision tracking
 - Multi-language support for international teams
 
 **Customer Support Analytics**
 - Live call transcription for quality assurance
-- Automated interaction summarization with sentiment analysis
+- Automated interaction analysis with sentiment analysis
 - Conversation pattern detection and insights
 - Compliance and training purposes with AI-enhanced analysis
 
@@ -691,10 +691,10 @@ docker-compose up -d
 ```python
 # Embed in existing applications with non-blocking AI analysis
 from audioinsight import AudioInsight
-from audioinsight.llm import Summarizer
+from audioinsight.llm import Analyzer
 
 kit = AudioInsight(model="base", llm_inference=True)
-summarizer = Summarizer()
+analyzer = Analyzer()
 
 # Get enhanced transcription with background AI insights
 results = await kit.process_with_analysis(audio_data)
@@ -806,7 +806,7 @@ AudioInsight/
 │   ├── llm/                   # Non-blocking LLM system
 │   │   ├── base.py            # EventBasedProcessor & shared executor
 │   │   ├── parser.py          # Text parsing (2 workers)
-│   │   ├── summarizer.py      # Conversation analysis (2 workers)
+│   │   ├── analyzer.py      # Conversation analysis (2 workers)
 │   │   ├── config.py          # LLM configuration
 │   │   ├── performance_monitor.py  # Performance tracking
 │   │   └── utils.py           # LLM utilities

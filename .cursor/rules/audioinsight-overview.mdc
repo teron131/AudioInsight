@@ -70,7 +70,7 @@ The web interface is located in `audioinsight-ui/`:
 
 ### LLM-Powered Analysis (Non-Blocking)
 - **Fire-and-forget transcript correction** with 1 stateful worker for atomic parsing
-- **Background conversation summarization** with 2 concurrent workers for high throughput
+- **Background conversation analysis** with 2 concurrent workers for high throughput
 - **Exception isolation** ensuring LLM failures never affect transcription
 - **Intelligent text processing** that operates transparently in background
 - **Adaptive performance optimization** with dynamic cooldown adjustment

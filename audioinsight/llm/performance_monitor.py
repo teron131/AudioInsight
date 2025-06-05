@@ -19,7 +19,7 @@ class PerformanceMonitor:
                 "errors": 0,
                 "timeouts": 0,
             },
-            "summarizer": {
+            "analyzer": {
                 "total_requests": 0,
                 "total_time": 0.0,
                 "queue_times": [],

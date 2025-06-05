@@ -1,12 +1,13 @@
+from .analyzer import Analyzer, AnalyzerResponse, AnalyzerStats
 from .base import UniversalLLM
 from .config import (
+    AnalyzerConfig,
     LLMConfig,
     LLMTrigger,
     ParserConfig,
-    SummarizerConfig,
+    get_analyzer_config,
     get_llm_trigger,
     get_parser_config,
-    get_summarizer_config,
 )
 from .parser import (
     BaseStats,
@@ -16,21 +17,20 @@ from .parser import (
     ParserStats,
     parse_transcript,
 )
-from .summarizer import Summarizer, SummarizerResponse, SummarizerStats
 from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
     # Core classes
     "UniversalLLM",
-    "Summarizer",
+    "Analyzer",
     "Parser",
     # Configuration and types
     "LLMConfig",
-    "SummarizerResponse",
-    "SummarizerStats",
+    "AnalyzerResponse",
+    "AnalyzerStats",
     "LLMTrigger",
     "ParserConfig",
-    "SummarizerConfig",
+    "AnalyzerConfig",
     "ParsedTranscript",
     # Statistics classes
     "BaseStats",
@@ -44,7 +44,7 @@ __all__ = [
     "LRUCache",
     # Configuration helpers
     "get_parser_config",
-    "get_summarizer_config",
+    "get_analyzer_config",
     "get_llm_trigger",
     # Convenience functions
     "parse_transcript",

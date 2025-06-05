@@ -67,7 +67,7 @@ class LLMConfig(BaseSettings):
 
     # Model identifiers
     fast_llm: str = Field(default="openai/gpt-4.1-nano", description="Fast LLM model for parsing")
-    base_llm: str = Field(default="openai/gpt-4.1-mini", description="Base LLM model for summarization")
+    base_llm: str = Field(default="openai/gpt-4.1-mini", description="Base LLM model for analysis")
 
     # API Configuration
     api_key: Optional[str] = Field(default=None, env="OPENROUTER_API_KEY", description="LLM API key")
@@ -82,9 +82,9 @@ class LLMConfig(BaseSettings):
     parser_trigger_interval: float = Field(default=1.0, gt=0, description="Parser trigger interval")
     parser_output_tokens: int = Field(default=33000, gt=1000, le=100000, description="Parser max output tokens")
 
-    # Summarizer Configuration
-    summarizer_output_tokens: int = Field(default=4000, gt=100, le=8000, description="Summarizer max output tokens")
-    summarizer_max_input_length: int = Field(default=2000000, gt=10000, description="Max input length for summarizer")
+    # Analyzer Configuration
+    analyzer_output_tokens: int = Field(default=4000, gt=100, le=8000, description="Analyzer max output tokens")
+    analyzer_max_input_length: int = Field(default=2000000, gt=10000, description="Max input length for analyzer")
 
     class Config:
         env_file = ".env"

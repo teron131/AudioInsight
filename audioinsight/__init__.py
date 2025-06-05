@@ -4,7 +4,7 @@ from .display_parser import (
     get_display_parser,
     parse_text_for_display,
 )
-from .llm import Parser, Summarizer, UniversalLLM, parse_transcript
+from .llm import Analyzer, Parser, UniversalLLM, parse_transcript
 from .main import AudioInsight, parse_args
 from .processors import AudioProcessor
 
@@ -20,5 +20,5 @@ __all__ = [
     "enable_display_parsing",
     # New LLM exports
     "UniversalLLM",
-    "Summarizer",
+    "Analyzer",
 ]
