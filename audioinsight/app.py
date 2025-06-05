@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from . import AudioInsight, parse_args
-from .config import apply_parameter_updates, get_config, get_processing_parameters
+from .config import apply_parameter_updates, get_config
+from .config import get_processing_parameters as get_config_processing_parameters
 from .display_parser import enable_display_parsing, get_display_parser
 from .logging_config import get_logger, setup_logging
 from .server.config import CORS_SETTINGS
@@ -768,7 +769,7 @@ async def get_processing_parameters():
         from .config import get_runtime_configurable_fields, get_startup_only_fields
 
         # Get all current parameters (backward compatibility)
-        all_params = get_processing_parameters()
+        all_params = get_config_processing_parameters()
 
         # Get runtime vs startup classification
         runtime_fields = get_runtime_configurable_fields()
