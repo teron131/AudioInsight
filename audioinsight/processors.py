@@ -1491,34 +1491,49 @@ class AudioProcessor:
                             if accumulated_parser_text and accumulated_parser_text.strip():
                                 logger.info(f"🔄 Added accumulated parser text: '{accumulated_parser_text[:50]}...'")
 
-                        # Create additional tokens from remaining content
+                        # Create additional tokens from remaining content (avoid duplicates)
                         additional_tokens_created = 0
-                        if final_transcript_from_asr and final_transcript_from_asr.text:
-                            # Create a token from the remaining ASR content
-                            final_token = ASRToken(start=final_transcript_from_asr.start or (final_state["tokens"][-1].end if final_state["tokens"] else 0), end=final_transcript_from_asr.end or (final_transcript_from_asr.start + 5.0 if final_transcript_from_asr.start else 5.0), text=final_transcript_from_asr.text, speaker=0)  # Default speaker
+                        tokens_to_add = []
 
-                            # Add to tokens list
-                            async with self.lock:
-                                self.tokens.append(final_token)
-                                additional_tokens_created += 1
-                                logger.info(f"🔄 Created final token ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
+                        # Collect unique content sources
+                        asr_text = final_transcript_from_asr.text if final_transcript_from_asr and final_transcript_from_asr.text else ""
+                        parser_text = accumulated_parser_text if accumulated_parser_text and accumulated_parser_text.strip() else ""
 
-                        # Handle accumulated parser text separately if it exists
-                        if accumulated_parser_text and accumulated_parser_text.strip():
-                            # Create token for accumulated parser text
+                        # Check for overlap to avoid duplicates
+                        if asr_text and parser_text:
+                            # If parser text is contained in ASR text, only use ASR text
+                            if parser_text.strip() in asr_text:
+                                logger.info("🔄 Parser text found in ASR text - using ASR text only to avoid duplication")
+                                parser_text = ""
+                            # If ASR text is contained in parser text, only use parser text
+                            elif asr_text.strip() in parser_text:
+                                logger.info("🔄 ASR text found in parser text - using parser text only to avoid duplication")
+                                asr_text = ""
+
+                        # Create token from ASR content if available
+                        if asr_text and asr_text.strip():
+                            final_token = ASRToken(start=final_transcript_from_asr.start or (final_state["tokens"][-1].end if final_state["tokens"] else 0), end=final_transcript_from_asr.end or (final_transcript_from_asr.start + 5.0 if final_transcript_from_asr.start else 5.0), text=asr_text, speaker=0)  # Default speaker
+                            tokens_to_add.append(final_token)
+                            logger.info(f"🔄 Prepared final ASR token ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
+
+                        # Create token from parser text if available and not duplicate
+                        if parser_text and parser_text.strip():
                             last_end = final_state["tokens"][-1].end if final_state["tokens"] else 0
-                            parser_token = ASRToken(start=last_end, end=last_end + 5.0, text=accumulated_parser_text, speaker=0)  # Estimated duration  # Default speaker
+                            if tokens_to_add:  # If we already have an ASR token, use its end time
+                                last_end = tokens_to_add[-1].end
 
+                            parser_token = ASRToken(start=last_end, end=last_end + 5.0, text=parser_text, speaker=0)  # Estimated duration  # Default speaker
+                            tokens_to_add.append(parser_token)
+                            logger.info(f"🔄 Prepared final parser token ({parser_token.start:.1f}s-{parser_token.end:.1f}s): '{parser_token.text[:50]}...'")
+
+                        # Add all tokens at once to avoid race conditions
+                        if tokens_to_add:
                             async with self.lock:
-                                self.tokens.append(parser_token)
-                                additional_tokens_created += 1
-                                logger.info(f"🔄 Created final token ({parser_token.start:.1f}s-{parser_token.end:.1f}s): '{parser_token.text[:50]}...'")
+                                self.tokens.extend(tokens_to_add)
+                                additional_tokens_created = len(tokens_to_add)
+                                logger.info(f"🔄 Added {additional_tokens_created} final tokens to committed transcript")
 
-                        if additional_tokens_created > 0:
-                            logger.info(f"🔄 Added {additional_tokens_created} final tokens to committed transcript")
-
-                            # Update full transcription with any new content
-                            async with self.lock:
+                                # Update full transcription with any new content
                                 if hasattr(self, "full_transcription"):
                                     # Calculate new full transcription from all tokens
                                     all_token_texts = [token.text for token in self.tokens if token.text and token.text.strip()]
@@ -1552,89 +1567,77 @@ class AudioProcessor:
 
                         logger.info(f"🚨 DEBUG: About to check final summary generation, summaries_count={summaries_count}")
 
-                        # Always generate a final comprehensive summary from the complete transcript
-                        # This ensures we have a summary of the entire conversation, not just fragments
+                        # Generate final comprehensive summary (avoid duplicates with single-path logic)
+                        final_summary_generated = False
+
                         logger.info(f"🔍 Checking final summary generation conditions...")
                         logger.info(f"🔍 self.llm exists: {self.llm is not None}")
+
                         if self.llm:
                             accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
                             logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
                             logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
 
-                        if self.llm and self.llm.accumulated_data.strip():
-                            if summaries_count == 0:
-                                logger.info("🔄 Generating final inference (no summaries created during processing)...")
+                            # SINGLE PATH: Either use existing data or populate with full transcript
+                            should_generate_summary = False
+
+                            if self.llm.accumulated_data.strip():
+                                # Already has data - use it
+                                should_generate_summary = True
+                                if summaries_count == 0:
+                                    logger.info("🔄 Generating final inference (no summaries created during processing)...")
+                                else:
+                                    logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
                             else:
-                                logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
-
-                            # CRITICAL FIX: Feed the LLM the complete full transcription for final summary
-                            complete_transcript = self.full_transcription
-                            if complete_transcript.strip():
-                                # Update LLM with complete transcript to ensure comprehensive summary
-                                self.llm.update_transcription(complete_transcript, None)
-                                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
-
-                            # Force a final summary of all accumulated text
-                            await self.llm.force_inference()
-
-                            # Wait for the final inference to complete and be processed by the callback
-                            # Poll for up to 10 seconds to ensure the summary is added
-                            max_wait_time = 10.0
-                            poll_interval = 0.5
-                            waited_time = 0.0
-                            initial_summary_count = summaries_count
-
-                            while waited_time < max_wait_time:
-                                await asyncio.sleep(poll_interval)
-                                waited_time += poll_interval
-
-                                # Check if new summary was added
-                                async with self.lock:
-                                    current_summary_count = len(getattr(self, "summaries", []))
-
-                                if current_summary_count > initial_summary_count:
-                                    logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
-                                    break
-
-                                if waited_time >= max_wait_time:
-                                    logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
-                                    break
-                        else:
-                            logger.warning("❌ Final summary NOT generated - LLM accumulated_data is empty or LLM not available")
-                            logger.info(f"   - LLM exists: {self.llm is not None}")
-                            if self.llm:
-                                logger.info(f"   - Accumulated data length: {len(self.llm.accumulated_data) if hasattr(self.llm, 'accumulated_data') else 'N/A'}")
-                                logger.info(f"   - Full transcription length: {len(self.full_transcription) if hasattr(self, 'full_transcription') else 'N/A'}")
-                                # Try to force populate the LLM with the full transcription
+                                # No data - try to populate with full transcript
                                 if hasattr(self, "full_transcription") and self.full_transcription.strip():
-                                    logger.info("🔧 Attempting to populate LLM with full transcription for final summary...")
+                                    logger.info("🔧 Populating LLM with full transcription for final summary...")
                                     self.llm.update_transcription(self.full_transcription, None)
                                     logger.info(f"🔧 LLM now has {len(self.llm.accumulated_data)} chars of accumulated data")
-                                    # Try again to generate summary
-                                    if self.llm.accumulated_data.strip():
+                                    should_generate_summary = self.llm.accumulated_data.strip()
+                                    if should_generate_summary:
                                         logger.info("🔄 Generating final summary after populating LLM data...")
-                                        await self.llm.force_inference()
-                                        # Wait for summary
-                                        max_wait_time = 10.0
-                                        poll_interval = 0.5
-                                        waited_time = 0.0
-                                        initial_summary_count = summaries_count
+                                    else:
+                                        logger.warning("❌ Final summary NOT generated - no content available")
+                                else:
+                                    logger.warning("❌ Final summary NOT generated - no full transcription available")
 
-                                        while waited_time < max_wait_time:
-                                            await asyncio.sleep(poll_interval)
-                                            waited_time += poll_interval
+                            # SINGLE FORCE_INFERENCE CALL
+                            if should_generate_summary:
+                                # Update with complete transcript to ensure comprehensive summary
+                                complete_transcript = self.full_transcription
+                                if complete_transcript.strip():
+                                    self.llm.update_transcription(complete_transcript, None)
+                                    logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
 
-                                            # Check if new summary was added
-                                            async with self.lock:
-                                                current_summary_count = len(getattr(self, "summaries", []))
+                                # Single force inference call
+                                await self.llm.force_inference()
+                                final_summary_generated = True
 
-                                            if current_summary_count > initial_summary_count:
-                                                logger.info(f"✅ Final summary added after forced population in {waited_time:.1f}s")
-                                                break
+                                # Wait for the final inference to complete
+                                max_wait_time = 5.0  # Reduced wait time
+                                poll_interval = 0.5
+                                waited_time = 0.0
+                                initial_summary_count = summaries_count
 
-                                            if waited_time >= max_wait_time:
-                                                logger.warning(f"⚠️ Final summary still not added after forced population - waited {max_wait_time}s")
-                                                break
+                                while waited_time < max_wait_time:
+                                    await asyncio.sleep(poll_interval)
+                                    waited_time += poll_interval
+
+                                    # Check if new summary was added
+                                    async with self.lock:
+                                        current_summary_count = len(getattr(self, "summaries", []))
+
+                                    if current_summary_count > initial_summary_count:
+                                        logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
+                                        break
+
+                                    if waited_time >= max_wait_time:
+                                        logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
+                                        break
+
+                        if not final_summary_generated:
+                            logger.warning("❌ Final summary NOT generated - LLM unavailable or no content")
 
                         # Get updated final state after inference processing
                         final_state = await self.get_current_state()
