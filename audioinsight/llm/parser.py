@@ -235,7 +235,6 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
                 # Process the incremental text
                 result = await self.parse_transcript(incremental_text, speaker_info, timestamps)
-                self.update_processing_time()
 
                 # Atomically update the processed text state
                 async with self._state_lock:
@@ -244,10 +243,6 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
                 # Record successful processing
                 processing_time = time.time() - start_time
-                monitor.record_request("parser", processing_time)
-
-                # Log performance periodically
-                log_performance_if_needed()
 
                 # Record statistics
                 self.stats.record_processing(processing_time, len(incremental_text))
@@ -494,7 +489,7 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
                 start = end
             else:
                 chunks.append(chunk)
-                start = end
+            start = end
 
         return chunks
 

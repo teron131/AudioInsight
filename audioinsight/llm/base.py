@@ -30,12 +30,29 @@ def get_shared_executor() -> ThreadPoolExecutor:
 
 
 class WorkItem:
-    """Wrapper for work items with deduplication support."""
+    """Wrapper for work items with deduplication and sequential ordering support."""
 
-    def __init__(self, data: Any, item_id: Optional[str] = None):
+    _global_sequence_counter = 0
+    _sequence_lock = None
+
+    def __init__(self, data: Any, item_id: Optional[str] = None, sequence_id: Optional[int] = None):
         self.data = data
         self.item_id = item_id or str(uuid.uuid4())
         self.created_at = time.time()
+
+        # Assign sequential ID for ordering
+        if sequence_id is not None:
+            self.sequence_id = sequence_id
+        else:
+            # Thread-safe sequence ID assignment
+            if WorkItem._sequence_lock is None:
+                import threading
+
+                WorkItem._sequence_lock = threading.Lock()
+
+            with WorkItem._sequence_lock:
+                WorkItem._global_sequence_counter += 1
+                self.sequence_id = WorkItem._global_sequence_counter
 
     def get_content_hash(self) -> str:
         """Get a hash of the content for deduplication."""
@@ -46,6 +63,48 @@ class WorkItem:
             return hashlib.md5(str(self.data[0]).encode()).hexdigest()
         else:
             return hashlib.md5(str(self.data).encode()).hexdigest()
+
+    def get_content_signature(self) -> str:
+        """Get a signature that includes both content and sequence for better deduplication."""
+        content_text = ""
+        if isinstance(self.data, str):
+            content_text = self.data
+        elif isinstance(self.data, (tuple, list)) and len(self.data) > 0 and isinstance(self.data[0], str):
+            content_text = str(self.data[0])
+        else:
+            content_text = str(self.data)
+
+        # Create signature with sequence ID and content length for overlap detection
+        signature_data = f"seq:{self.sequence_id}|len:{len(content_text)}|start:{content_text[:50]}|end:{content_text[-50:]}"
+        return hashlib.md5(signature_data.encode()).hexdigest()
+
+    def has_content_overlap(self, other_content: str, threshold: float = 0.3) -> bool:
+        """Check if this work item's content significantly overlaps with other content."""
+        if not isinstance(self.data, str):
+            return False
+
+        my_content = self.data.strip()
+        other_content = other_content.strip()
+
+        if not my_content or not other_content:
+            return False
+
+        # Check for substring containment
+        if my_content in other_content or other_content in my_content:
+            return True
+
+        # Check for significant word overlap
+        my_words = set(my_content.lower().split())
+        other_words = set(other_content.lower().split())
+
+        if not my_words or not other_words:
+            return False
+
+        intersection = my_words.intersection(other_words)
+        union = my_words.union(other_words)
+
+        overlap_ratio = len(intersection) / len(union) if union else 0
+        return overlap_ratio > threshold
 
 
 class EventBasedProcessor(ABC):
@@ -112,7 +171,10 @@ class EventBasedProcessor(ABC):
             self._coordination_lock = asyncio.Lock()
             self._processing_items: Set[str] = set()  # Track items being processed
             self._processed_hashes: Set[str] = set()  # Track completed work by content hash
+            self._processed_signatures: Set[str] = set()  # Track completed work by content signature
+            self._processed_contents: list = []  # Track recent processed content for overlap detection
             self._max_processed_hashes = 100  # Limit memory usage
+            self._max_processed_contents = 50  # Limit overlap detection memory
             logger.info(f"{self.__class__.__name__}: Work coordination enabled")
 
     async def start_worker(self):
@@ -174,6 +236,8 @@ class EventBasedProcessor(ABC):
                 if self.enable_work_coordination:
                     self._processing_items.clear()
                     self._processed_hashes.clear()
+                    self._processed_signatures.clear()
+                    self._processed_contents.clear()
                 logger.info(f"{self.__class__.__name__} workers stopped")
 
     async def _worker(self):
@@ -242,7 +306,7 @@ class EventBasedProcessor(ABC):
         logger.info(f"{self.__class__.__name__} worker {worker_id} stopped")
 
     async def _coordinate_work(self, item: Any, worker_id: int) -> tuple[bool, Optional[WorkItem]]:
-        """Coordinate work to prevent duplicate processing.
+        """Coordinate work to prevent duplicate processing with enhanced overlap detection.
 
         Returns:
             tuple: (should_process, work_item)
@@ -255,15 +319,28 @@ class EventBasedProcessor(ABC):
                 logger.debug(f"Worker {worker_id}: Skipping duplicate item {work_item.item_id}")
                 return False, None
 
-            # Check if we've already processed this content
+            # Check if we've already processed this content (exact hash)
             content_hash = work_item.get_content_hash()
             if content_hash in self._processed_hashes:
                 logger.debug(f"Worker {worker_id}: Skipping already processed content {content_hash[:8]}")
                 return False, None
 
+            # Check if we've already processed this content signature
+            content_signature = work_item.get_content_signature()
+            if content_signature in self._processed_signatures:
+                logger.debug(f"Worker {worker_id}: Skipping already processed signature {content_signature[:8]}")
+                return False, None
+
+            # Check for content overlap with recently processed items
+            if isinstance(work_item.data, str):
+                for processed_content in self._processed_contents:
+                    if work_item.has_content_overlap(processed_content):
+                        logger.debug(f"Worker {worker_id}: Skipping overlapping content (seq: {work_item.sequence_id})")
+                        return False, None
+
             # Mark as being processed
             self._processing_items.add(work_item.item_id)
-            logger.debug(f"Worker {worker_id}: Processing item {work_item.item_id} (hash: {content_hash[:8]})")
+            logger.debug(f"Worker {worker_id}: Processing item {work_item.item_id} (seq: {work_item.sequence_id}, hash: {content_hash[:8]})")
 
             return True, work_item
 
@@ -273,9 +350,19 @@ class EventBasedProcessor(ABC):
             # Remove from processing set
             self._processing_items.discard(work_item.item_id)
 
-            # Add to processed hashes
+            # Add to processed hashes and signatures
             content_hash = work_item.get_content_hash()
+            content_signature = work_item.get_content_signature()
             self._processed_hashes.add(content_hash)
+            self._processed_signatures.add(content_signature)
+
+            # Add to processed contents for overlap detection
+            if isinstance(work_item.data, str):
+                self._processed_contents.append(work_item.data)
+
+                # Limit memory usage for processed contents
+                if len(self._processed_contents) > self._max_processed_contents:
+                    self._processed_contents = self._processed_contents[-self._max_processed_contents :]
 
             # Limit memory usage for processed hashes
             if len(self._processed_hashes) > self._max_processed_hashes:
@@ -283,6 +370,13 @@ class EventBasedProcessor(ABC):
                 oldest_hashes = list(self._processed_hashes)[:10]
                 for old_hash in oldest_hashes:
                     self._processed_hashes.discard(old_hash)
+
+            # Limit memory usage for processed signatures
+            if len(self._processed_signatures) > self._max_processed_hashes:
+                # Remove oldest signatures (simple FIFO approximation)
+                oldest_signatures = list(self._processed_signatures)[:10]
+                for old_signature in oldest_signatures:
+                    self._processed_signatures.discard(old_signature)
 
     @abstractmethod
     async def _process_item(self, item: Any):
@@ -453,6 +547,8 @@ class EventBasedProcessor(ABC):
                     "work_coordination_enabled": True,
                     "processing_items": len(getattr(self, "_processing_items", set())),
                     "processed_hashes": len(getattr(self, "_processed_hashes", set())),
+                    "processed_signatures": len(getattr(self, "_processed_signatures", set())),
+                    "processed_contents": len(getattr(self, "_processed_contents", [])),
                 }
             )
 

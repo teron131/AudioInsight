@@ -272,8 +272,8 @@ Provide a structured summary with key points. Remember to respond in the same la
         if not self.accumulated_data.strip():
             return
 
-        # Use base class method for basic checks
-        if not self.should_process(self.accumulated_data, self.trigger_config.min_text_length):
+        # Check minimum text length requirement only (skip adaptive cooldown for summarizer)
+        if len(self.accumulated_data) < self.trigger_config.min_text_length:
             return
 
         text_length = len(self.accumulated_data)
@@ -287,6 +287,11 @@ Provide a structured summary with key points. Remember to respond in the same la
         has_been_long_enough = time_since_last_summary > self.trigger_config.summary_interval_seconds
         has_enough_new_text = new_text_since_last_summary >= self.trigger_config.new_text_trigger_chars
 
+        # Add debug logging for trigger analysis
+        logger.debug(f"📊 Trigger check: {text_length} chars total, {new_text_since_last_summary} new chars, {time_since_last_summary:.1f}s elapsed")
+        logger.debug(f"📊 Thresholds: {self.trigger_config.new_text_trigger_chars} chars, {self.trigger_config.summary_interval_seconds}s")
+        logger.debug(f"📊 Conditions: enough_text={has_enough_new_text}, enough_time={has_been_long_enough}")
+
         # Trigger inference based on OR logic - either condition can trigger
         if has_enough_new_text or has_been_long_enough:
             trigger_reason = "new_text" if has_enough_new_text else "time_interval"
@@ -298,10 +303,12 @@ Provide a structured summary with key points. Remember to respond in the same la
 
                 loop = asyncio.get_event_loop()
                 loop.create_task(self._queue_inference_async(trigger_reason))
-                logger.debug(f"Queued inference request: {trigger_reason}")
+                logger.info(f"🎯 Triggering summary: {trigger_reason} (new_chars={new_text_since_last_summary}, time={time_since_last_summary:.1f}s)")
             except Exception as e:
                 # Don't let inference errors block transcription
                 logger.debug(f"Non-critical inference queue error: {e}")
+        else:
+            logger.debug(f"⏳ Not triggering summary yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_summary} more chars or {self.trigger_config.summary_interval_seconds - time_since_last_summary:.1f}s")
 
     async def _queue_inference_async(self, trigger_reason: str):
         """Async helper to queue inference requests."""

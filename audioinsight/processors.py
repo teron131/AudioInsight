@@ -3,7 +3,6 @@ import math
 import re
 import traceback
 from datetime import timedelta
-from difflib import SequenceMatcher
 from time import sleep, time
 from typing import Optional
 
@@ -665,32 +664,7 @@ class TranscriptionProcessor:
                     buffer = _buffer.text
                     end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
-                    # ENHANCED: Avoid duplicating content with proper overlap detection
-                    if buffer and self.full_transcription:
-                        # Check for exact substring match
-                        if buffer in self.full_transcription:
-                            buffer = ""
-                        else:
-                            # Check for partial overlap using fuzzy matching
-                            similarity = SequenceMatcher(None, buffer.lower().strip(), self.full_transcription[-len(buffer) * 2 :].lower().strip()).ratio()
-                            if similarity > 0.8:  # 80% similarity threshold
-                                logger.debug(f"Detected buffer overlap (similarity: {similarity:.2f}), clearing buffer")
-                                buffer = ""
-                            else:
-                                # Check for suffix overlap - common case where buffer repeats end of transcript
-                                transcript_words = self.full_transcription.lower().split()
-                                buffer_words = buffer.lower().split()
-
-                                if len(buffer_words) > 0 and len(transcript_words) > 0:
-                                    # Check if buffer words appear at the end of transcript
-                                    max_overlap = min(len(buffer_words), len(transcript_words))
-                                    for i in range(1, max_overlap + 1):
-                                        if transcript_words[-i:] == buffer_words[:i]:
-                                            # Found overlap - remove overlapping part from buffer
-                                            remaining_buffer_words = buffer_words[i:]
-                                            buffer = " ".join(remaining_buffer_words) if remaining_buffer_words else ""
-                                            logger.debug(f"Removed {i}-word suffix overlap from buffer")
-                                            break
+                    # Buffer coordination now handled by work coordination system
 
                     await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
 
@@ -1041,18 +1015,8 @@ class Formatter:
                 lines.append({"speaker": speaker, "text": token.text, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
                 previous_speaker = speaker
             elif token.text:  # Only append if text isn't empty
-                # ENHANCED: Check for duplicate content before concatenating
-                existing_text = lines[-1]["text"]
-                new_token_text = token.text.strip()
-
-                # Skip if this token text is already contained in the existing text
-                if new_token_text and new_token_text not in existing_text:
-                    # Also check for substantial overlap using fuzzy matching
-                    similarity = SequenceMatcher(None, new_token_text.lower(), existing_text.lower()).ratio()
-                    if similarity < 0.8:  # Only append if less than 80% similar
-                        lines[-1]["text"] += sep + token.text
-                    # else: skip adding duplicate/highly similar content
-
+                # Append token text directly - duplication prevented by work coordination
+                lines[-1]["text"] += sep + token.text
                 lines[-1]["end"] = format_time(token.end)
                 lines[-1]["diff"] = round(token.end - last_end_diarized, 2)
 
@@ -1161,8 +1125,8 @@ class AudioProcessor:
             logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
-                    summary_interval_seconds=getattr(self.args, "llm_summary_interval", 1.0),
-                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 100),
+                    summary_interval_seconds=getattr(self.args, "llm_summary_interval", 5.0),
+                    new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),
                 )
 
                 self.llm = Summarizer(
@@ -1288,7 +1252,7 @@ class AudioProcessor:
                 logger.info(f"⚠️ Ignoring inference result - final summary already generated")
                 return
 
-            # Check for duplicate results (same result text)
+            # Store inference result
             new_result = {
                 "timestamp": time(),
                 "summary": inference_response.summary,
@@ -1296,34 +1260,9 @@ class AudioProcessor:
                 "text_length": len(transcription_text),
             }
 
-            # Enhanced duplicate detection - check both summary content and similarity
-            is_duplicate = False
-
-            # Check for exact matches and fuzzy similarity
-            for existing in self.summaries:
-                if existing["summary"] == new_result["summary"]:
-                    is_duplicate = True
-                    logger.info("⚠️ Exact duplicate inference result detected, not adding")
-                    break
-
-                similarity = SequenceMatcher(None, existing["summary"], new_result["summary"]).ratio()
-                if similarity > 0.8:  # Lowered threshold for better duplicate detection
-                    is_duplicate = True
-                    logger.info(f"⚠️ Highly similar inference result detected (similarity: {similarity:.3f}), not adding")
-                    break
-
-                # Check for highly similar content (same key points)
-                if set(existing.get("key_points", [])) == set(new_result.get("key_points", [])) and len(existing.get("key_points", [])) > 0:
-                    is_duplicate = True
-                    logger.info("⚠️ Similar inference result (same key points) detected, not adding")
-                    break
-
-            if not is_duplicate:
-                self.summaries.append(new_result)
-                self._has_summaries = True  # Set efficient flag
-                logger.info(f"✅ Added new inference result (total: {len(self.summaries)})")
-            else:
-                logger.info(f"⚠️ Duplicate or excessive inference result not added (current total: {len(self.summaries)})")
+            self.summaries.append(new_result)
+            self._has_summaries = True  # Set efficient flag
+            logger.info(f"✅ Added new inference result (total: {len(self.summaries)})")
 
     async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
         """Parse transcript text and store it for sharing across the application.
@@ -1626,48 +1565,8 @@ class AudioProcessor:
                         if unique_asr_text:
                             text_sources.append(("asr", unique_asr_text))
 
-                        # ENHANCED DEDUPLICATION: Remove duplicates and overlaps with fuzzy matching
-                        unique_texts = []
-                        for source_name, text in text_sources:
-                            is_duplicate = False
-
-                            # First check exact substring containment
-                            for existing_text in unique_texts:
-                                if text in existing_text or existing_text in text:
-                                    logger.info(f"🔄 {source_name} text is substring of existing text - skipping to avoid duplication")
-                                    is_duplicate = True
-                                    break
-
-                            # Then check fuzzy similarity for substantial overlaps
-                            if not is_duplicate:
-                                for existing_text in unique_texts:
-                                    similarity = SequenceMatcher(None, text.lower(), existing_text.lower()).ratio()
-                                    if similarity > 0.8:  # 80% similarity threshold
-                                        logger.info(f"🔄 {source_name} text is {similarity:.2f} similar to existing text - skipping to avoid duplication")
-                                        is_duplicate = True
-                                        break
-
-                            # Also check against existing committed tokens to avoid repeating what's already there
-                            if not is_duplicate and final_state["tokens"]:
-                                existing_full_text = (final_state.get("sep", " ") or " ").join([token.text for token in final_state["tokens"] if token.text and token.text.strip()])
-
-                                # Check exact containment
-                                if text in existing_full_text:
-                                    logger.info(f"🔄 {source_name} text already in committed tokens - skipping duplication")
-                                    is_duplicate = True
-                                else:
-                                    # Check fuzzy similarity against committed text
-                                    similarity = SequenceMatcher(None, text.lower(), existing_full_text.lower()).ratio()
-                                    if similarity > 0.7:  # Slightly lower threshold for committed tokens
-                                        logger.info(f"🔄 {source_name} text is {similarity:.2f} similar to committed tokens - skipping duplication")
-                                        is_duplicate = True
-
-                            if not is_duplicate:
-                                unique_texts.append(text)
-                                logger.info(f"🔄 Added unique {source_name} text: '{text[:50]}...'")
-
-                        # Create tokens from unique texts only
-                        for i, unique_text in enumerate(unique_texts):
+                        # Process unique texts - deduplication handled by work coordination
+                        for i, (source_name, unique_text) in enumerate(text_sources):
                             last_end = final_state["tokens"][-1].end if final_state["tokens"] else 0
                             if tokens_to_add:  # Use end time of last added token
                                 last_end = tokens_to_add[-1].end
@@ -1711,6 +1610,7 @@ class AudioProcessor:
 
                         # Generate final comprehensive summary (avoid duplicates with single-path logic)
                         final_summary_generated = False
+                        should_generate_summary = False  # Initialize flag
 
                         logger.info(f"🔍 Checking final summary generation conditions...")
                         logger.info(f"🔍 self.llm exists: {self.llm is not None}")
@@ -1720,60 +1620,59 @@ class AudioProcessor:
                             logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
                             logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
 
-                            if self.llm.accumulated_data.strip():
-                                # Generate final comprehensive summary
+                            # Always try to populate with full transcript first
+                            if hasattr(self, "full_transcription") and self.full_transcription.strip():
+                                logger.info("🔧 Ensuring LLM has full transcription for final summary...")
+                                self.llm.update_transcription(self.full_transcription, None)
+                                accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
+                                logger.info(f"🔧 LLM now has {accumulated_length} chars of accumulated data")
+
+                            # Check if we have data to process
+                            if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data.strip():
                                 should_generate_summary = True
                                 if summaries_count == 0:
                                     logger.info("🔄 Generating final summary (no summaries created during processing)...")
                                 else:
                                     logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
                             else:
-                                # No data - try to populate with full transcript
-                                if hasattr(self, "full_transcription") and self.full_transcription.strip():
-                                    logger.info("🔧 Populating LLM with full transcription for final summary...")
-                                    self.llm.update_transcription(self.full_transcription, None)
-                                    logger.info(f"🔧 LLM now has {len(self.llm.accumulated_data)} chars of accumulated data")
-                                    should_generate_summary = self.llm.accumulated_data.strip()  # Always generate if we have data
-                                    if should_generate_summary:
-                                        logger.info("🔄 Generating final summary after populating LLM data...")
-                                    else:
-                                        logger.warning("❌ Final summary NOT generated - no content available")
-                                else:
-                                    logger.warning("❌ Final summary NOT generated - no full transcription available")
+                                should_generate_summary = False
+                                logger.warning("❌ Final summary NOT generated - no content available after populating LLM")
+                        else:
+                            logger.warning("❌ Final summary NOT generated - no LLM instance available")
 
-                            # SINGLE FORCE_INFERENCE CALL WITH DUPLICATE PREVENTION
-                            if should_generate_summary:
-                                # Update with complete transcript to ensure comprehensive summary
-                                complete_transcript = self.full_transcription
-                                if complete_transcript.strip():
-                                    self.llm.update_transcription(complete_transcript, None)
-                                    logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
+                        # SINGLE FORCE_INFERENCE CALL WITH DUPLICATE PREVENTION
+                        if should_generate_summary:
+                            # Update with complete transcript to ensure comprehensive summary
+                            complete_transcript = self.full_transcription
+                            if complete_transcript.strip():
+                                self.llm.update_transcription(complete_transcript, None)
+                                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
 
-                                # Single force inference call
-                                await self.llm.force_inference()
-                                final_summary_generated = True
+                            # Single force inference call
+                            await self.llm.force_inference()
+                            final_summary_generated = True
 
-                                # Wait for the final inference to complete
-                                max_wait_time = 5.0  # Increased wait time for final summary
-                                poll_interval = 0.3
-                                waited_time = 0.0
-                                initial_summary_count = summaries_count
+                            # Wait for the final inference to complete
+                            max_wait_time = 5.0  # Increased wait time for final summary
+                            poll_interval = 0.3
+                            waited_time = 0.0
+                            initial_summary_count = summaries_count
 
-                                while waited_time < max_wait_time:
-                                    await asyncio.sleep(poll_interval)
-                                    waited_time += poll_interval
+                            while waited_time < max_wait_time:
+                                await asyncio.sleep(poll_interval)
+                                waited_time += poll_interval
 
-                                    # Check if new summary was added
-                                    async with self.lock:
-                                        current_summary_count = len(getattr(self, "summaries", []))
+                                # Check if new summary was added
+                                async with self.lock:
+                                    current_summary_count = len(getattr(self, "summaries", []))
 
-                                    if current_summary_count > initial_summary_count:
-                                        logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
-                                        break
+                                if current_summary_count > initial_summary_count:
+                                    logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
+                                    break
 
-                                    if waited_time >= max_wait_time:
-                                        logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
-                                        break
+                                if waited_time >= max_wait_time:
+                                    logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
+                                    break
 
                         # CRITICAL: Set final summary flag AFTER final processing to prevent blocking final summary
                         self._final_summary_generated = True

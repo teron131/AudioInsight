@@ -36,9 +36,9 @@ class LLMTrigger(BaseModel):
     """Configuration for LLM trigger conditions."""
 
     # ENHANCED: More aggressive triggering for better coverage
-    summary_interval_seconds: float = Field(default=8.0, description="Trigger summary after this many seconds (reduced from 15.0)")
-    new_text_trigger_chars: int = Field(default=150, description="Trigger summary after this many new characters (reduced from 200)")
-    min_text_length: int = Field(default=80, description="Minimum text length to process (reduced from 100)")
+    summary_interval_seconds: float = Field(default=5.0, description="Trigger summary after this many seconds (reduced from 15.0)")
+    new_text_trigger_chars: int = Field(default=50, description="Trigger summary after this many new characters (reduced from 200)")
+    min_text_length: int = Field(default=50, description="Minimum text length to process (reduced from 100)")
     max_text_length: int = Field(default=25000, description="Maximum text length to process")
 
     # Additional triggering conditions for more comprehensive coverage
