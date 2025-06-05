@@ -1275,6 +1275,8 @@ class AudioProcessor:
                 "timestamp": time(),
                 "summary": inference_response.summary,
                 "key_points": inference_response.key_points,
+                "response_suggestions": inference_response.response_suggestions,
+                "action_plan": inference_response.action_plan,
                 "text_length": len(transcription_text),
             }
 

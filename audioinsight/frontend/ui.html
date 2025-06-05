@@ -970,6 +970,26 @@
                 </div>
             </div>
 
+            <!-- Response Suggestions Section -->
+            <div class="analysis-section">
+                <h3 class="section-title">Response Suggestions</h3>
+                <div class="analysis-content" id="responseSuggestionsContent">
+                    <ul>
+                        <li>Response suggestions will appear here</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Action Plan Section -->
+            <div class="analysis-section">
+                <h3 class="section-title">Action Plan</h3>
+                <div class="analysis-content" id="actionPlanContent">
+                    <ul>
+                        <li>Action recommendations will appear here</li>
+                    </ul>
+                </div>
+            </div>
+
             <!-- Keywords Section -->
             <div class="analysis-section">
                 <h3 class="section-title">Keywords</h3>
@@ -1094,6 +1114,8 @@
         function clearAnalysis() {
             const summaryContent = document.getElementById('summaryContent');
             const keyPointsContent = document.getElementById('keyPointsContent');
+            const responseSuggestionsContent = document.getElementById('responseSuggestionsContent');
+            const actionPlanContent = document.getElementById('actionPlanContent');
             const keywordsContainer = document.getElementById('keywordsContainer');
             
             summaryContent.textContent = 'The AI-generated summary will appear here...';
@@ -1101,6 +1123,12 @@
             
             keyPointsContent.innerHTML = '<ul><li>Analysis points will appear here</li></ul>';
             keyPointsContent.classList.remove('has-content');
+            
+            responseSuggestionsContent.innerHTML = '<ul><li>Response suggestions will appear here</li></ul>';
+            responseSuggestionsContent.classList.remove('has-content');
+            
+            actionPlanContent.innerHTML = '<ul><li>Action recommendations will appear here</li></ul>';
+            actionPlanContent.classList.remove('has-content');
             
             keywordsContainer.innerHTML = '<span class="keyword-tag">relevant</span><span class="keyword-tag highlighted">keywords</span><span class="keyword-tag">here</span>';
             
@@ -1236,6 +1264,8 @@
         function updateAnalysisFromData(data) {
             const summaryContent = document.getElementById('summaryContent');
             const keyPointsContent = document.getElementById('keyPointsContent');
+            const responseSuggestionsContent = document.getElementById('responseSuggestionsContent');
+            const actionPlanContent = document.getElementById('actionPlanContent');
             const keywordsContainer = document.getElementById('keywordsContainer');
 
             // Handle summaries array from LLM
@@ -1248,6 +1278,18 @@
                     const pointsList = latestSummary.key_points.map(point => `<li>${point}</li>`).join('');
                     keyPointsContent.innerHTML = `<ul>${pointsList}</ul>`;
                     keyPointsContent.classList.add('has-content');
+                }
+                
+                if (latestSummary.response_suggestions && latestSummary.response_suggestions.length > 0) {
+                    const suggestionsList = latestSummary.response_suggestions.map(suggestion => `<li>💬 ${suggestion}</li>`).join('');
+                    responseSuggestionsContent.innerHTML = `<ul>${suggestionsList}</ul>`;
+                    responseSuggestionsContent.classList.add('has-content');
+                }
+                
+                if (latestSummary.action_plan && latestSummary.action_plan.length > 0) {
+                    const actionsList = latestSummary.action_plan.map(action => `<li>📋 ${action}</li>`).join('');
+                    actionPlanContent.innerHTML = `<ul>${actionsList}</ul>`;
+                    actionPlanContent.classList.add('has-content');
                 }
             }
 
@@ -1262,6 +1304,20 @@
                 const pointsList = data.key_points.map(point => `<li>${point}</li>`).join('');
                 keyPointsContent.innerHTML = `<ul>${pointsList}</ul>`;
                 keyPointsContent.classList.add('has-content');
+            }
+
+            // Update response suggestions if available (direct format)
+            if (data.response_suggestions && data.response_suggestions.length > 0) {
+                const suggestionsList = data.response_suggestions.map(suggestion => `<li>💬 ${suggestion}</li>`).join('');
+                responseSuggestionsContent.innerHTML = `<ul>${suggestionsList}</ul>`;
+                responseSuggestionsContent.classList.add('has-content');
+            }
+
+            // Update action plan if available (direct format)
+            if (data.action_plan && data.action_plan.length > 0) {
+                const actionsList = data.action_plan.map(action => `<li>📋 ${action}</li>`).join('');
+                actionPlanContent.innerHTML = `<ul>${actionsList}</ul>`;
+                actionPlanContent.classList.add('has-content');
             }
 
             // Update keywords if available
@@ -1326,7 +1382,7 @@
                 }
                 
                 // Handle analysis results
-                if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries) {
+                if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries || data.response_suggestions || data.action_plan) {
                     updateAnalysisFromData(data);
                     
                     // Store analysis data in transcript data for export
@@ -1335,6 +1391,8 @@
                             summary: data.summary,
                             key_points: data.key_points,
                             keywords: data.keywords,
+                            response_suggestions: data.response_suggestions,
+                            action_plan: data.action_plan,
                             summaries: data.summaries
                         };
                     }

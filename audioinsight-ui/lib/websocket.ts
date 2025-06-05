@@ -26,14 +26,22 @@ export interface WebSocketMessage {
   summaries?: Array<{
     summary: string;
     key_points: string[];
+    response_suggestions?: string[];
+    action_plan?: string[];
   }>;
+  response_suggestions?: string[];
+  action_plan?: string[];
   analysis?: {
     summary?: string;
     key_points?: string[];
     keywords?: string[];
+    response_suggestions?: string[];
+    action_plan?: string[];
     summaries?: Array<{
       summary: string;
       key_points: string[];
+      response_suggestions?: string[];
+      action_plan?: string[];
     }>;
   };
 
@@ -65,9 +73,13 @@ export interface TranscriptData {
     summary?: string;
     key_points?: string[];
     keywords?: string[];
+    response_suggestions?: string[];
+    action_plan?: string[];
     summaries?: Array<{
       summary: string;
       key_points: string[];
+      response_suggestions?: string[];
+      action_plan?: string[];
     }>;
   };
 }

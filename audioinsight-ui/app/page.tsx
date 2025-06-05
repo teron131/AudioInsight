@@ -1,6 +1,5 @@
 "use client"
 
-import { AnalysisPanel } from '@/components/analysis-panel';
 import { ExportMenu } from '@/components/export-menu';
 import { TranscriptDisplay } from '@/components/transcript-display';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAudioInsight } from '@/hooks/use-audioinsight';
+import { cn } from '@/lib/utils';
 import { Loader2, Mic, Square, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 
@@ -148,11 +148,12 @@ export default function AudioInsightPage() {
         </div>
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Transcript Section */}
-        <div className="lg:col-span-1">
-          <Card>
+      {/* Main Content Grid - AC/BC Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Left Column - 2 rows */}
+        <div className="lg:col-span-2 space-y-5">
+          {/* Row 1: Transcript (A) */}
+          <Card className="h-[400px]">
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-xl">
                 <span>Live Transcript</span>
@@ -164,20 +165,117 @@ export default function AudioInsightPage() {
                 )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="h-[calc(100%-5rem)] overflow-y-auto">
               <TranscriptDisplay transcriptData={transcriptData} />
+            </CardContent>
+          </Card>
+
+          {/* Row 2: Summary & Key Points (B) */}
+          <Card className="h-[400px]">
+            <CardHeader>
+              <CardTitle className="text-xl">Summary & Key Points</CardTitle>
+            </CardHeader>
+            <CardContent className="h-[calc(100%-5rem)] overflow-y-auto">
+              <div className="space-y-6">
+                {/* Summary Section */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-semibold text-foreground">Summary</h3>
+                  <div className={cn(
+                    "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+                    "hover:border-muted-foreground",
+                    analysis?.summary ? "text-foreground" : "text-muted-foreground"
+                  )}>
+                    {analysis?.summary || "The AI-generated summary will appear here..."}
+                  </div>
+                </div>
+
+                {/* Key Points Section */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-semibold text-foreground">Key Points</h3>
+                  <div className={cn(
+                    "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+                    "hover:border-muted-foreground",
+                    analysis?.key_points?.length ? "text-foreground" : "text-muted-foreground"
+                  )}>
+                    {analysis?.key_points?.length ? (
+                      <ul className="space-y-1">
+                        {analysis.key_points.map((point: string, index: number) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-blue-600 font-medium">•</span>
+                            <span>{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <ul>
+                        <li>Analysis points will appear here</li>
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Analysis Section */}
+        {/* Right Column - Response Suggestions & Action Plan (C) */}
         <div className="lg:col-span-1">
-          <Card>
+          <Card className="h-[825px]">
             <CardHeader>
-              <CardTitle className="text-xl">AI Analysis</CardTitle>
+              <CardTitle className="text-xl">Response & Actions</CardTitle>
             </CardHeader>
-            <CardContent>
-              <AnalysisPanel analysis={analysis} />
+            <CardContent className="h-[calc(100%-5rem)] overflow-y-auto">
+              <div className="space-y-6">
+                {/* Response Suggestions Section */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-semibold text-foreground">Response Suggestions</h3>
+                  <div className={cn(
+                    "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+                    "hover:border-muted-foreground",
+                    analysis?.response_suggestions?.length ? "text-foreground" : "text-muted-foreground"
+                  )}>
+                    {analysis?.response_suggestions?.length ? (
+                      <ul className="space-y-1">
+                        {analysis.response_suggestions.map((suggestion: string, index: number) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-green-600 font-medium">💬</span>
+                            <span>{suggestion}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <ul>
+                        <li>Response suggestions will appear here</li>
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action Plan Section */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-semibold text-foreground">Action Plan</h3>
+                  <div className={cn(
+                    "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+                    "hover:border-muted-foreground",
+                    analysis?.action_plan?.length ? "text-foreground" : "text-muted-foreground"
+                  )}>
+                    {analysis?.action_plan?.length ? (
+                      <ul className="space-y-1">
+                        {analysis.action_plan.map((action: string, index: number) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-purple-600 font-medium">📋</span>
+                            <span>{action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <ul>
+                        <li>Action recommendations will appear here</li>
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

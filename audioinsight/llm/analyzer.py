@@ -23,6 +23,8 @@ class AnalyzerResponse(BaseModel):
 
     summary: str = Field(description="Concise summary of the transcription")
     key_points: List[str] = Field(default_factory=list, description="Main points discussed")
+    response_suggestions: List[str] = Field(default_factory=list, description="Suggested responses to the speaker")
+    action_plan: List[str] = Field(default_factory=list, description="Recommended actions or next steps")
 
 
 class AnalyzerStats:
@@ -146,19 +148,35 @@ class Analyzer(EventBasedProcessor):
                 [
                     (
                         "system",
-                        """You are an expert at summarizing transcriptions from speech-to-text systems.
+                        """You are an expert at summarizing transcriptions from speech-to-text systems and providing intelligent response guidance.
             
 Your task is to analyze the transcription and provide:
 1. A concise summary of what was discussed
 2. Key points or topics mentioned
+3. Suggested responses to help engage with the speaker
+4. Recommended actions or next steps
 
 Focus on:
 - Main topics and themes
 - Important decisions or conclusions
 - Action items if any
 - Overall context and purpose of the conversation
+- Appropriate responses that show understanding and engagement
+- Practical next steps to move the conversation or situation forward
 
-Keep summaries clear and concise while capturing the essential information.
+For response suggestions, consider:
+- Clarifying questions if information is unclear
+- Acknowledgments that show active listening
+- Follow-up questions to deepen the conversation
+- Supportive or empathetic responses where appropriate
+
+For action plans, think about:
+- Immediate steps that could be taken
+- Information that needs to be gathered
+- People who should be contacted or informed
+- Deadlines or timeframes to consider
+
+Keep all responses clear and concise while capturing the essential information.
 
 IMPORTANT: Always respond in the same language and script as the transcription. 
 - If the transcription is in Chinese (繁體中文), respond in Traditional Chinese using Hong Kong style conventions.
@@ -168,7 +186,7 @@ IMPORTANT: Always respond in the same language and script as the transcription.
                     ),
                     (
                         "human",
-                        """Please summarize this transcription:
+                        """Please analyze this transcription and provide response guidance:
 
 Transcription:
 {transcription}
@@ -178,7 +196,13 @@ Additional context:
 - Has speaker diarization: {has_speakers}
 - Number of lines: {num_lines}
 
-Provide a structured summary with key points. Remember to respond in the same language, script, and regional conventions as the transcription above.""",
+Provide a structured analysis with:
+1. Summary - A concise overview of what was discussed
+2. Key Points - Main topics and important information mentioned
+3. Response Suggestions - How to appropriately respond to the speaker(s)
+4. Action Plan - Recommended next steps or actions to take
+
+Remember to respond in the same language, script, and regional conventions as the transcription above.""",
                     ),
                 ]
             )
@@ -383,6 +407,8 @@ Provide a structured summary with key points. Remember to respond in the same la
             # Apply s2hk conversion to ensure Traditional Chinese output
             response.summary = s2hk(response.summary)
             response.key_points = [s2hk(point) for point in response.key_points]
+            response.response_suggestions = [s2hk(suggestion) for suggestion in response.response_suggestions]
+            response.action_plan = [s2hk(action) for action in response.action_plan]
 
             # Update statistics
             self.stats.record_inference(trigger_reason, generation_time, len(text_to_process))

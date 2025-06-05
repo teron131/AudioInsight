@@ -47,6 +47,56 @@ export function AnalysisPanel({ analysis, className }: AnalysisPanelProps) {
           )}
         </div>
       </div>
+
+      {/* Response Suggestions Section */}
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold text-foreground">Response Suggestions</h3>
+        <div className={cn(
+          "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+          "hover:border-muted-foreground",
+          analysis?.response_suggestions?.length ? "text-foreground" : "text-muted-foreground"
+        )}>
+          {analysis?.response_suggestions?.length ? (
+            <ul className="space-y-1">
+              {analysis.response_suggestions.map((suggestion: string, index: number) => (
+                <li key={index} className="flex items-start gap-2">
+                  <span className="text-green-600 font-medium">💬</span>
+                  <span>{suggestion}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul>
+              <li>Response suggestions will appear here</li>
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Action Plan Section */}
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold text-foreground">Action Plan</h3>
+        <div className={cn(
+          "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[80px] transition-all",
+          "hover:border-muted-foreground",
+          analysis?.action_plan?.length ? "text-foreground" : "text-muted-foreground"
+        )}>
+          {analysis?.action_plan?.length ? (
+            <ul className="space-y-1">
+              {analysis.action_plan.map((action: string, index: number) => (
+                <li key={index} className="flex items-start gap-2">
+                  <span className="text-purple-600 font-medium">📋</span>
+                  <span>{action}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul>
+              <li>Action recommendations will appear here</li>
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 } 

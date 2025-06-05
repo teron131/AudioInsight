@@ -17,6 +17,8 @@ export interface ExportRequest {
     summary?: string;
     key_points?: string[];
     keywords?: string[];
+    response_suggestions?: string[];
+    action_plan?: string[];
   };
 }
 
