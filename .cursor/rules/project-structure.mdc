@@ -12,30 +12,56 @@ The project follows a specific structure with the backend package and optional f
 AudioInsight/
 ├── audioinsight/               # Backend package
 │   ├── __init__.py
-│   ├── app.py                 # Main entry point
-│   ├── config.py              # Configuration
-│   ├── processors.py          # Core logic with non-blocking LLM integration
+│   ├── app.py                 # FastAPI server & main entry point
+│   ├── config.py              # Centralized configuration management
+│   ├── main.py                # AudioInsight class & CLI entry point
+│   ├── processors.py          # Core audio processing logic with non-blocking LLM integration
+│   ├── display_parser.py      # Text enhancement for UI display
+│   ├── logging_config.py      # Application-wide logging configuration
+│   ├── timed_objects.py       # Temporal data structures (ASRToken, SpeakerSegment)
 │   ├── diarization/           # Speaker identification modules
-│   ├── server/                # Server components  
-│   ├── whisper_streaming/     # Real-time audio processing
+│   ├── server/                # Server components and utilities
+│   ├── frontend/              # Frontend utilities and helpers
+│   ├── whisper_streaming/     # Real-time audio processing & LocalAgreement-2
 │   └── llm/                   # Non-blocking event-based LLM processing system
-│       ├── base.py            # EventBasedProcessor & shared executor
-│       ├── parser.py          # Non-blocking text parsing (2 workers)
-│       ├── summarizer.py      # Non-blocking summarization (2 workers)
-│       ├── types.py           # LLM data structures & configuration
-│       └── utils.py           # LLM utilities & helpers
-├── audioinsight-ui/           # Frontend (if applicable)
+│       ├── __init__.py
+│       ├── base.py            # EventBasedProcessor & shared executor foundation
+│       ├── parser.py          # Non-blocking text parsing (1 stateful worker)
+│       ├── summarizer.py      # Non-blocking conversation analysis (2 workers)
+│       ├── config.py          # LLM configuration & environment management
+│       ├── performance_monitor.py  # Performance tracking & metrics
+│       └── utils.py           # LLM utilities & helper functions
+├── audioinsight-ui/           # Frontend (Next.js/React)
+│   ├── app/                   # Next.js App Router implementation
+│   ├── components/            # Reusable React components
+│   │   └── ui/                # UI component library (shadcn/ui)
+│   ├── hooks/                 # Custom React hooks for state management
+│   ├── lib/                   # Utility libraries and helpers
+│   ├── public/                # Static assets and resources
+│   ├── styles/                # CSS modules and Tailwind styling
+│   ├── package.json           # Frontend dependencies & scripts
+│   ├── next.config.mjs        # Next.js configuration
+│   ├── tailwind.config.ts     # Tailwind CSS configuration
+│   └── tsconfig.json          # TypeScript configuration
+├── scripts/                   # Utility scripts and tools
 ├── audio/                     # Audio input directory
 ├── logs/                      # Application logs
-├── setup.py                   # Package setup
+├── backups/                   # Backup files and archives
+├── setup.py                   # Python package configuration
 ├── start.sh                   # Backend startup script
-├── package.json               # Root coordination
-└── .env                       # Environment variables
+├── package.json               # Root coordination & workspace management
+├── Dockerfile                 # Container configuration
+├── LICENSE                    # MIT License
+├── README.md                  # Comprehensive project documentation
+├── TECHNICAL_DESCRIPTION.md   # Technical architecture details
+└── .env                       # Environment variables (local)
 ```
 
 Reference key files:
 - Main entry point: [audioinsight/app.py](mdc:audioinsight/app.py)
+- CLI coordinator: [audioinsight/main.py](mdc:audioinsight/main.py)
 - Configuration: [audioinsight/config.py](mdc:audioinsight/config.py)
+- Core processing: [audioinsight/processors.py](mdc:audioinsight/processors.py)
 - Backend startup: [start.sh](mdc:start.sh)
 - Package setup: [setup.py](mdc:setup.py)
 - Non-blocking LLM foundation: [audioinsight/llm/base.py](mdc:audioinsight/llm/base.py)
@@ -50,6 +76,7 @@ This allows importing from anywhere:
 ```python
 from audioinsight.processors import AudioProcessor
 from audioinsight.llm import Summarizer, Parser
+from audioinsight.main import AudioInsight
 ```
 
 ## Full-Stack Development Commands
@@ -60,47 +87,61 @@ The root [package.json](mdc:package.json) contains proxy commands that delegate 
 ```bash
 # Start both frontend + backend simultaneously
 npm run dev
+# Backend: http://localhost:8080
+# Frontend: http://localhost:3030
 
 # Individual services
-./start.sh              # Backend only
-cd audioinsight-ui && npm run dev:frontend  # Frontend only
+./start.sh                                    # Backend only
+cd audioinsight-ui && npm run dev:frontend    # Frontend only
+
+# Other commands
+npm run build                                 # Build frontend
+npm run ui:dev                               # Alias for frontend dev
+npm run ui:build                             # Build UI
 ```
 
 ### How It Works
-- Main [package.json](mdc:package.json) proxies to frontend
-- Frontend package.json uses `concurrently` to run both services
-- Backend started via [start.sh](mdc:start.sh) script
+- Main [package.json](mdc:package.json) proxies to frontend package in [audioinsight-ui/](mdc:audioinsight-ui/)
+- Frontend package.json uses `concurrently` to run both services simultaneously
+- Backend started via [start.sh](mdc:start.sh) script or directly via `audioinsight-server`
 
 ## Module Organization Rules
 
 ### Standalone Modules
 Place in dedicated directories under `audioinsight/`:
 - `diarization/` - Speaker diarization functionality
-- `whisper_streaming/` - Real-time audio processing
-- `server/` - Server-specific components
+- `whisper_streaming/` - Real-time audio processing with LocalAgreement-2 algorithms
+- `server/` - Server-specific components and utilities
+- `frontend/` - Frontend utilities and helper functions
 - `llm/` - **Non-blocking event-based LLM processing system** with fire-and-forget workers
 
 ### Core Files
-- `app.py` - FastAPI application and main entry point
-- `config.py` - Centralized configuration management
+- `app.py` - FastAPI application and main server entry point
+- `main.py` - AudioInsight class and CLI interface
+- `config.py` - Centralized configuration management with Pydantic validation
 - `processors.py` - Core audio processing logic with non-blocking LLM coordination
+- `display_parser.py` - Text enhancement and formatting for UI display
+- `logging_config.py` - Application-wide logging setup and configuration
+- `timed_objects.py` - Temporal data structures for time-aware processing
 
 ### LLM Architecture (Non-Blocking Event-Based System)
 The `llm/` module implements high-performance non-blocking concurrent processing:
 
 #### **Core Components**
 - **`base.py`**: EventBasedProcessor abstract class with shared thread pool and fire-and-forget queuing
-- **`parser.py`**: Real-time text correction with 2 non-blocking concurrent workers
-- **`summarizer.py`**: Conversation analysis with 2 non-blocking concurrent workers  
-- **`types.py`**: Type definitions and configuration classes
-- **`utils.py`**: Utility functions and helpers
+- **`parser.py`**: Real-time text correction with **1 stateful worker** for atomic state management
+- **`summarizer.py`**: Conversation analysis with **2 concurrent workers** for high-throughput processing  
+- **`config.py`**: LLM configuration classes with environment variable support
+- **`performance_monitor.py`**: Real-time performance tracking and adaptive optimization
+- **`utils.py`**: Shared utilities and helper functions for LLM operations
 
 #### **Performance Features**
-- **Shared Thread Pool**: Single executor reused across all LLM operations (90% overhead reduction)
+- **Shared Thread Pool**: Single 8-worker executor reused across all LLM operations (90% overhead reduction)
 - **Non-Blocking Workers**: Multiple workers processing in background without blocking transcription
-- **Fire-and-Forget Queuing**: Large queues (75-150 items) with non-blocking puts prevent transcription delays
+- **Fire-and-Forget Queuing**: Adaptive queue sizes (50-100 items) with non-blocking puts prevent transcription delays
 - **Ultra-Fast Updates**: 0.05s UI updates (20 FPS) for smooth real-time display
 - **Exception Isolation**: LLM failures never affect real-time transcription flow
+- **Adaptive Cooldowns**: Dynamic processing frequency based on actual performance metrics
 
 ### Import Patterns
 Use relative imports within the audioinsight package:
@@ -108,13 +149,15 @@ Use relative imports within the audioinsight package:
 # From audioinsight/app.py
 from .config import config
 from .processors import AudioProcessor
+from .main import AudioInsight
 from .diarization.speaker_diarization import DiarizationProcessor
 
 # Non-blocking LLM imports
 from .llm.base import EventBasedProcessor, UniversalLLM
 from .llm.parser import Parser  
 from .llm.summarizer import Summarizer
-from .llm.types import LLMConfig, LLMTrigger, ParsedTranscript
+from .llm.config import LLMConfig, ParserConfig, SummarizerConfig
+from .llm.performance_monitor import PerformanceMonitor
 ```
 
 ## Non-Blocking Event-Based Architecture Integration
@@ -128,7 +171,7 @@ class AudioProcessor:
     def __init__(self):
         # Initialize LLM components with non-blocking processing
         self.llm = Summarizer()  # 2 non-blocking workers
-        self.transcript_parser = Parser()  # 2 non-blocking workers
+        self.transcript_parser = Parser()  # 1 stateful worker
         
     async def create_tasks(self):
         # Start LLM worker pools (non-blocking)
@@ -144,14 +187,49 @@ class AudioProcessor:
 ```
 
 ### **Performance Monitoring**
-Components provide detailed status monitoring:
+Components provide detailed status monitoring via `performance_monitor.py`:
 ```python
 # Get real-time performance metrics
 parser_status = parser.get_queue_status()
 # Returns: queue_size, active_workers, max_workers, is_running
 
-llm_stats = llm.get_stats()  
-# Returns: processing times, queue metrics, worker status
+llm_stats = llm.get_performance_stats()  
+# Returns: processing times, queue metrics, worker status, adaptive cooldown
 ```
 
-This non-blocking event-based architecture eliminates all transcription delays that were caused by blocking LLM operations and provides zero-lag concurrent processing for high-throughput real-time applications.
+### **Frontend Integration**
+The Next.js frontend provides modern UI with real-time capabilities:
+```python
+# Frontend structure
+audioinsight-ui/
+├── app/                    # Next.js App Router with modern routing
+├── components/             # Reusable React components
+├── hooks/                  # WebSocket and state management hooks
+├── lib/                    # Utility libraries and helpers
+└── styles/                 # Tailwind CSS styling
+```
+
+## Development Workflow
+
+### **Local Development**
+```bash
+# Full-stack development (recommended)
+npm run dev                 # Starts both frontend and backend
+
+# Individual services for debugging
+./start.sh                  # Backend only (:8080)
+cd audioinsight-ui && npm run dev:frontend  # Frontend only (:3030)
+```
+
+### **Configuration Management**
+- **Environment Variables**: Managed via `.env` file and environment
+- **Unified Config**: [audioinsight/config.py](mdc:audioinsight/config.py) provides centralized configuration
+- **LLM Config**: [audioinsight/llm/config.py](mdc:audioinsight/llm/config.py) handles LLM-specific settings
+- **Frontend Config**: [audioinsight-ui/next.config.mjs](mdc:audioinsight-ui/next.config.mjs) for Next.js settings
+
+### **Logging and Monitoring**
+- **Centralized Logging**: [audioinsight/logging_config.py](mdc:audioinsight/logging_config.py) handles all application logging
+- **Performance Tracking**: [audioinsight/llm/performance_monitor.py](mdc:audioinsight/llm/performance_monitor.py) provides real-time metrics
+- **Log Directory**: [logs/](mdc:logs/) contains application logs with rotation
+
+This non-blocking event-based architecture eliminates all transcription delays that were caused by blocking LLM operations and provides zero-lag concurrent processing for high-throughput real-time applications with modern frontend integration.

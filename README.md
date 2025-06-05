@@ -802,19 +802,36 @@ AudioInsight/
 │   ├── app.py                 # FastAPI server
 │   ├── config.py              # Configuration management
 │   ├── processors.py          # Core audio processing
+│   ├── main.py                # AudioInsight class & CLI entry point
 │   ├── llm/                   # Non-blocking LLM system
 │   │   ├── base.py            # EventBasedProcessor & shared executor
 │   │   ├── parser.py          # Text parsing (2 workers)
 │   │   ├── summarizer.py      # Conversation analysis (2 workers)
-│   │   └── config.py          # LLM configuration
+│   │   ├── config.py          # LLM configuration
+│   │   ├── performance_monitor.py  # Performance tracking
+│   │   └── utils.py           # LLM utilities
 │   ├── diarization/           # Speaker identification
 │   ├── whisper_streaming/     # Real-time ASR
-│   └── server/                # Server utilities
+│   ├── server/                # Server utilities
+│   ├── frontend/              # Frontend utilities
+│   ├── display_parser.py      # Text enhancement
+│   ├── logging_config.py      # Logging configuration
+│   └── timed_objects.py       # Temporal data structures
 ├── audioinsight-ui/           # Frontend (Next.js/React)
+│   ├── app/                   # Next.js app router
+│   ├── components/            # React components
+│   ├── hooks/                 # Custom React hooks
+│   ├── lib/                   # Utility libraries
+│   ├── public/                # Static assets
+│   └── styles/                # CSS and styling
 ├── scripts/                   # Utility scripts
+├── audio/                     # Audio input directory
+├── logs/                      # Application logs
 ├── setup.py                   # Package configuration
 ├── start.sh                   # Backend startup script
-└── package.json               # Full-stack coordination
+├── package.json               # Full-stack coordination
+├── Dockerfile                 # Container configuration
+└── .env                       # Environment variables
 ```
 
 ### Contributing

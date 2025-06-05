@@ -14,49 +14,67 @@ AudioInsight is a comprehensive audio processing platform that provides real-tim
 The core backend is located in the `audioinsight/` package:
 
 - **Main Application**: [audioinsight/app.py](mdc:audioinsight/app.py) - FastAPI server with REST and WebSocket endpoints
-- **Configuration**: [audioinsight/config.py](mdc:audioinsight/config.py) - Centralized configuration management
-- **Audio Processing**: Core audio processing logic and Whisper integration
+- **CLI Interface**: [audioinsight/main.py](mdc:audioinsight/main.py) - AudioInsight class and command-line interface
+- **Configuration**: [audioinsight/config.py](mdc:audioinsight/config.py) - Centralized configuration management with Pydantic validation
+- **Audio Processing**: [audioinsight/processors.py](mdc:audioinsight/processors.py) - Core audio processing logic and Whisper integration
+- **Display Enhancement**: [audioinsight/display_parser.py](mdc:audioinsight/display_parser.py) - Text formatting and UI presentation
+- **Temporal Objects**: [audioinsight/timed_objects.py](mdc:audioinsight/timed_objects.py) - Time-aware data structures (ASRToken, SpeakerSegment)
+- **Logging System**: [audioinsight/logging_config.py](mdc:audioinsight/logging_config.py) - Application-wide logging configuration
 - **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation
-- **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing
+- **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing with LocalAgreement-2
+- **Server Components**: [audioinsight/server/](mdc:audioinsight/server) - Server utilities and helpers
+- **Frontend Utilities**: [audioinsight/frontend/](mdc:audioinsight/frontend) - Frontend integration helpers
 - **Non-Blocking LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Fire-and-forget language model features
 
 ### Frontend (Next.js/React)
 The web interface is located in `audioinsight-ui/`:
 
-- Modern React-based UI for audio upload and processing
-- Real-time progress tracking and results display with 20 FPS smooth updates
-- Integration with backend via REST APIs and WebSockets
+- **Modern React-based UI**: Built with Next.js App Router and TypeScript
+- **Real-time WebSocket Communication**: Live audio streaming and result display
+- **UI Components**: [audioinsight-ui/components/](mdc:audioinsight-ui/components) - Reusable React components with shadcn/ui
+- **Custom Hooks**: [audioinsight-ui/hooks/](mdc:audioinsight-ui/hooks) - WebSocket and state management hooks
+- **Utility Libraries**: [audioinsight-ui/lib/](mdc:audioinsight-ui/lib) - Helper functions and utilities
+- **Styling**: [audioinsight-ui/styles/](mdc:audioinsight-ui/styles) - Tailwind CSS and modern styling
+- **Real-time progress tracking and results display with 20 FPS smooth updates**
+- **Integration with backend via REST APIs and WebSockets**
 
 ### Infrastructure
 - **Package Setup**: [setup.py](mdc:setup.py) - Python package configuration
 - **Startup Script**: [start.sh](mdc:start.sh) - Backend server startup
 - **Environment**: [.env](mdc:.env) - Environment configuration
-- **Dependencies**: [package.json](mdc:package.json) - Node.js dependencies and scripts
+- **Dependencies**: [package.json](mdc:package.json) - Node.js dependencies and workspace coordination
+- **Container Support**: [Dockerfile](mdc:Dockerfile) - Production-ready containerization
+- **Documentation**: [README.md](mdc:README.md) & [TECHNICAL_DESCRIPTION.md](mdc:TECHNICAL_DESCRIPTION.md)
 
 ## Audio Processing Capabilities
 
 ### Transcription
-- Whisper-based speech-to-text
-- Multiple model sizes for accuracy vs speed tradeoffs
-- Support for multiple audio formats
-- Zero-lag real-time output with 20 FPS UI updates
+- **Whisper-based speech-to-text** with LocalAgreement-2 streaming algorithms
+- **Multiple model sizes** for accuracy vs speed tradeoffs (tiny, base, small, medium, large-v3-turbo)
+- **Support for multiple audio formats** via FFmpeg integration
+- **Zero-lag real-time output** with 20 FPS UI updates and smooth streaming
+- **Context preservation** across streaming chunks for conversational coherence
 
 ### Speaker Diarization
-- Automatic speaker identification
-- Timeline-based speaker segments
-- Integration with transcription for speaker-attributed text
+- **Automatic speaker identification** using PyAnnote models
+- **Real-time speaker switching detection** with timeline-based segments
+- **Integration with transcription** for speaker-attributed text
+- **Consistent speaker mapping** with stable speaker IDs
 
 ### Real-time Processing
-- Streaming audio processing
-- WebSocket-based live updates with 0.05s intervals
-- Progressive result delivery
-- Non-blocking background LLM analysis
+- **Streaming audio processing** with LocalAgreement-2 policy for output stability
+- **WebSocket-based live updates** with 0.05s intervals (20 FPS)
+- **Progressive result delivery** as speech is recognized
+- **Voice Activity Detection** for intelligent processing triggers
+- **Non-blocking background LLM analysis** that never interrupts transcription flow
 
 ### LLM-Powered Analysis (Non-Blocking)
-- Fire-and-forget transcript correction with 2 concurrent workers
-- Background conversation summarization with 2 concurrent workers
-- Exception isolation ensuring LLM failures never affect transcription
-- Intelligent text processing that operates transparently
+- **Fire-and-forget transcript correction** with 1 stateful worker for atomic parsing
+- **Background conversation summarization** with 2 concurrent workers for high throughput
+- **Exception isolation** ensuring LLM failures never affect transcription
+- **Intelligent text processing** that operates transparently in background
+- **Adaptive performance optimization** with dynamic cooldown adjustment
+- **Shared thread pool** (8 workers) for 90% overhead reduction in LLM operations
 
 ## Development Workflow
 
@@ -65,28 +83,110 @@ The web interface is located in `audioinsight-ui/`:
 # Install Python package in development mode
 pip install -e .
 
-# Start both frontend and backend
+# Start both frontend and backend simultaneously
 npm run dev
+# Backend: http://localhost:8080
+# Frontend: http://localhost:3030
 ```
 
 ### Individual Services
 ```bash
 # Backend only
 ./start.sh
+# Or: audioinsight-server
 
 # Frontend only  
 cd audioinsight-ui && npm run dev:frontend
 ```
 
 ### File Organization
-- Audio files are processed from the `audio/` directory
-- Logs are written to `logs/` directory
-- Configuration is managed via environment variables and [audioinsight/config.py](mdc:audioinsight/config.py)
+- **Audio files** are processed from the `audio/` directory
+- **Logs** are written to `logs/` directory with rotation support
+- **Configuration** is managed via environment variables and [audioinsight/config.py](mdc:audioinsight/config.py)
+- **Scripts** and utilities are located in `scripts/` directory
+- **Backups** are stored in `backups/` directory
 
 ## Key Technologies
-- **Backend**: FastAPI, Python, Whisper, PyTorch
-- **Frontend**: Next.js, React, TypeScript
-- **Audio Processing**: librosa, soundfile, numpy
-- **AI/ML**: OpenAI Whisper, PyAnnote for diarization, Non-blocking LLM integration
-- **Infrastructure**: Docker support, environment-based configuration
-- **Concurrency**: Event-based non-blocking architecture, shared thread pools, fire-and-forget queuing
+
+### Backend Technologies
+- **FastAPI**: Modern Python web framework with automatic API documentation
+- **Python**: Core language with type hints and async/await support
+- **Whisper**: OpenAI's speech recognition model with LocalAgreement-2 streaming
+- **PyTorch**: Deep learning framework for model execution
+- **PyAnnote**: Speaker diarization and audio analysis
+- **Pydantic**: Data validation and configuration management
+
+### Frontend Technologies
+- **Next.js**: React framework with App Router and modern features
+- **React**: Component-based UI library with hooks and context
+- **TypeScript**: Type-safe JavaScript with enhanced developer experience
+- **Tailwind CSS**: Utility-first CSS framework for modern styling
+- **shadcn/ui**: High-quality UI component library
+
+### Audio Processing
+- **librosa**: Audio analysis and signal processing
+- **soundfile**: Audio file I/O operations
+- **numpy**: Numerical computing for audio data
+- **FFmpeg**: Audio format conversion and processing
+
+### AI/ML Integration
+- **OpenAI Whisper**: Speech-to-text transcription with multiple model sizes
+- **PyAnnote**: Real-time speaker diarization and identification
+- **Non-blocking LLM integration**: Background conversation analysis and text enhancement
+- **LocalAgreement-2**: Advanced streaming algorithm for output stability
+
+### Infrastructure & Deployment
+- **Docker**: Containerization with GPU support for production deployment
+- **Environment-based configuration**: Secure configuration via environment variables
+- **Event-based non-blocking architecture**: True parallel processing without delays
+- **Shared thread pools**: Optimized resource utilization for concurrent operations
+- **Fire-and-forget queuing**: Zero transcription lag with background processing
+
+### Concurrency & Performance
+- **Event-based non-blocking architecture**: Eliminates all transcription blocking
+- **Shared thread pools**: 8-worker executor for optimized LLM operations  
+- **Fire-and-forget queuing**: Adaptive queue sizes with non-blocking operations
+- **Performance monitoring**: Real-time metrics and adaptive optimization
+- **Exception isolation**: Component failures don't propagate to transcription
+- **Ultra-fast UI updates**: 20 FPS smooth real-time display
+
+## API Architecture
+
+### REST Endpoints
+- **Configuration Management**: `/api/config/*` - Runtime configuration updates
+- **Model Management**: `/api/models/*` - Model status and loading
+- **LLM Integration**: `/api/llm/*` - LLM processing status and testing
+- **Session Management**: `/cleanup-session`, `/cleanup-file` - Resource cleanup
+- **Batch Processing**: `/api/batch/*` - Batch operation management
+
+### WebSocket Communication
+- **Real-time Transcription**: `/asr` - Unified live audio and file processing
+- **Background LLM Analysis**: Non-blocking analysis results via WebSocket
+- **Progress Updates**: 20 FPS update rate for smooth responsiveness
+- **Error Handling**: Graceful recovery with continued processing
+
+### Processing Modes
+- **Live Recording**: Direct browser microphone with real-time LLM analysis
+- **File Upload + WebSocket**: Unified processing with real-time simulation
+- **Direct File Processing**: Complete JSON response with LLM insights
+- **Streaming File Processing**: Server-Sent Events with background analysis
+
+## Performance Features
+
+### Non-Blocking Architecture
+- **Zero Transcription Lag**: LLM processing never blocks speech recognition
+- **Fire-and-Forget Workers**: Background processing with immediate return
+- **Shared Resource Pool**: 90% overhead reduction through executor reuse
+- **Adaptive Optimization**: Dynamic performance tuning based on metrics
+
+### Real-time Capabilities
+- **LocalAgreement-2 Streaming**: Stable output through hypothesis validation
+- **Ultra-Fast Updates**: 0.05s intervals for 20 FPS smooth display
+- **Voice Activity Detection**: Intelligent processing triggers
+- **Context Preservation**: Conversational coherence across chunks
+
+### Fault Tolerance
+- **Exception Isolation**: Component failures don't affect core processing
+- **Graceful Degradation**: System continues operating during partial failures
+- **Resource Cleanup**: Comprehensive session and file cleanup
+- **Health Monitoring**: Real-time status and performance tracking

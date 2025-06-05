@@ -44,13 +44,27 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `LLMTrigger`: Trigger condition management for processing events
 - Environment-based configuration with secure API key management
 
+#### **`audioinsight/llm/performance_monitor.py`** - Performance Tracking System
+- Real-time performance metrics collection and analysis
+- Queue status monitoring and worker performance tracking
+- Adaptive cooldown calculation based on processing history
+- Performance statistics for optimization and debugging
+- Resource utilization monitoring for efficient processing
+
+#### **`audioinsight/llm/utils.py`** - LLM Utilities and Helpers
+- Shared utility functions for LLM operations
+- Text processing and formatting helpers
+- Configuration validation and setup utilities
+- Common patterns and helper methods for LLM integration
+
 ### **Streaming Pipeline Components**
 
-#### **`audioinsight/main.py`** - System Coordination
-- `AudioInsight` class: Singleton pattern for model and configuration management
+#### **`audioinsight/main.py`** - System Coordination and CLI Entry Point
+- `AudioInsight` class: Main system coordinator and model management
+- Command-line interface implementation with comprehensive argument parsing
 - Model loading orchestration and backend selection
 - Configuration propagation across streaming components
-- CLI argument parsing and system initialization
+- System initialization and startup coordination
 
 #### **`audioinsight/processors.py`** - Real-Time Processing Pipeline
 - `AudioProcessor`: Central coordinator managing shared state and inter-processor communication
@@ -69,11 +83,13 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `ASRToken`: Primary data structure representing transcribed words with timestamps
 - `TimedText`: Base class for temporal text objects
 - `SpeakerSegment`: Speaker identification segments with temporal boundaries
+- Time-aware data structures for synchronization and temporal alignment
 
 #### **`audioinsight/display_parser.py`** - Display Text Enhancement
 - `DisplayParser`: Real-time text formatting and enhancement for UI display
 - Integration with LLM parsing for intelligent text presentation
 - Caching and performance optimization for smooth UI updates
+- Text formatting rules and presentation logic
 
 #### **`audioinsight/config.py`** - Unified Configuration System
 - `UnifiedConfig`: Centralized configuration management with Pydantic validation
@@ -83,6 +99,12 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `FeatureConfig`: Feature flags and capability toggles
 - `LLMConfig`: Language model configuration with environment variable support
 - Environment-based configuration with validation and type safety
+
+#### **`audioinsight/logging_config.py`** - Centralized Logging System
+- Application-wide logging configuration and setup
+- File and console logging with rotation support
+- Performance and debugging log management
+- Structured logging for monitoring and analysis
 
 #### **`audioinsight/app.py`** - FastAPI Server Implementation
 - FastAPI application with comprehensive API endpoints
@@ -502,6 +524,56 @@ The buffer operates with three validation phases:
 
 **LLM Configuration**: Model selection, API keys, and processing parameters
 
+## Frontend Architecture
+
+### Next.js Application Structure
+
+**`audioinsight-ui/app/`**: Next.js App Router implementation with modern routing
+
+**`audioinsight-ui/components/`**: Reusable React components with UI library integration
+
+**`audioinsight-ui/hooks/`**: Custom React hooks for state management and WebSocket communication
+
+**`audioinsight-ui/lib/`**: Utility libraries and helper functions
+
+**`audioinsight-ui/public/`**: Static assets and public resources
+
+**`audioinsight-ui/styles/`**: CSS modules and Tailwind CSS styling
+
+### Frontend Features
+
+**Real-time WebSocket Communication**: Live audio streaming and result display
+
+**Modern UI Components**: Tailwind CSS with shadcn/ui component library
+
+**Responsive Design**: Mobile-first approach with cross-device compatibility
+
+**State Management**: React hooks and context for application state
+
+**Performance Optimization**: Code splitting and lazy loading for optimal performance
+
+## Development and Deployment Architecture
+
+### Development Workflow
+
+**Package Management**: Root package.json coordinates both frontend and backend development
+
+**Concurrent Development**: Single command starts both services for full-stack development
+
+**Hot Reloading**: Both frontend and backend support live code updates
+
+**Environment Management**: Unified environment variable configuration
+
+### Container Deployment
+
+**Multi-stage Docker Build**: Optimized container with both frontend and backend
+
+**GPU Support**: CUDA-enabled containers for hardware acceleration
+
+**Environment Configuration**: Container-based configuration management
+
+**Health Monitoring**: Built-in health checks and monitoring endpoints
+
 ## Conclusion
 
 AudioInsight's enhanced non-blocking streaming architecture solves the fundamental challenges of real-time speech recognition and intelligent analysis through:
@@ -521,5 +593,8 @@ AudioInsight's enhanced non-blocking streaming architecture solves the fundament
 13. **Fault Tolerance**: Robust error recovery and graceful degradation
 14. **Unified Configuration**: Type-safe, environment-based configuration management
 15. **Comprehensive API**: Full-featured REST and WebSocket APIs for all operations
+16. **Modern Frontend Architecture**: Next.js-based UI with real-time WebSocket integration
+17. **Performance Monitoring**: Real-time metrics and adaptive optimization
+18. **Container Deployment**: Production-ready Docker containers with GPU support
 
 This enhanced non-blocking architecture enables production-grade real-time speech recognition with maintained accuracy and zero transcription lag, supporting high-throughput multi-user deployment scenarios with intelligent conversation analysis that operates transparently in the background without ever interrupting the real-time transcription flow.
