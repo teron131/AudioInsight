@@ -75,8 +75,8 @@ class LLMConfig(BaseSettings):
     timeout: float = Field(default=30.0, gt=0, le=300, description="Request timeout in seconds")
 
     # Trigger Configuration
-    llm_summary_interval: float = Field(default=1.0, gt=0, description="Minimum time between summaries")
-    llm_new_text_trigger: int = Field(default=50, gt=0, description="Characters to trigger new summary")
+    llm_analysis_interval: float = Field(default=1.0, gt=0, description="Minimum time between analyses")
+    llm_new_text_trigger: int = Field(default=50, gt=0, description="Characters to trigger new analysis")
 
     # Parser Configuration
     parser_trigger_interval: float = Field(default=1.0, gt=0, description="Parser trigger interval")
@@ -186,7 +186,7 @@ DEFAULT_CONFIG = {
     "llm": {
         "fast_llm": "openai/gpt-4.1-nano",
         "base_llm": "openai/gpt-4.1-mini",
-        "llm_summary_interval": 1.0,
+        "llm_analysis_interval": 1.0,
         "llm_new_text_trigger": 50,
         "parser_trigger_interval": 1.0,
         "parser_output_tokens": 33000,
@@ -278,7 +278,7 @@ def get_processing_parameters() -> Dict[str, Any]:
         # LLM Configuration
         "fast_llm": config.llm.fast_llm,
         "base_llm": config.llm.base_llm,
-        "llm_summary_interval": config.llm.llm_summary_interval,
+        "llm_analysis_interval": config.llm.llm_analysis_interval,
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
@@ -308,7 +308,7 @@ def apply_parameter_updates(parameters: Dict[str, Any]) -> List[str]:
         elif backend_field in ["transcription", "diarization", "vad", "vac", "confidence_validation", "llm_inference"]:
             setattr(config.features, backend_field, value)
             updated_fields.append(frontend_field)
-        elif backend_field in ["fast_llm", "base_llm", "llm_summary_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens"]:
+        elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens"]:
             setattr(config.llm, backend_field, value)
             updated_fields.append(frontend_field)
 

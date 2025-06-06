@@ -14,7 +14,6 @@ export interface ExportRequest {
     end?: string;
   }>;
   analysis?: {
-    summary?: string;
     key_points?: string[];
     keywords?: string[];
     response_suggestions?: string[];
@@ -81,7 +80,7 @@ export interface ProcessingParameters {
   // LLM Configuration
   fast_llm: string;
   base_llm: string;
-  llm_summary_interval: number;
+  llm_analysis_interval: number;
   llm_new_text_trigger: number;
   parser_trigger_interval: number;
   parser_output_tokens: number;

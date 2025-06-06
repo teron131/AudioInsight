@@ -34,7 +34,7 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Moderate queue capacity (100 items) for handling burst processing without blocking
 - Adaptive cooldown for balanced performance and API efficiency
 - Deferred trigger checking that never interrupts real-time transcription flow
-- **Continuous summary generation** with no artificial limits until processing ends
+- **Continuous analysis generation** with no artificial limits until processing ends
 - Conversation state management and context preservation
 
 #### **`audioinsight/llm/config.py`** - LLM Configuration Management

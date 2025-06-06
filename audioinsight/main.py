@@ -60,7 +60,7 @@ def _get_argument_parser() -> ArgumentParser:
     llm_group.add_argument("--no_llm_inference", action="store_true", help="Disable LLM-based transcript analysis. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--fast_llm", type=str, default=DEFAULT_CONFIG["llm"]["fast_llm"], help="Fast LLM model for text parsing. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--base_llm", type=str, default=DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model for analysis. [RUNTIME CONFIGURABLE]")
-    llm_group.add_argument("--llm_summary_interval", type=float, default=DEFAULT_CONFIG["llm"]["llm_summary_interval"], help="LLM summary trigger interval in seconds. [RUNTIME CONFIGURABLE]")
+    llm_group.add_argument("--llm_analysis_interval", type=float, default=DEFAULT_CONFIG["llm"]["llm_analysis_interval"], help="LLM analysis trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--llm_new_text_trigger", type=int, default=DEFAULT_CONFIG["llm"]["llm_new_text_trigger"], help="Text length trigger for LLM processing. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_trigger_interval", type=float, default=DEFAULT_CONFIG["llm"]["parser_trigger_interval"], help="Parser trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_output_tokens", type=int, default=DEFAULT_CONFIG["llm"]["parser_output_tokens"], help="Maximum parser output tokens. [RUNTIME CONFIGURABLE]")
@@ -94,8 +94,8 @@ def _validate_args(args: Namespace) -> None:
         raise ValueError("Both ssl_certfile and ssl_keyfile must be provided together or not at all")
 
     # Validate LLM configuration
-    if args.llm_summary_interval <= 0:
-        raise ValueError(f"llm_summary_interval must be positive, got {args.llm_summary_interval}")
+    if args.llm_analysis_interval <= 0:
+        raise ValueError(f"llm_analysis_interval must be positive, got {args.llm_analysis_interval}")
 
     if args.llm_new_text_trigger <= 0:
         raise ValueError(f"llm_new_text_trigger must be positive, got {args.llm_new_text_trigger}")
@@ -353,8 +353,8 @@ class AudioInsight:
             self.config.llm.fast_llm = self.args.fast_llm
         if hasattr(self.args, "base_llm"):
             self.config.llm.base_llm = self.args.base_llm
-        if hasattr(self.args, "llm_summary_interval"):
-            self.config.llm.llm_summary_interval = self.args.llm_summary_interval
+        if hasattr(self.args, "llm_analysis_interval"):
+            self.config.llm.llm_analysis_interval = self.args.llm_analysis_interval
         if hasattr(self.args, "llm_new_text_trigger"):
             self.config.llm.llm_new_text_trigger = self.args.llm_new_text_trigger
         if hasattr(self.args, "parser_trigger_interval"):
@@ -459,8 +459,8 @@ class AudioInsight:
             <p>Failed to load the web interface. Please check the installation.</p></body></html>
             """
 
-    def get_config_summary(self) -> Dict[str, Any]:
-        """Get a summary of current configuration."""
+    def get_config_analysis(self) -> Dict[str, Any]:
+        """Get a analysis of current configuration."""
         return {
             "model": {
                 "name": self.config.model.model,

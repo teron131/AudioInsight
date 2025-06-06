@@ -1096,9 +1096,9 @@ class AudioProcessor:
         self.end_buffer = 0
         self.end_attributed_speaker = 0
 
-        self.summaries = []  # Initialize summaries list
-        self._has_summaries = False  # Efficient flag to track summary availability
-        self._last_summary_check = 0  # Timestamp of last summary check
+        self.analyses = []  # Initialize analyses list
+        self._has_analyses = False  # Efficient flag to track analysis availability
+        self._last_analysis_check = 0  # Timestamp of last analysis check
 
         # Initialize processor references as None - will be created on demand
         self.ffmpeg_processor = None
@@ -1120,7 +1120,7 @@ class AudioProcessor:
         # Initialize LLM inference processor early if enabled
         self.llm = None
         self.llm_task = None
-        self._final_summary_generated = False  # Flag to prevent multiple final summaries
+        self._final_analysis_generated = False  # Flag to prevent multiple final analyses
 
         # Initialize transcript parser for structured processing
         self.transcript_parser = None
@@ -1143,7 +1143,8 @@ class AudioProcessor:
             logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
-                    summary_interval_seconds=getattr(self.args, "llm_summary_interval", 5.0),
+                    max_text_length=getattr(self.args, "analyzer_max_input_length", 8000),
+                    analysis_interval_seconds=getattr(self.args, "llm_analysis_interval", 5.0),
                     new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),
                 )
 
@@ -1257,32 +1258,31 @@ class AudioProcessor:
 
     async def _handle_inference_callback(self, inference_response, transcription_text):
         """Handle callback when a inference result is generated."""
-        logger.info(f"📝 Inference result generated: {inference_response.summary[:50]}...")
+        logger.info(f"📝 Inference result generated: {len(inference_response.key_points)} key points")
         logger.info(f"🔑 Key points: {', '.join(inference_response.key_points[:2])}...")
 
         # Store inference result in the response for client access
         async with self.lock:
-            if not hasattr(self, "summaries"):
-                self.summaries = []
+            if not hasattr(self, "analyses"):
+                self.analyses = []
 
-            # FIXED: Allow final summaries during stopping state - only block AFTER final summary is generated
-            if getattr(self, "_final_summary_generated", False):
-                logger.info(f"⚠️ Ignoring inference result - final summary already generated")
+            # FIXED: Allow final analyses during stopping state - only block AFTER final analysis is generated
+            if getattr(self, "_final_analysis_generated", False):
+                logger.info(f"⚠️ Ignoring inference result - final analysis already generated")
                 return
 
             # Store inference result
             new_result = {
                 "timestamp": time(),
-                "summary": inference_response.summary,
                 "key_points": inference_response.key_points,
                 "response_suggestions": inference_response.response_suggestions,
                 "action_plan": inference_response.action_plan,
                 "text_length": len(transcription_text),
             }
 
-            self.summaries.append(new_result)
-            self._has_summaries = True  # Set efficient flag
-            logger.info(f"✅ Added new inference result (total: {len(self.summaries)})")
+            self.analyses.append(new_result)
+            self._has_analyses = True  # Set efficient flag
+            logger.info(f"✅ Added new inference result (total: {len(self.analyses)})")
 
     async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
         """Parse transcript text and store it for sharing across the application.
@@ -1393,8 +1393,8 @@ class AudioProcessor:
             # Reset parsed transcript data
             self.parsed_transcripts.clear()
             self.last_parsed_transcript = None
-            # Reset final summary flag
-            self._final_summary_generated = False
+            # Reset final analysis flag
+            self._final_analysis_generated = False
 
         # Reset transcription processor's incremental parsing state
         if self.transcription_processor:
@@ -1455,20 +1455,20 @@ class AudioProcessor:
 
                 response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"], "diarization_enabled": self.args.diarization}
 
-                # Add summaries if available - optimize by checking flag first and limiting frequency
+                # Add analyses if available - optimize by checking flag first and limiting frequency
                 current_time = time()
-                if self._has_summaries or (current_time - self._last_summary_check > 5.0):  # OPTIMIZATION: Check every 5 seconds instead of 2
-                    self._last_summary_check = current_time
+                if self._has_analyses or (current_time - self._last_analysis_check > 5.0):  # OPTIMIZATION: Check every 5 seconds instead of 2
+                    self._last_analysis_check = current_time
                     async with self.lock:
-                        if self.summaries:
-                            response["summaries"] = self.summaries.copy()
+                        if self.analyses:
+                            response["analyses"] = self.analyses.copy()
                             # Only log occasionally to reduce spam
-                            if current_time - getattr(self, "_last_summary_log", 0) > 60.0:  # Log every 60 seconds instead of 30
-                                logger.info(f"Including {len(self.summaries)} summaries")
-                                self._last_summary_log = current_time
-                            self._has_summaries = True
+                            if current_time - getattr(self, "_last_analysis_log", 0) > 60.0:  # Log every 60 seconds instead of 30
+                                logger.info(f"Including {len(self.analyses)} analyses")
+                                self._last_analysis_log = current_time
+                            self._has_analyses = True
                         else:
-                            self._has_summaries = False
+                            self._has_analyses = False
 
                 # Add LLM inference processor stats if available
                 if self.llm:
@@ -1624,9 +1624,9 @@ class AudioProcessor:
 
                         # Generate final inference if needed - check before stopping monitoring
                         async with self.lock:
-                            summaries_count = len(getattr(self, "summaries", []))
+                            analyses_count = len(getattr(self, "analyses", []))
 
-                        logger.info(f"🚨 DEBUG: About to check final summary generation, summaries_count={summaries_count}")
+                        logger.info(f"🚨 DEBUG: About to check final analysis generation, analyses_count={analyses_count}")
 
                         # Generate final comprehensive summary (avoid duplicates with single-path logic)
                         final_summary_generated = False

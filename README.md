@@ -306,7 +306,7 @@ async def websocket_endpoint(websocket: WebSocket):
     async def send_results():
         async for result in results_generator:
             # Results include LLM summaries processed in background
-            if result.get('type') == 'summary':
+            if result.get('type') == 'analysis':
                 print(f"LLM Summary: {result['content']}")
             await websocket.send_json(result)
     
@@ -467,7 +467,7 @@ async def analyze_conversation_non_blocking(transcript_text, speaker_info):
     loop.call_soon(lambda: monitor_speaker_turns(speaker_info))
     
     # 3. Background analysis (processes in worker threads)
-    if should_trigger_summary():
+    if should_trigger_analysis():
         # Queue for background processing - returns immediately
         analyzer.queue_for_processing("conversation_trigger")
     

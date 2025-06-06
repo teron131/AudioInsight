@@ -20,11 +20,9 @@ export interface WebSocketMessage {
   final?: boolean;
   
   // Analysis data
-  summary?: string;
   key_points?: string[];
   keywords?: string[];
-  summaries?: Array<{
-    summary: string;
+  analyses?: Array<{
     key_points: string[];
     response_suggestions?: string[];
     action_plan?: string[];
@@ -32,13 +30,11 @@ export interface WebSocketMessage {
   response_suggestions?: string[];
   action_plan?: string[];
   analysis?: {
-    summary?: string;
     key_points?: string[];
     keywords?: string[];
     response_suggestions?: string[];
     action_plan?: string[];
-    summaries?: Array<{
-      summary: string;
+    analyses?: Array<{
       key_points: string[];
       response_suggestions?: string[];
       action_plan?: string[];
@@ -70,13 +66,11 @@ export interface TranscriptData {
   timestamp: number;
   isFinalizing?: boolean;
   analysis?: {
-    summary?: string;
     key_points?: string[];
     keywords?: string[];
     response_suggestions?: string[];
     action_plan?: string[];
-    summaries?: Array<{
-      summary: string;
+    analyses?: Array<{
       key_points: string[];
       response_suggestions?: string[];
       action_plan?: string[];

@@ -421,7 +421,7 @@
             text-align: left;
         }
 
-        .summary {
+        .analysis {
             background-color: #f8f9fa;
             border: 1px solid #e9ecef;
             border-radius: 8px;
@@ -430,17 +430,17 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
-        .summary p {
+        .analysis p {
             margin: 8px 0;
             line-height: 1.4;
         }
 
-        .summary strong {
+        .analysis strong {
             color: #495057;
             font-weight: 600;
         }
 
-        .summary-header {
+        .analysis-header {
             font-size: 16px;
             font-weight: bold;
             color: #007bff;
@@ -1109,9 +1109,9 @@
                     if (data.summaries && data.summaries.length > 0) {
                         const latestSummary = data.summaries[data.summaries.length - 1];
                         summariesDiv.innerHTML = `
-                            <div class="summary">
-                                <div class="summary-header">📝 AI Summary</div>
-                                <p><strong>Summary:</strong> ${latestSummary.summary}</p>
+                            <div class="analysis">
+                                <div class="analysis-header">📝 AI Summary</div>
+                                <p><strong>Summary:</strong> ${latestSummary.analysis}</p>
                                 <p><strong>Key Points:</strong> ${latestSummary.key_points.join(" • ")}</p>
                                 <p><strong>Text Length:</strong> ${latestSummary.text_length} characters</p>
                             </div>

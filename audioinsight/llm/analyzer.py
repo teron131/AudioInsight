@@ -8,6 +8,7 @@ from ..logging_config import get_logger
 from .base import EventBasedProcessor, UniversalLLM
 from .config import LLMConfig, LLMTrigger
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
+from .retriever import prepare_rag_context
 from .utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
@@ -21,7 +22,6 @@ logger = get_logger(__name__)
 class AnalyzerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
-    summary: str = Field(description="Concise summary of the transcription")
     key_points: List[str] = Field(default_factory=list, description="Main points discussed")
     response_suggestions: List[str] = Field(default_factory=list, description="Suggested responses to the speaker")
     action_plan: List[str] = Field(default_factory=list, description="Recommended actions or next steps")
@@ -144,69 +144,52 @@ class Analyzer(EventBasedProcessor):
     def prompt(self) -> ChatPromptTemplate:
         """Lazy initialization of prompt template to speed up startup."""
         if self._prompt is None:
-            self._prompt = ChatPromptTemplate.from_messages(
-                [
+            # Start with base system message
+            prompt_messages = [
+                (
+                    "system",
+                    """You are an expert at analyzing speech transcriptions. 
+
+Analyze the transcription and provide:
+1. Key Points - Main topics and important information mentioned  
+2. Response Suggestions - How to engage with the speaker
+3. Action Plan - Recommended next steps
+
+Always respond in the same language and script as the transcription.""",
+                )
+            ]
+
+            # Add RAG context as system message if available
+            rag_context = prepare_rag_context()
+            if rag_context and rag_context.strip():
+                prompt_messages.append(
                     (
                         "system",
-                        """You are an expert at summarizing transcriptions from speech-to-text systems and providing intelligent response guidance.
-            
-Your task is to analyze the transcription and provide:
-1. A concise summary of what was discussed
-2. Key points or topics mentioned
-3. Suggested responses to help engage with the speaker
-4. Recommended actions or next steps
+                        rag_context,
+                    )
+                )
+                logger.debug(f"Added RAG context to prompt: {len(rag_context)} chars")
 
-Focus on:
-- Main topics and themes
-- Important decisions or conclusions
-- Action items if any
-- Overall context and purpose of the conversation
-- Appropriate responses that show understanding and engagement
-- Practical next steps to move the conversation or situation forward
-
-For response suggestions, consider:
-- Clarifying questions if information is unclear
-- Acknowledgments that show active listening
-- Follow-up questions to deepen the conversation
-- Supportive or empathetic responses where appropriate
-
-For action plans, think about:
-- Immediate steps that could be taken
-- Information that needs to be gathered
-- People who should be contacted or informed
-- Deadlines or timeframes to consider
-
-Keep all responses clear and concise while capturing the essential information.
-
-IMPORTANT: Always respond in the same language and script as the transcription. 
-- If the transcription is in Chinese (繁體中文), respond in Traditional Chinese using Hong Kong style conventions.
-- If the transcription is in French, respond in French. 
-- If it's in English, respond in English. 
-- Match the exact language, script, and regional conventions of the input content.""",
-                    ),
-                    (
-                        "human",
-                        """Please analyze this transcription and provide response guidance:
+            # Add human message
+            prompt_messages.append(
+                (
+                    "human",
+                    """Please analyze this transcription and provide response guidance:
 
 Transcription:
 {transcription}
 
-Additional context:
-- Duration: {duration} seconds
-- Has speaker diarization: {has_speakers}
-- Number of lines: {num_lines}
-
 Provide a structured analysis with:
-1. Summary - A concise overview of what was discussed
-2. Key Points - Main topics and important information mentioned
-3. Response Suggestions - How to appropriately respond to the speaker(s)
-4. Action Plan - Recommended next steps or actions to take
+1. Key Points - Main topics and important information mentioned
+2. Response Suggestions - How to appropriately respond to the speaker(s)
+3. Action Plan - Recommended next steps or actions to take
 
 Remember to respond in the same language, script, and regional conventions as the transcription above.""",
-                    ),
-                ]
+                )
             )
-            logger.debug("Lazy-initialized prompt template")
+
+            self._prompt = ChatPromptTemplate.from_messages(prompt_messages)
+            logger.debug("Lazy-initialized prompt template with dynamic RAG context")
         return self._prompt
 
     async def _process_item(self, item: Any):
@@ -308,12 +291,12 @@ Remember to respond in the same language, script, and regional conventions as th
         time_since_last_summary = current_time - self.last_processing_time
 
         # Check both trigger conditions
-        has_been_long_enough = time_since_last_summary > self.trigger_config.summary_interval_seconds
+        has_been_long_enough = time_since_last_summary > self.trigger_config.analysis_interval_seconds
         has_enough_new_text = new_text_since_last_summary >= self.trigger_config.new_text_trigger_chars
 
         # Add debug logging for trigger analysis
         logger.debug(f"📊 Trigger check: {text_length} chars total, {new_text_since_last_summary} new chars, {time_since_last_summary:.1f}s elapsed")
-        logger.debug(f"📊 Thresholds: {self.trigger_config.new_text_trigger_chars} chars, {self.trigger_config.summary_interval_seconds}s")
+        logger.debug(f"📊 Thresholds: {self.trigger_config.new_text_trigger_chars} chars, {self.trigger_config.analysis_interval_seconds}s")
         logger.debug(f"📊 Conditions: enough_text={has_enough_new_text}, enough_time={has_been_long_enough}")
 
         # Trigger inference based on OR logic - either condition can trigger
@@ -327,12 +310,12 @@ Remember to respond in the same language, script, and regional conventions as th
 
                 loop = asyncio.get_event_loop()
                 loop.create_task(self._queue_inference_async(trigger_reason))
-                logger.info(f"🎯 Triggering summary: {trigger_reason} (new_chars={new_text_since_last_summary}, time={time_since_last_summary:.1f}s)")
+                logger.info(f"🎯 Triggering analysis: {trigger_reason} (new_chars={new_text_since_last_summary}, time={time_since_last_summary:.1f}s)")
             except Exception as e:
                 # Don't let inference errors block transcription
                 logger.debug(f"Non-critical inference queue error: {e}")
         else:
-            logger.debug(f"⏳ Not triggering summary yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_summary} more chars or {self.trigger_config.summary_interval_seconds - time_since_last_summary:.1f}s")
+            logger.debug(f"⏳ Not triggering analysis yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_summary} more chars or {self.trigger_config.analysis_interval_seconds - time_since_last_summary:.1f}s")
 
     async def _queue_inference_async(self, trigger_reason: str):
         """Async helper to queue inference requests."""
@@ -385,27 +368,18 @@ Remember to respond in the same language, script, and regional conventions as th
             else:
                 logger.info(f"Generating comprehensive inference for {len(text_to_process)} chars of entire transcript...")
 
-            # Prepare context information
-            lines = text_to_process.split("\n")
-            has_speakers = "[Speaker" in text_to_process
-            duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
+            # # Prepare context information
+            # lines = text_to_process.split("\n")
+            # has_speakers = "[Speaker" in text_to_process
+            # duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
 
             # Generate structured response using universal LLM client
-            response: AnalyzerResponse = await self.llm_client.invoke_structured(
-                self.prompt,
-                {
-                    "transcription": text_to_process,
-                    "duration": duration_estimate,
-                    "has_speakers": has_speakers,
-                    "num_lines": len(lines),
-                },
-                AnalyzerResponse,
-            )
+            variables = {"transcription": text_to_process}
+            response: AnalyzerResponse = await self.llm_client.invoke_structured(self.prompt, variables, AnalyzerResponse)
 
             generation_time = time.time() - start_time
 
             # Apply s2hk conversion to ensure Traditional Chinese output
-            response.summary = s2hk(response.summary)
             response.key_points = [s2hk(point) for point in response.key_points]
             response.response_suggestions = [s2hk(suggestion) for suggestion in response.response_suggestions]
             response.action_plan = [s2hk(action) for action in response.action_plan]
@@ -415,8 +389,8 @@ Remember to respond in the same language, script, and regional conventions as th
 
             self.last_inference = response
 
-            logger.info(f"Generated inference in {generation_time:.2f}s: {len(response.summary)} chars")
-            logger.debug(f"Inference: {response.summary}")
+            logger.info(f"Generated inference in {generation_time:.2f}s: {len(response.key_points)} chars")
+            logger.debug(f"Inference: {response.key_points}")
 
             # Call registered callbacks
             for callback in self.inference_callbacks:

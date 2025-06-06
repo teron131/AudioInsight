@@ -5,13 +5,11 @@ import { useAudioRecording } from './use-audio-recording';
 import { useToast } from './use-toast';
 
 export interface AnalysisData {
-  summary?: string;
   key_points?: string[];
   keywords?: string[];
   response_suggestions?: string[];
   action_plan?: string[];
-  summaries?: Array<{
-    summary: string;
+  analyses?: Array<{
     key_points: string[];
     response_suggestions?: string[];
     action_plan?: string[];
@@ -180,21 +178,19 @@ export function useAudioInsight(): UseAudioInsightReturn {
         }
       }
       
-      if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries || data.response_suggestions || data.action_plan) {
+      if (data.key_points || data.keywords || data.analyses || data.response_suggestions || data.action_plan) {
         const currentAnalysisData: AnalysisData = {};
-        if (data.summaries && data.summaries.length > 0) {
-          const latestSummary = data.summaries[data.summaries.length - 1];
-          currentAnalysisData.summary = latestSummary.summary;
-          currentAnalysisData.key_points = latestSummary.key_points;
-          currentAnalysisData.response_suggestions = latestSummary.response_suggestions;
-          currentAnalysisData.action_plan = latestSummary.action_plan;
+        if (data.analyses && data.analyses.length > 0) {
+          const latestAnalysis = data.analyses[data.analyses.length - 1];
+          currentAnalysisData.key_points = latestAnalysis.key_points;
+          currentAnalysisData.response_suggestions = latestAnalysis.response_suggestions;
+          currentAnalysisData.action_plan = latestAnalysis.action_plan;
         }
-        if (data.summary) currentAnalysisData.summary = data.summary;
         if (data.key_points) currentAnalysisData.key_points = data.key_points;
         if (data.keywords) currentAnalysisData.keywords = data.keywords;
         if (data.response_suggestions) currentAnalysisData.response_suggestions = data.response_suggestions;
         if (data.action_plan) currentAnalysisData.action_plan = data.action_plan;
-        if (data.summaries) currentAnalysisData.summaries = data.summaries;
+        if (data.analyses) currentAnalysisData.analyses = data.analyses;
         if (data.analysis) {
           Object.assign(currentAnalysisData, data.analysis);
         }

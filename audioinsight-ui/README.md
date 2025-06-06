@@ -7,7 +7,7 @@ A modern Next.js frontend for the AudioInsight audio transcription and analysis 
 - **Real-time Audio Transcription**: Live microphone recording with WebSocket streaming
 - **File Upload Support**: Drag-and-drop or browse to upload audio files
 - **Speaker Diarization**: Automatic speaker identification and separation
-- **AI-Powered Analysis**: Automatic summary, key points, and keyword extraction
+- **AI-Powered Analysis**: Automatic analysis, key points, and keyword extraction
 - **Multiple Export Formats**: Export transcripts as TXT, SRT, VTT, or JSON
 - **Modern UI**: Built with Next.js, TypeScript, and Tailwind CSS
 - **Real-time Updates**: Live transcript updates with processing indicators
@@ -20,7 +20,7 @@ A modern Next.js frontend for the AudioInsight audio transcription and analysis 
 - **`AudioInsightWebSocket`**: WebSocket client for real-time communication with the backend
 - **`AudioInsightAPI`**: REST API client for file uploads and exports
 - **`TranscriptDisplay`**: Real-time transcript visualization with speaker colors
-- **`AnalysisPanel`**: AI analysis results display (summary, key points, keywords)
+- **`AnalysisPanel`**: AI analysis results display (analysis, key points, keywords)
 - **`WaveformVisualization`**: Animated waveform during recording/processing
 - **`ExportMenu`**: Multi-format transcript export functionality
 

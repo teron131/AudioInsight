@@ -17,6 +17,14 @@ from .parser import (
     ParserStats,
     parse_transcript,
 )
+from .retriever import (
+    SimpleRetriever,
+    clear_rag_cache,
+    get_default_retriever,
+    get_rag_info,
+    load_rag_context,
+    prepare_rag_context,
+)
 from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
@@ -24,6 +32,7 @@ __all__ = [
     "UniversalLLM",
     "Analyzer",
     "Parser",
+    "SimpleRetriever",
     # Configuration and types
     "LLMConfig",
     "AnalyzerResponse",
@@ -48,4 +57,10 @@ __all__ = [
     "get_llm_trigger",
     # Convenience functions
     "parse_transcript",
+    # RAG functionality
+    "load_rag_context",
+    "prepare_rag_context",
+    "get_rag_info",
+    "get_default_retriever",
+    "clear_rag_cache",
 ]

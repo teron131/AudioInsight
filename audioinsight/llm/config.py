@@ -36,14 +36,14 @@ class LLMTrigger(BaseModel):
     """Configuration for LLM trigger conditions."""
 
     # ENHANCED: More aggressive triggering for better coverage
-    summary_interval_seconds: float = Field(default=5.0, description="Trigger summary after this many seconds (reduced from 15.0)")
-    new_text_trigger_chars: int = Field(default=50, description="Trigger summary after this many new characters (reduced from 200)")
-    min_text_length: int = Field(default=50, description="Minimum text length to process (reduced from 100)")
-    max_text_length: int = Field(default=25000, description="Maximum text length to process")
+    analysis_interval_seconds: float = Field(default=5.0, description="Trigger analysis after this many seconds (reduced from 15.0)")
+    new_text_trigger_chars: int = Field(default=50, description="Trigger analysis after this many new characters (reduced from 200)")
+    min_text_length: int = Field(default=30, description="Minimum text length before triggering analysis (reduced from 50)")
+    max_text_length: int = Field(default=8000, description="Maximum text length for analysis (reduced from 10000)")
 
     # Additional triggering conditions for more comprehensive coverage
-    force_summary_on_silence: bool = Field(default=True, description="Force summary when processing stops")
-    min_words_for_summary: int = Field(default=15, description="Minimum words needed for summary (reduced from 20)")
+    force_analysis_on_silence: bool = Field(default=True, description="Force analysis when processing stops")
+    min_words_for_analysis: int = Field(default=15, description="Minimum words needed for analysis (reduced from 20)")
 
 
 class ParserConfig(LLMConfig):
@@ -101,7 +101,7 @@ def get_llm_trigger() -> LLMTrigger:
     config = get_config()
     return LLMTrigger(
         max_text_length=config.llm.analyzer_max_input_length,
-        summary_interval_seconds=config.llm.llm_summary_interval,
+        analysis_interval_seconds=config.llm.llm_analysis_interval,
         new_text_trigger_chars=config.llm.llm_new_text_trigger,
     )
 
@@ -118,7 +118,7 @@ def get_runtime_settings() -> dict:
     return {
         "fast_llm": config.llm.fast_llm,
         "base_llm": config.llm.base_llm,
-        "llm_summary_interval": config.llm.llm_summary_interval,
+        "llm_analysis_interval": config.llm.llm_analysis_interval,
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
@@ -145,7 +145,7 @@ def update_runtime_config(updates: dict) -> dict:
     updated = {}
 
     # LLM-specific fields that can be updated at runtime
-    llm_fields = {"fast_llm", "base_llm", "llm_summary_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "analyzer_output_tokens", "analyzer_max_input_length"}
+    llm_fields = {"fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "analyzer_output_tokens", "analyzer_max_input_length"}
 
     for key, value in updates.items():
         if key in llm_fields and hasattr(config.llm, key):

@@ -752,7 +752,7 @@ async def update_processing_parameters(parameters: dict):
             kit.args.llm_inference = config.features.llm_inference
             kit.args.fast_llm = config.llm.fast_llm
             kit.args.base_llm = config.llm.base_llm
-            kit.args.llm_summary_interval = config.llm.llm_summary_interval
+            kit.args.llm_analysis_interval = config.llm.llm_analysis_interval
             kit.args.llm_new_text_trigger = config.llm.llm_new_text_trigger
 
         return success_response("Parameters updated successfully", {"updated_parameters": updated_params, "total_updates": sum(len(domain_updates) for domain_updates in updated_params.values())})

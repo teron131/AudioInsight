@@ -393,17 +393,17 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="llm_summary_interval">Summary Trigger Interval (seconds)</Label>
+                  <Label htmlFor="llm_analysis_interval">Analysis Trigger Interval (seconds)</Label>
                   <Input
-                    id="llm_summary_interval"
+                    id="llm_analysis_interval"
                     type="number"
                     step="0.1"
                     min="1.0"
-                    value={processingParams.llm_summary_interval ?? 15.0}
-                    onChange={(e) => updateProcessingParam('llm_summary_interval', parseFloat(e.target.value))}
+                    value={processingParams.llm_analysis_interval ?? 15.0}
+                    onChange={(e) => updateProcessingParam('llm_analysis_interval', parseFloat(e.target.value))}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Minimum time between comprehensive summaries
+                    Minimum time between comprehensive analyses
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -416,7 +416,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateProcessingParam('llm_new_text_trigger', parseInt(e.target.value))}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Characters of new text to trigger summary (~50 words = 300 chars)
+                    Characters of new text to trigger analysis (~50 words = 300 chars)
                   </p>
                 </div>
                 <div className="space-y-1">

@@ -952,20 +952,12 @@
                 <h2 class="panel-title">LLM Analysis</h2>
             </div>
 
-            <!-- Summary Section -->
-            <div class="analysis-section">
-                <h3 class="section-title">Summary</h3>
-                <div class="analysis-content" id="summaryContent">
-                    The AI-generated summary will appear here...
-                </div>
-            </div>
-
             <!-- Key Points Section -->
             <div class="analysis-section">
                 <h3 class="section-title">Key Points</h3>
                 <div class="analysis-content" id="keyPointsContent">
                     <ul>
-                        <li>Analysis points will appear here</li>
+                        <li>Key points will appear here as the conversation is analyzed...</li>
                     </ul>
                 </div>
             </div>
@@ -1112,16 +1104,12 @@
 
         // Clear analysis panels
         function clearAnalysis() {
-            const summaryContent = document.getElementById('summaryContent');
             const keyPointsContent = document.getElementById('keyPointsContent');
             const responseSuggestionsContent = document.getElementById('responseSuggestionsContent');
             const actionPlanContent = document.getElementById('actionPlanContent');
             const keywordsContainer = document.getElementById('keywordsContainer');
             
-            summaryContent.textContent = 'The AI-generated summary will appear here...';
-            summaryContent.classList.remove('has-content');
-            
-            keyPointsContent.innerHTML = '<ul><li>Analysis points will appear here</li></ul>';
+            keyPointsContent.innerHTML = '<ul><li>Key points will appear here as the conversation is analyzed...</li></ul>';
             keyPointsContent.classList.remove('has-content');
             
             responseSuggestionsContent.innerHTML = '<ul><li>Response suggestions will appear here</li></ul>';
@@ -1262,7 +1250,6 @@
 
         // Update analysis from transcript data
         function updateAnalysisFromData(data) {
-            const summaryContent = document.getElementById('summaryContent');
             const keyPointsContent = document.getElementById('keyPointsContent');
             const responseSuggestionsContent = document.getElementById('responseSuggestionsContent');
             const actionPlanContent = document.getElementById('actionPlanContent');
@@ -1271,8 +1258,6 @@
             // Handle summaries array from LLM
             if (data.summaries && data.summaries.length > 0) {
                 const latestSummary = data.summaries[data.summaries.length - 1];
-                summaryContent.textContent = latestSummary.summary;
-                summaryContent.classList.add('has-content');
                 
                 if (latestSummary.key_points && latestSummary.key_points.length > 0) {
                     const pointsList = latestSummary.key_points.map(point => `<li>${point}</li>`).join('');
@@ -1291,12 +1276,6 @@
                     actionPlanContent.innerHTML = `<ul>${actionsList}</ul>`;
                     actionPlanContent.classList.add('has-content');
                 }
-            }
-
-            // Update summary if available (direct format)
-            if (data.summary) {
-                summaryContent.textContent = data.summary;
-                summaryContent.classList.add('has-content');
             }
 
             // Update key points if available (direct format)
@@ -1382,13 +1361,12 @@
                 }
                 
                 // Handle analysis results
-                if (data.analysis || data.summary || data.key_points || data.keywords || data.summaries || data.response_suggestions || data.action_plan) {
+                if (data.key_points || data.keywords || data.summaries || data.response_suggestions || data.action_plan) {
                     updateAnalysisFromData(data);
                     
                     // Store analysis data in transcript data for export
                     if (currentTranscriptData) {
                         currentTranscriptData.analysis = {
-                            summary: data.summary,
                             key_points: data.key_points,
                             keywords: data.keywords,
                             response_suggestions: data.response_suggestions,
