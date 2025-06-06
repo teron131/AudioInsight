@@ -5,16 +5,15 @@ import { TranscriptDisplay } from '@/components/transcript-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { useAudioInsight } from '@/hooks/use-audioinsight';
 import { cn } from '@/lib/utils';
 import { Loader2, Mic, Square, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 export default function AudioInsightPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef<boolean>(false);
   const [isClearing, setIsClearing] = useState(false);
   
   const {
@@ -29,12 +28,52 @@ export default function AudioInsightPage() {
     exportTranscript,
     clearSession,
     systemHealth,
-    setDiarizationEnabled: setDiarizationEnabledHook,
+    diarizationEnabled,
+    showLagInfo,
+    settingsLoading,
   } = useAudioInsight();
+
+  // Handle scroll detection for transcript container
+  const handleTranscriptScroll = useCallback(() => {
+    if (transcriptScrollRef.current) {
+      const container = transcriptScrollRef.current;
+      const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+      userScrolledRef.current = !isAtBottom;
+    }
+  }, []);
+
+  // Auto-scroll when transcript content updates
+  const handleTranscriptContentUpdate = useCallback(() => {
+    if (transcriptScrollRef.current && !userScrolledRef.current) {
+      const container = transcriptScrollRef.current;
+      
+      // Use requestAnimationFrame to ensure DOM is fully updated
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      });
+    }
+  }, []);
+
+  // Reset scroll state when session is cleared or new session starts
+  const handleClearSessionWithScrollReset = useCallback(async () => {
+    setIsClearing(true);
+    try {
+      await clearSession();
+      userScrolledRef.current = false; // Reset scroll state
+    } finally {
+      setIsClearing(false);
+    }
+  }, [clearSession]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      userScrolledRef.current = false; // Reset scroll state for new file
       await uploadFile(file);
       // Reset the input so the same file can be uploaded again
       event.target.value = '';
@@ -45,18 +84,11 @@ export default function AudioInsightPage() {
     fileInputRef.current?.click();
   };
 
-  const handleClearSession = async () => {
-    setIsClearing(true);
-    try {
-      await clearSession();
-    } finally {
-      setIsClearing(false);
-    }
-  };
 
-  const handleDiarizationChange = (enabled: boolean) => {
-    setDiarizationEnabled(enabled);
-    setDiarizationEnabledHook(enabled);
+
+  const handleStartRecording = async () => {
+    userScrolledRef.current = false; // Reset scroll state for new recording
+    await startRecording();
   };
 
   const hasTranscriptData = transcriptData && transcriptData.lines.length > 0;
@@ -71,7 +103,7 @@ export default function AudioInsightPage() {
             <div className="flex items-center gap-4">
               {!isRecording ? (
                 <Button 
-                  onClick={startRecording}
+                  onClick={handleStartRecording}
                   disabled={isProcessingFile}
                   className="bg-blue-600 hover:bg-blue-700"
                   size="icon"
@@ -116,20 +148,12 @@ export default function AudioInsightPage() {
               />
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="diarization-toggle"
-                checked={diarizationEnabled}
-                onCheckedChange={handleDiarizationChange}
-                disabled={isRecording || isProcessingFile}
-              />
-              <Label htmlFor="diarization-toggle" className="text-base">Diarization</Label>
-            </div>
+
           </div>
           
           <div>
             <Button 
-              onClick={handleClearSession}
+              onClick={handleClearSessionWithScrollReset}
               variant="outline"
               size="sm"
               disabled={isRecording || isProcessingFile || isClearing}
@@ -165,8 +189,16 @@ export default function AudioInsightPage() {
                 )}
               </CardTitle>
             </CardHeader>
-            <CardContent className="h-[calc(100%-5rem)] overflow-y-auto">
-              <TranscriptDisplay transcriptData={transcriptData} />
+            <CardContent 
+              ref={transcriptScrollRef}
+              onScroll={handleTranscriptScroll}
+              className="h-[calc(100%-5rem)] overflow-y-auto"
+            >
+              <TranscriptDisplay 
+                transcriptData={transcriptData} 
+                onContentUpdate={handleTranscriptContentUpdate}
+                showLagInfo={showLagInfo}
+              />
             </CardContent>
           </Card>
 

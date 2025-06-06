@@ -1,4 +1,4 @@
-import { AudioInsightAPI, ExportRequest } from '@/lib/api';
+import { AudioInsightAPI, ExportRequest, ProcessingParameters } from '@/lib/api';
 import { AudioInsightWebSocket, TranscriptData, WebSocketMessage } from '@/lib/websocket';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioRecording } from './use-audio-recording';
@@ -44,9 +44,12 @@ export interface UseAudioInsightReturn {
   // System health
   systemHealth: string;
 
-  // Diarization state and control
+  // Settings from processing parameters
   diarizationEnabled: boolean;
-  setDiarizationEnabled: (enabled: boolean) => void;
+  showLagInfo: boolean;
+  
+  // Settings loading state
+  settingsLoading: boolean;
 }
 
 export function useAudioInsight(): UseAudioInsightReturn {
@@ -55,11 +58,34 @@ export function useAudioInsight(): UseAudioInsightReturn {
   const [transcriptData, setTranscriptData] = useState<TranscriptData | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [systemHealth, setSystemHealth] = useState<string>('unknown');
-  const [diarizationEnabled, setDiarizationEnabledState] = useState(false);
+  const [processingParams, setProcessingParams] = useState<ProcessingParameters | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   
   const { toast } = useToast();
   const websocketRef = useRef<AudioInsightWebSocket | null>(null);
   const apiRef = useRef<AudioInsightAPI>(new AudioInsightAPI());
+
+  // Derived values from processing parameters
+  const diarizationEnabled = processingParams?.diarization ?? false;
+  const showLagInfo = processingParams?.show_lag_info ?? false;
+
+  // Load processing parameters
+  const loadProcessingParameters = useCallback(async () => {
+    try {
+      setSettingsLoading(true);
+      const params = await apiRef.current.getProcessingParameters();
+      setProcessingParams(params);
+    } catch (error) {
+      console.error('Failed to load processing parameters:', error);
+    } finally {
+      setSettingsLoading(false);
+    }
+      }, []);
+
+  // Load processing parameters on mount
+  useEffect(() => {
+    loadProcessingParameters();
+  }, [loadProcessingParameters]);
 
   const checkHealth = useCallback(async () => {
     try {
@@ -294,23 +320,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
     }
   }, [handleWebSocketMessage, handleWebSocketError, handleStatusChange, toast]);
   
-  const setDiarizationEnabled = useCallback(async (enabled: boolean) => {
-    setDiarizationEnabledState(enabled);
-    if (websocketRef.current && websocketRef.current.getConnectionState()) {
-        // If current connection's diarization is different, disconnect before reconnecting
-        // This assumes AudioInsightWebSocket has a way to know its current diarization setting,
-        // or we manage it externally more explicitly. The current AudioInsightWebSocket stores it privately.
-        // Forcing disconnect and reconnect if the setting changes.
-         if (websocketRef.current.getCurrentDiarizationSetting() !== enabled) {
-            websocketRef.current.disconnect();
-         }
-    }
-    try {
-      await initializeWebSocket(enabled);
-    } catch (error) {
-      console.error("Failed to re-initialize WebSocket for diarization change:", error);
-    }
-  }, [initializeWebSocket]);
+
 
   const startRecording = useCallback(async () => {
     try {
@@ -458,6 +468,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
     clearSession,
     systemHealth,
     diarizationEnabled,
-    setDiarizationEnabled,
+    showLagInfo,
+    settingsLoading,
   };
 } 

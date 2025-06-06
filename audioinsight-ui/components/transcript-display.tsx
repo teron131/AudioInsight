@@ -3,10 +3,13 @@
 import { cn } from '@/lib/utils';
 import { TranscriptData } from '@/lib/websocket';
 import { Loader2 } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 
 interface TranscriptDisplayProps {
   transcriptData: TranscriptData | null;
   className?: string;
+  onContentUpdate?: () => void; // Callback to trigger parent scroll
+  showLagInfo?: boolean; // Whether to show lag information
 }
 
 const speakerColors = {
@@ -32,7 +35,27 @@ const getSpeakerLabel = (speaker: number): string => {
   return "Speaker 1";
 };
 
-export function TranscriptDisplay({ transcriptData, className }: TranscriptDisplayProps) {
+export function TranscriptDisplay({ transcriptData, className, onContentUpdate, showLagInfo = true }: TranscriptDisplayProps) {
+  const lastContentRef = useRef<string>('');
+
+  // Notify parent when content changes so it can handle scrolling
+  useLayoutEffect(() => {
+    if (!transcriptData) return;
+
+    // Create content hash to detect actual content changes
+    const currentContent = JSON.stringify({
+      lines: transcriptData.lines,
+      buffer_transcription: transcriptData.buffer_transcription,
+      buffer_diarization: transcriptData.buffer_diarization
+    });
+
+    // Only notify if content actually changed
+    if (currentContent !== lastContentRef.current) {
+      lastContentRef.current = currentContent;
+      onContentUpdate?.();
+    }
+  }, [transcriptData, onContentUpdate]);
+
   if (!transcriptData) {
     return (
       <div className={cn(
@@ -58,11 +81,13 @@ export function TranscriptDisplay({ transcriptData, className }: TranscriptDispl
   } = transcriptData;
 
   return (
-    <div className={cn(
-      "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[200px] overflow-y-auto transition-all",
-      "hover:border-muted-foreground",
-      className
-    )}>
+    <div 
+      className={cn(
+        "bg-secondary border border-border rounded-lg p-4 text-sm min-h-[200px] transition-all",
+        "hover:border-muted-foreground",
+        className
+      )}
+    >
       {lines.length === 0 && !buffer_transcription && !buffer_diarization ? (
         <div className="flex items-center justify-center h-full text-muted-foreground">
           Listening...
@@ -100,7 +125,7 @@ export function TranscriptDisplay({ transcriptData, className }: TranscriptDispl
                   </span>
                   
                   {/* Processing indicators for last line */}
-                  {isLastLine && !isFinalizing && (
+                  {isLastLine && !isFinalizing && showLagInfo && (
                     <>
                       {remaining_time_transcription != null && remaining_time_transcription > 0 && (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-secondary border rounded text-xs text-blue-600 font-medium">

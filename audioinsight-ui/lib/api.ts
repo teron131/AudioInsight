@@ -77,6 +77,9 @@ export interface ProcessingParameters {
   confidence_validation: boolean;
   llm_inference: boolean;
   
+  // UI Configuration
+  show_lag_info: boolean;
+  
   // LLM Configuration
   fast_llm: string;
   base_llm: string;

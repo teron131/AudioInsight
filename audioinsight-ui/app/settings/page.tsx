@@ -249,6 +249,29 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* UI Configuration */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="w-5 h-5" />
+                <span>UI Configuration</span>
+              </CardTitle>
+              <CardDescription>User interface display settings</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="show_lag_info"
+                    checked={processingParams.show_lag_info ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('show_lag_info', checked)}
+                  />
+                  <Label htmlFor="show_lag_info">Show Lag Information</Label>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           
           {/* Whisper Configuration */}
           <Card>
