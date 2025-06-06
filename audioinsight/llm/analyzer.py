@@ -5,11 +5,11 @@ from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
-from .base import EventBasedProcessor, UniversalLLM
-from .config import LLMConfig, LLMTrigger
+from .llm_base import EventBasedProcessor, UniversalLLM
+from .llm_config import LLMConfig, LLMTrigger
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .retriever import prepare_rag_context
-from .utils import s2hk, truncate_text
+from .llm_utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
 

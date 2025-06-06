@@ -8,7 +8,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from ..display_parser import get_display_parser
 from ..logging_config import get_logger
 from ..processors import AudioProcessor
-from .utils import (
+from .server_utils import (
     calculate_streaming_params,
     cleanup_temp_file,
     log_progress,

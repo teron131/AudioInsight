@@ -1,10 +1,7 @@
 import asyncio
 import math
 from time import time
-from typing import Optional
 
-from ..llm import LLMTrigger, ParsedTranscript, ParserConfig
-from ..timed_objects import ASRToken
 from ..whisper_streaming.whisper_online import online_factory
 from .base_processor import SENTINEL, BaseProcessor, _sentence_split_regex, logger, s2hk
 

@@ -1,7 +1,3 @@
-"""Server configuration with runtime vs startup settings."""
-
-from typing import List
-
 from ..config import get_config
 
 # =============================================================================

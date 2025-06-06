@@ -6,10 +6,10 @@ from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
-from .base import EventBasedProcessor, UniversalLLM, WorkItem
-from .config import LLMConfig, ParserConfig
+from .llm_base import EventBasedProcessor, UniversalLLM, WorkItem
+from .llm_config import LLMConfig, ParserConfig
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
-from .utils import contains_chinese, s2hk
+from .llm_utils import contains_chinese, s2hk
 
 logger = get_logger(__name__)
 

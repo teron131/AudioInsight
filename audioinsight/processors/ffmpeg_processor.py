@@ -1,6 +1,6 @@
 import asyncio
 import math
-from time import sleep, time
+from time import time
 
 import ffmpeg
 import numpy as np

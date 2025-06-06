@@ -9,7 +9,7 @@ from ..timed_objects import ASRToken
 from .base_processor import BaseProcessor, format_time, logger, s2hk
 from .diarization_processor import DiarizationProcessor
 from .ffmpeg_processor import FFmpegProcessor
-from .formatter import Formatter
+from .format_processor import FormatProcessor
 from .transcription_processor import TranscriptionProcessor
 
 
@@ -76,7 +76,7 @@ class AudioProcessor(BaseProcessor):
         self.ffmpeg_processor = None
         self.transcription_processor = None
         self.diarization_processor = None
-        self.formatter = Formatter(self.args)
+        self.formatter = FormatProcessor(self.args)
 
         # Processing queues - will be created on demand
         self.transcription_queue = None
@@ -172,8 +172,8 @@ class AudioProcessor(BaseProcessor):
         """Pre-warm LLM clients with dummy requests for faster first real requests."""
         try:
             # Import here to avoid circular imports
-            from ..llm.base import UniversalLLM
-            from ..llm.config import LLMConfig
+            from ..llm.llm_base import UniversalLLM
+            from ..llm.llm_config import LLMConfig
 
             # Warm up both fast and base LLM models
             models_to_warm = ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]  # Fast model for parsing  # Base model for analysis

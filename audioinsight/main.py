@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict, Optional
 
-from .config import DEFAULT_CONFIG, UnifiedConfig, get_config, reset_config
+from .config import DEFAULT_CONFIG, get_config, reset_config
 from .logging_config import get_logger, setup_logging
 from .whisper_streaming.whisper_online import backend_factory, warmup_asr
 

@@ -6,7 +6,7 @@ import time
 from typing import List, Optional, Tuple
 
 from ..logging_config import get_logger
-from .config import CHUNK_SIZE, FFMPEG_AUDIO_PARAMS, FFPROBE_DURATION_CMD
+from .server_config import CHUNK_SIZE, FFMPEG_AUDIO_PARAMS, FFPROBE_DURATION_CMD
 
 logger = get_logger(__name__)
 

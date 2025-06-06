@@ -1,6 +1,6 @@
 from .analyzer import Analyzer, AnalyzerResponse, AnalyzerStats
-from .base import UniversalLLM
-from .config import (
+from .llm_base import UniversalLLM
+from .llm_config import (
     AnalyzerConfig,
     LLMConfig,
     LLMTrigger,
@@ -25,7 +25,7 @@ from .retriever import (
     load_rag_context,
     prepare_rag_context,
 )
-from .utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
+from .llm_utils import LRUCache, contains_chinese, get_api_credentials, s2hk, truncate_text
 
 __all__ = [
     # Core classes

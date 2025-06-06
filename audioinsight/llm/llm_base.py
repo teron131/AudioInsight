@@ -11,8 +11,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from ..logging_config import get_logger
-from .config import LLMConfig
-from .utils import get_api_credentials
+from .llm_config import LLMConfig
+from .llm_utils import get_api_credentials
 
 logger = get_logger(__name__)
 

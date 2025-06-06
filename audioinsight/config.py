@@ -369,8 +369,8 @@ def get_runtime_configurable_fields() -> dict:
     Returns:
         Dictionary mapping field names to their current values, grouped by domain.
     """
-    from .llm.config import get_runtime_settings as get_llm_runtime
-    from .server.config import get_runtime_settings as get_server_runtime
+    from .llm.llm_config import get_runtime_settings as get_llm_runtime
+    from .server.server_config import get_runtime_settings as get_server_runtime
 
     config = get_config()
 
@@ -413,8 +413,8 @@ def get_startup_only_fields() -> dict:
     Returns:
         Dictionary mapping field names to their current values, grouped by domain.
     """
-    from .llm.config import get_startup_settings as get_llm_startup
-    from .server.config import get_startup_settings as get_server_startup
+    from .llm.llm_config import get_startup_settings as get_llm_startup
+    from .server.server_config import get_startup_settings as get_server_startup
 
     config = get_config()
 
@@ -443,8 +443,8 @@ def apply_runtime_updates(updates: dict) -> dict:
     Returns:
         Dictionary of successfully applied updates
     """
-    from .llm.config import update_runtime_config as update_llm_runtime
-    from .server.config import update_runtime_config as update_server_runtime
+    from .llm.llm_config import update_runtime_config as update_llm_runtime
+    from .server.server_config import update_runtime_config as update_server_runtime
 
     all_updated = {}
 

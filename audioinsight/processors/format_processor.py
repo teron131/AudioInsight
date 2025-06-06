@@ -7,7 +7,7 @@ from .base_processor import (
 )
 
 
-class Formatter(BaseProcessor):
+class FormatProcessor(BaseProcessor):
     """Handles formatting of transcription and diarization results."""
 
     def __init__(self, args):
