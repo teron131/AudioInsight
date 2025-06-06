@@ -85,11 +85,6 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `SpeakerSegment`: Speaker identification segments with temporal boundaries
 - Time-aware data structures for synchronization and temporal alignment
 
-#### **`audioinsight/display_parser.py`** - Display Text Enhancement
-- `DisplayParser`: Real-time text formatting and enhancement for UI display
-- Integration with LLM parsing for intelligent text presentation
-- Caching and performance optimization for smooth UI updates
-- Text formatting rules and presentation logic
 
 #### **`audioinsight/config.py`** - Unified Configuration System
 - `UnifiedConfig`: Centralized configuration management with Pydantic validation
@@ -218,7 +213,6 @@ Optimized queue sizes and cooldowns for different processing types with zero tra
 |-----------|------------|---------|--------------|---------|-------------------|
 | Parser | 50 items | **1 worker** | **Stateful + Dedup** | Incremental text correction | Never blocks |
 | Analyzer | 100 items | 2 workers | **Content Dedup** | Conversation analysis | Never blocks |
-| Display Parser | Cached | 1 worker | Cache Only | UI text enhancement | Never blocks |
 | UI Updates | N/A | 1 worker | None | Real-time display | 20 FPS smooth updates |
 
 ## Theoretical Foundation: The Streaming Challenge
@@ -458,7 +452,6 @@ The buffer operates with three validation phases:
 - `/api/llm/status`: LLM processing status and performance metrics
 - `/api/llm/test`: LLM connectivity and model testing
 - `/api/transcript-parser/*`: Text parsing configuration and status
-- `/api/display-parser/*`: Display text enhancement configuration
 
 **Session Management**:
 - `/cleanup-session` (POST): Complete session reset and resource cleanup

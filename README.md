@@ -63,7 +63,6 @@ flowchart TD
         direction LR
         ASR["🗣️ Whisper ASR<br/>LocalAgreement-2 Streaming"]
         Diarization["👥 Speaker Diarization<br/>Real-time Identification"]
-        Display["📺 Display Parser<br/>Text Enhancement"]
     end
 
     subgraph LLM["<b>🧠 NON-BLOCKING LLM LAYER</b>"]
@@ -83,18 +82,15 @@ flowchart TD
     API --> WS
     WS --> ASR
     ASR --> Diarization
-    ASR --> Display
 
     %% Non-blocking LLM flow (dashed arrows)
     ASR -.-> Queue
     Diarization -.-> Queue
-    Display -.-> Queue
     Queue --> Workers
 
     %% Output flow
     ASR --> WS
     Diarization --> WS
-    Display --> WS
     Workers -.-> WS
     WS --> Browser
 
@@ -108,7 +104,7 @@ flowchart TD
     %% Apply colors by function
     class Browser,Audio frontend
     class WS,Files,API communication
-    class ASR,Diarization,Display processing
+    class ASR,Diarization processing
     class Parser,Analyzer intelligence
     class Queue,Workers infrastructure
 ```
@@ -120,7 +116,7 @@ flowchart TD
 🧠 **Intelligent Background Analysis**: 4+ concurrent workers enhance transcripts without delays  
 🌐 **Unified Processing**: Same engine handles live audio and file uploads seamlessly  
 🎙️ **Multi-Speaker Aware**: Real-time speaker identification integrated with transcription flow  
-📺 **Enhanced Display**: Smart text formatting and presentation optimization
+🔤 **Smart Text Processing**: Intelligent transcript correction and enhancement via global atomic parser
 
 ---
 
@@ -417,7 +413,6 @@ AudioInsight provides comprehensive API endpoints for different processing modes
 | `/cleanup-session` | POST | Reset all processing state | JSON |
 
 **Additional API Endpoints:**
-- `/api/display-parser/*` - Display text parsing configuration
 - `/api/config/*` - Configuration management
 - `/api/models/*` - Model status and management
 - `/api/llm/*` - LLM processing status and testing

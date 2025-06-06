@@ -104,11 +104,6 @@ export interface UploadedFile {
 }
 
 export interface LLMStatus {
-  display_parser: {
-    enabled: boolean;
-    model: string;
-    stats: any;
-  };
   inference: {
     enabled: boolean;
     fast_model: string;

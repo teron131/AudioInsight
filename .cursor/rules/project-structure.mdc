@@ -16,7 +16,6 @@ AudioInsight/
 │   ├── config.py              # Centralized configuration management
 │   ├── main.py                # AudioInsight class & CLI entry point
 │   ├── processors.py          # Core audio processing logic with non-blocking LLM integration
-│   ├── display_parser.py      # Text enhancement for UI display
 │   ├── logging_config.py      # Application-wide logging configuration
 │   ├── timed_objects.py       # Temporal data structures (ASRToken, SpeakerSegment)
 │   ├── diarization/           # Speaker identification modules
@@ -101,7 +100,7 @@ npm run ui:build                             # Build UI
 ```
 
 ### How It Works
-- Main [package.json](mdc:package.json) proxies to frontend package in [audioinsight-ui/](mdc:audioinsight-ui/)
+- Main [package.json](mdc:package.json) proxies to frontend package in [audioinsight-ui/](mdc:audioinsight-ui)
 - Frontend package.json uses `concurrently` to run both services simultaneously
 - Backend started via [start.sh](mdc:start.sh) script or directly via `audioinsight-server`
 
@@ -120,7 +119,6 @@ Place in dedicated directories under `audioinsight/`:
 - `main.py` - AudioInsight class and CLI interface
 - `config.py` - Centralized configuration management with Pydantic validation
 - `processors.py` - Core audio processing logic with non-blocking LLM coordination
-- `display_parser.py` - Text enhancement and formatting for UI display
 - `logging_config.py` - Application-wide logging setup and configuration
 - `timed_objects.py` - Temporal data structures for time-aware processing
 
@@ -230,6 +228,6 @@ cd audioinsight-ui && npm run dev:frontend  # Frontend only (:3030)
 ### **Logging and Monitoring**
 - **Centralized Logging**: [audioinsight/logging_config.py](mdc:audioinsight/logging_config.py) handles all application logging
 - **Performance Tracking**: [audioinsight/llm/performance_monitor.py](mdc:audioinsight/llm/performance_monitor.py) provides real-time metrics
-- **Log Directory**: [logs/](mdc:logs/) contains application logs with rotation
+- **Log Directory**: [logs/](mdc:logs) contains application logs with rotation
 
 This non-blocking event-based architecture eliminates all transcription delays that were caused by blocking LLM operations and provides zero-lag concurrent processing for high-throughput real-time applications with modern frontend integration.

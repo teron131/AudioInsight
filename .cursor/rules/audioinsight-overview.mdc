@@ -17,7 +17,6 @@ The core backend is located in the `audioinsight/` package:
 - **CLI Interface**: [audioinsight/main.py](mdc:audioinsight/main.py) - AudioInsight class and command-line interface
 - **Configuration**: [audioinsight/config.py](mdc:audioinsight/config.py) - Centralized configuration management with Pydantic validation
 - **Audio Processing**: [audioinsight/processors.py](mdc:audioinsight/processors.py) - Core audio processing logic and Whisper integration
-- **Display Enhancement**: [audioinsight/display_parser.py](mdc:audioinsight/display_parser.py) - Text formatting and UI presentation
 - **Temporal Objects**: [audioinsight/timed_objects.py](mdc:audioinsight/timed_objects.py) - Time-aware data structures (ASRToken, SpeakerSegment)
 - **Logging System**: [audioinsight/logging_config.py](mdc:audioinsight/logging_config.py) - Application-wide logging configuration
 - **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation

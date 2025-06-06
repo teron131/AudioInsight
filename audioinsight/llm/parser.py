@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from ..logging_config import get_logger
 from .llm_base import EventBasedProcessor, UniversalLLM, WorkItem
 from .llm_config import LLMConfig, ParserConfig
-from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .llm_utils import contains_chinese, s2hk
+from .performance_monitor import get_performance_monitor, log_performance_if_needed
 
 logger = get_logger(__name__)
 
@@ -73,42 +73,6 @@ class ParserStats(BaseStats):
             "total_chars_processed": self.total_chars_processed,
             "average_processing_time": self.average_processing_time,
             "chunks_processed": self.chunks_processed,
-        }
-
-
-class DisplayParserStats(BaseStats):
-    """Statistics for display parser operations with caching."""
-
-    def reset(self):
-        self.texts_parsed = 0
-        self.cache_hits = 0
-        self.total_parse_time = 0.0
-        self.average_parse_time = 0.0
-
-    def record_cache_hit(self):
-        """Record a cache hit."""
-        self.cache_hits += 1
-
-    def record_parsing(self, parse_time: float):
-        """Record a parsing operation (cache miss)."""
-        self.texts_parsed += 1
-        self.total_parse_time += parse_time
-        self.average_parse_time = self.update_average_time(self.average_parse_time, self.texts_parsed, parse_time)
-
-    @property
-    def cache_hit_rate(self) -> float:
-        """Calculate cache hit rate."""
-        total_requests = self.texts_parsed + self.cache_hits
-        return self.cache_hits / total_requests if total_requests > 0 else 0.0
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "texts_parsed": self.texts_parsed,
-            "cache_hits": self.cache_hits,
-            "total_parse_time": self.total_parse_time,
-            "average_parse_time": self.average_parse_time,
-            "cache_hit_rate": self.cache_hit_rate,
-            "total_requests": self.texts_parsed + self.cache_hits,
         }
 
 
