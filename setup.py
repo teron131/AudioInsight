@@ -18,7 +18,9 @@ setup(
         "websockets",
         "numpy",
         "pydantic",
+        "pydantic-settings",
         "python-dotenv",
+        "python-multipart",
     ],
     extras_require={
         "diarization": [

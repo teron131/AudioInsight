@@ -34,7 +34,7 @@ echo "📍 Access backend API at: http://localhost:$BACKEND_PORT"
 echo "🔌 WebSocket endpoint: ws://localhost:$BACKEND_PORT/asr"
 echo ""
 
-audioinsight-server \
+uv run audioinsight-server \
     --backend faster-whisper --model base \
     # --backend openai-api --model whisper-1 \
     --llm_inference \
