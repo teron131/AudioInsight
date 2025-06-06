@@ -305,9 +305,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # Handle bidirectional communication
     async def send_results():
         async for result in results_generator:
-            # Results include LLM summaries processed in background
+            # Results include LLM analyses processed in background
             if result.get('type') == 'analysis':
-                print(f"LLM Summary: {result['content']}")
+                print(f"LLM Analysis: {result['content']}")
             await websocket.send_json(result)
     
     send_task = asyncio.create_task(send_results())

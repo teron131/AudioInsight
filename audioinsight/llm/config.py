@@ -69,7 +69,7 @@ class AnalyzerConfig(LLMConfig):
     """Configuration for conversation analysis."""
 
     model_id: str = Field(default="openai/gpt-4.1-mini", description="Model for analysis")
-    max_output_tokens: int = Field(default=6000, description="Output tokens for summaries")
+    max_output_tokens: int = Field(default=6000, description="Output tokens for analyses")
 
 
 # =============================================================================

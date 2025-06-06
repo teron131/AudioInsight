@@ -89,7 +89,7 @@ class Analyzer(EventBasedProcessor):
     and generates inference after periods of inactivity or after a certain number of conversations.
     Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
 
-    This processor is mostly stateless but uses coordination to prevent duplicate summaries.
+    This processor is mostly stateless but uses coordination to prevent duplicate analyses.
     """
 
     def __init__(
@@ -118,7 +118,7 @@ class Analyzer(EventBasedProcessor):
         self._prompt = None
 
         # State tracking (use inherited accumulated_data from base class)
-        self.text_length_at_last_summary = 0  # Track text length at last summary for new text trigger
+        self.text_length_at_last_analysis = 0  # Track text length at last analysis for new text trigger
         self.last_inference = None
         self.inference_callbacks = []
 
@@ -231,7 +231,7 @@ Remember to respond in the same language, script, and regional conventions as th
         """
         self.inference_callbacks.append(callback)
 
-    def add_summary_callback(self, callback):
+    def add_analysis_callback(self, callback):
         """Legacy method for backward compatibility. Use add_inference_callback instead."""
         self.add_inference_callback(callback)
 
@@ -287,15 +287,15 @@ Remember to respond in the same language, script, and regional conventions as th
         current_time = time.time()
 
         # Calculate conditions for both time and new text triggers
-        new_text_since_last_summary = text_length - self.text_length_at_last_summary
-        time_since_last_summary = current_time - self.last_processing_time
+        new_text_since_last_analysis = text_length - self.text_length_at_last_analysis
+        time_since_last_analysis = current_time - self.last_processing_time
 
         # Check both trigger conditions
-        has_been_long_enough = time_since_last_summary > self.trigger_config.analysis_interval_seconds
-        has_enough_new_text = new_text_since_last_summary >= self.trigger_config.new_text_trigger_chars
+        has_been_long_enough = time_since_last_analysis > self.trigger_config.analysis_interval_seconds
+        has_enough_new_text = new_text_since_last_analysis >= self.trigger_config.new_text_trigger_chars
 
         # Add debug logging for trigger analysis
-        logger.debug(f"📊 Trigger check: {text_length} chars total, {new_text_since_last_summary} new chars, {time_since_last_summary:.1f}s elapsed")
+        logger.debug(f"📊 Trigger check: {text_length} chars total, {new_text_since_last_analysis} new chars, {time_since_last_analysis:.1f}s elapsed")
         logger.debug(f"📊 Thresholds: {self.trigger_config.new_text_trigger_chars} chars, {self.trigger_config.analysis_interval_seconds}s")
         logger.debug(f"📊 Conditions: enough_text={has_enough_new_text}, enough_time={has_been_long_enough}")
 
@@ -310,12 +310,12 @@ Remember to respond in the same language, script, and regional conventions as th
 
                 loop = asyncio.get_event_loop()
                 loop.create_task(self._queue_inference_async(trigger_reason))
-                logger.info(f"🎯 Triggering analysis: {trigger_reason} (new_chars={new_text_since_last_summary}, time={time_since_last_summary:.1f}s)")
+                logger.info(f"🎯 Triggering analysis: {trigger_reason} (new_chars={new_text_since_last_analysis}, time={time_since_last_analysis:.1f}s)")
             except Exception as e:
                 # Don't let inference errors block transcription
                 logger.debug(f"Non-critical inference queue error: {e}")
         else:
-            logger.debug(f"⏳ Not triggering analysis yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_summary} more chars or {self.trigger_config.analysis_interval_seconds - time_since_last_summary:.1f}s")
+            logger.debug(f"⏳ Not triggering analysis yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_analysis} more chars or {self.trigger_config.analysis_interval_seconds - time_since_last_analysis:.1f}s")
 
     async def _queue_inference_async(self, trigger_reason: str):
         """Async helper to queue inference requests."""
@@ -348,14 +348,14 @@ Remember to respond in the same language, script, and regional conventions as th
             return
 
         try:
-            # CHANGE: Always process the entire accumulated text for comprehensive summaries
-            # This ensures summaries cover the full conversation context, not just incremental updates
+            # CHANGE: Always process the entire accumulated text for comprehensive analyses
+            # This ensures analyses cover the full conversation context, not just incremental updates
             text_to_process = self.accumulated_data.strip()
 
             if trigger_reason == "forced":
-                logger.info(f"Processing entire accumulated text for final comprehensive summary: {len(text_to_process)} chars")
+                logger.info(f"Processing entire accumulated text for final comprehensive analysis: {len(text_to_process)} chars")
             else:
-                logger.info(f"Processing entire accumulated text for comprehensive summary: {len(text_to_process)} chars")
+                logger.info(f"Processing entire accumulated text for comprehensive analysis: {len(text_to_process)} chars")
 
             # Truncate if too long
             if len(text_to_process) > self.trigger_config.max_text_length:
@@ -399,10 +399,10 @@ Remember to respond in the same language, script, and regional conventions as th
                 except Exception as e:
                     logger.error(f"Error in inference callback: {e}")
 
-            # Reset text length tracking for new text trigger after processing
+                    # Reset text length tracking for new text trigger after processing
             if trigger_reason != "forced":
-                self.text_length_at_last_summary = len(self.accumulated_data)
-                logger.debug(f"Reset text length tracking to {self.text_length_at_last_summary} chars")
+                self.text_length_at_last_analysis = len(self.accumulated_data)
+                logger.debug(f"Reset text length tracking to {self.text_length_at_last_analysis} chars")
 
             # Update last_processed_data to the current accumulated text
             if trigger_reason != "forced":
@@ -413,7 +413,7 @@ Remember to respond in the same language, script, and regional conventions as th
                     self.accumulated_data = self.accumulated_data[-5000:]
                     self.last_processed_data = self.accumulated_data
                     # Update text length tracking after truncation
-                    self.text_length_at_last_summary = len(self.accumulated_data)
+                    self.text_length_at_last_analysis = len(self.accumulated_data)
 
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
@@ -422,7 +422,7 @@ Remember to respond in the same language, script, and regional conventions as th
         """Get the most recent inference."""
         return self.last_inference
 
-    def get_last_summary(self) -> Optional[AnalyzerResponse]:
+    def get_last_analysis(self) -> Optional[AnalyzerResponse]:
         """Legacy method for backward compatibility. Use get_last_inference instead."""
         return self.get_last_inference()
 
@@ -441,6 +441,6 @@ Remember to respond in the same language, script, and regional conventions as th
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
 
-    async def force_summary(self) -> Optional[AnalyzerResponse]:
+    async def force_analysis(self) -> Optional[AnalyzerResponse]:
         """Legacy method for backward compatibility. Use force_inference instead."""
         return await self.force_inference()

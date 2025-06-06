@@ -414,8 +414,8 @@
             margin-bottom: 0px;
         }
 
-        /* Summaries styling */
-        .summaries-container {
+        /* Analyses styling */
+.analyses-container {
             margin: 20px auto;
             max-width: 700px;
             text-align: left;
@@ -523,8 +523,8 @@
 
         <!-- Status and transcript -->
         <p id="status"></p>
-        <!-- Summaries will be displayed here -->
-        <div id="summaries" class="summaries-container"></div>
+        <!-- Analyses will be displayed here -->
+        <div id="analyses" class="analyses-container"></div>
     <div id="linesTranscript"></div>
     </div>
 
@@ -569,7 +569,7 @@
         const chunkSelector = document.getElementById("chunkSelector");
         const websocketInput = document.getElementById("websocketInput");
         const linesTranscriptDiv = document.getElementById("linesTranscript");
-        const summariesDiv = document.getElementById("summaries");
+        const analysesDiv = document.getElementById("analyses");
         const timerElement = document.querySelector(".timer");
 
         // Mode switching elements
@@ -608,7 +608,7 @@
             cleanupButton.textContent = "🧹 Cleaning...";
             cleanupButton.disabled = true;
             
-            await cleanupSession(false); // Full cleanup - don't preserve summaries
+            await cleanupSession(false); // Full cleanup - don't preserve analyses
             
             cleanupButton.textContent = originalText;
             cleanupButton.disabled = false;
@@ -634,7 +634,7 @@
                 progressContainer.style.display = 'none';
             }
             
-            // Clear transcript but preserve summaries when switching modes
+            // Clear transcript but preserve analyses when switching modes
             linesTranscriptDiv.innerHTML = '';
             statusText.textContent = mode === 'record' ? 
                 "Click to start transcription" : 
@@ -704,7 +704,7 @@
             
             // Clean up any previous session before starting new one
             if (sessionActive) {
-                await cleanupSession(true); // Preserve summaries when starting new file upload
+                await cleanupSession(true); // Preserve analyses when starting new file upload
                 // Wait a moment for cleanup to complete
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
@@ -715,7 +715,7 @@
             progressContainer.style.display = 'block';
             progressFill.style.width = '0%';
             
-            // Clear previous transcription (but summaries are preserved by cleanup)
+            // Clear previous transcription (but analyses are preserved by cleanup)
             linesTranscriptDiv.innerHTML = '';
             uploadResults = [];
             
@@ -1106,17 +1106,17 @@
                         };
                     }
                     
-                    if (data.summaries && data.summaries.length > 0) {
-                        const latestSummary = data.summaries[data.summaries.length - 1];
-                        summariesDiv.innerHTML = `
+                            if (data.analyses && data.analyses.length > 0) {
+            const latestAnalysis = data.analyses[data.analyses.length - 1];
+            analysesDiv.innerHTML = `
                             <div class="analysis">
-                                <div class="analysis-header">📝 AI Summary</div>
-                                <p><strong>Summary:</strong> ${latestSummary.analysis}</p>
-                                <p><strong>Key Points:</strong> ${latestSummary.key_points.join(" • ")}</p>
-                                <p><strong>Text Length:</strong> ${latestSummary.text_length} characters</p>
+                                                <div class="analysis-header">📝 AI Analysis</div>
+                <p><strong>Analysis:</strong> ${latestAnalysis.analysis}</p>
+                <p><strong>Key Points:</strong> ${latestAnalysis.key_points.join(" • ")}</p>
+                <p><strong>Text Length:</strong> ${latestAnalysis.text_length} characters</p>
                             </div>
                         `;
-                        summariesDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        analysesDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     }
                     
                     if (data.type === "ready_to_stop") {
@@ -1136,14 +1136,14 @@
                         if (isProcessingFile) {
                             progressFill.style.width = '100%';
                             progressText.textContent = "File processing complete!";
-                            statusText.textContent = "File processed successfully! Summary preserved.";
+                            statusText.textContent = "File processed successfully! Analysis preserved.";
                             setTimeout(() => {
                                 isProcessingFile = false;
                                 uploadZone.classList.remove('processing');
                                 progressContainer.style.display = 'none';
                             }, 2000);
                         } else {
-                            statusText.textContent = "Recording complete! Summary preserved. Ready for new recording.";
+                            statusText.textContent = "Recording complete! Analysis preserved. Ready for new recording.";
                             recordButton.disabled = false;
                         }
                         
@@ -1302,7 +1302,7 @@
             try {
                 // Clean up any previous session before starting new recording
                 if (sessionActive) {
-                    await cleanupSession(true); // Preserve summaries when starting new recording
+                    await cleanupSession(true); // Preserve analyses when starting new recording
                     // Wait a moment for cleanup to complete
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
@@ -1395,7 +1395,7 @@
                 
                 // Check if we need to clean up a previous session first
                 if (sessionActive && !cleanupInProgress) {
-                    await cleanupSession(true); // Preserve summaries when starting new recording
+                    await cleanupSession(true); // Preserve analyses when starting new recording
                     // Wait a moment for cleanup to complete
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
@@ -1451,7 +1451,7 @@
         statusText.textContent = "Click to start transcription";
 
         // Session cleanup functions
-        async function cleanupSession(preserveSummaries = false) {
+        async function cleanupSession(preserveAnalyses = false) {
             if (cleanupInProgress) {
                 return;
             }
@@ -1492,9 +1492,9 @@
                     // Silent error handling for cleanup endpoint
                 }
                 
-                if (!preserveSummaries) {
+                if (!preserveAnalyses) {
                     linesTranscriptDiv.innerHTML = '';
-                    summariesDiv.innerHTML = '';
+                    analysesDiv.innerHTML = '';
                 }
                 
                 // ... (rest of UI reset logic) ...
@@ -1513,7 +1513,7 @@
             }
         });
         
-        // Note: Removed auto-cleanup on page visibility change to preserve summaries
+        // Note: Removed auto-cleanup on page visibility change to preserve analyses
         // Users can manually clean session using the Clean Session button
     </script>
 </body>

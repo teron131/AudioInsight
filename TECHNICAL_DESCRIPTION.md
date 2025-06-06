@@ -30,7 +30,7 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 
 #### **`audioinsight/llm/analyzer.py`** - Non-Blocking Conversation Analysis
 - `Analyzer`: Intelligent conversation analysis with 2 coordinated concurrent workers
-- **Work coordination system** preventing duplicate summaries of identical content
+- **Work coordination system** preventing duplicate analyses of identical content
 - Moderate queue capacity (100 items) for handling burst processing without blocking
 - Adaptive cooldown for balanced performance and API efficiency
 - Deferred trigger checking that never interrupts real-time transcription flow

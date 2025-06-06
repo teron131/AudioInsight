@@ -1255,24 +1255,24 @@
             const actionPlanContent = document.getElementById('actionPlanContent');
             const keywordsContainer = document.getElementById('keywordsContainer');
 
-            // Handle summaries array from LLM
-            if (data.summaries && data.summaries.length > 0) {
-                const latestSummary = data.summaries[data.summaries.length - 1];
+                    // Handle analyses array from LLM
+        if (data.analyses && data.analyses.length > 0) {
+            const latestAnalysis = data.analyses[data.analyses.length - 1];
                 
-                if (latestSummary.key_points && latestSummary.key_points.length > 0) {
-                    const pointsList = latestSummary.key_points.map(point => `<li>${point}</li>`).join('');
+                if (latestAnalysis.key_points && latestAnalysis.key_points.length > 0) {
+                    const pointsList = latestAnalysis.key_points.map(point => `<li>${point}</li>`).join('');
                     keyPointsContent.innerHTML = `<ul>${pointsList}</ul>`;
                     keyPointsContent.classList.add('has-content');
                 }
                 
-                if (latestSummary.response_suggestions && latestSummary.response_suggestions.length > 0) {
-                    const suggestionsList = latestSummary.response_suggestions.map(suggestion => `<li>💬 ${suggestion}</li>`).join('');
+                if (latestAnalysis.response_suggestions && latestAnalysis.response_suggestions.length > 0) {
+                    const suggestionsList = latestAnalysis.response_suggestions.map(suggestion => `<li>💬 ${suggestion}</li>`).join('');
                     responseSuggestionsContent.innerHTML = `<ul>${suggestionsList}</ul>`;
                     responseSuggestionsContent.classList.add('has-content');
                 }
                 
-                if (latestSummary.action_plan && latestSummary.action_plan.length > 0) {
-                    const actionsList = latestSummary.action_plan.map(action => `<li>📋 ${action}</li>`).join('');
+                if (latestAnalysis.action_plan && latestAnalysis.action_plan.length > 0) {
+                    const actionsList = latestAnalysis.action_plan.map(action => `<li>📋 ${action}</li>`).join('');
                     actionPlanContent.innerHTML = `<ul>${actionsList}</ul>`;
                     actionPlanContent.classList.add('has-content');
                 }
@@ -1361,7 +1361,7 @@
                 }
                 
                 // Handle analysis results
-                if (data.key_points || data.keywords || data.summaries || data.response_suggestions || data.action_plan) {
+                if (data.key_points || data.keywords || data.analyses || data.response_suggestions || data.action_plan) {
                     updateAnalysisFromData(data);
                     
                     // Store analysis data in transcript data for export
@@ -1371,7 +1371,7 @@
                             keywords: data.keywords,
                             response_suggestions: data.response_suggestions,
                             action_plan: data.action_plan,
-                            summaries: data.summaries
+                            analyses: data.analyses
                         };
                     }
                 }

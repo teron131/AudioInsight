@@ -1628,11 +1628,11 @@ class AudioProcessor:
 
                         logger.info(f"🚨 DEBUG: About to check final analysis generation, analyses_count={analyses_count}")
 
-                        # Generate final comprehensive summary (avoid duplicates with single-path logic)
-                        final_summary_generated = False
-                        should_generate_summary = False  # Initialize flag
+                        # Generate final comprehensive analysis (avoid duplicates with single-path logic)
+                        final_analysis_generated = False
+                        should_generate_analysis = False  # Initialize flag
 
-                        logger.info(f"🔍 Checking final summary generation conditions...")
+                        logger.info(f"🔍 Checking final analysis generation conditions...")
                         logger.info(f"🔍 self.llm exists: {self.llm is not None}")
 
                         if self.llm:
@@ -1642,61 +1642,61 @@ class AudioProcessor:
 
                             # Always try to populate with full transcript first
                             if hasattr(self, "full_transcription") and self.full_transcription.strip():
-                                logger.info("🔧 Ensuring LLM has full transcription for final summary...")
+                                logger.info("🔧 Ensuring LLM has full transcription for final analysis...")
                                 self.llm.update_transcription(self.full_transcription, None)
                                 accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
                                 logger.info(f"🔧 LLM now has {accumulated_length} chars of accumulated data")
 
                             # Check if we have data to process
                             if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data.strip():
-                                should_generate_summary = True
-                                if summaries_count == 0:
-                                    logger.info("🔄 Generating final summary (no summaries created during processing)...")
+                                should_generate_analysis = True
+                                if analyses_count == 0:
+                                    logger.info("🔄 Generating final analysis (no analyses created during processing)...")
                                 else:
-                                    logger.info(f"🔄 Generating comprehensive final summary (had {summaries_count} intermediate summaries)...")
+                                    logger.info(f"🔄 Generating comprehensive final analysis (had {analyses_count} intermediate analyses)...")
                             else:
-                                should_generate_summary = False
-                                logger.warning("❌ Final summary NOT generated - no content available after populating LLM")
+                                should_generate_analysis = False
+                                logger.warning("❌ Final analysis NOT generated - no content available after populating LLM")
                         else:
-                            logger.warning("❌ Final summary NOT generated - no LLM instance available")
+                            logger.warning("❌ Final analysis NOT generated - no LLM instance available")
 
                         # SINGLE FORCE_INFERENCE CALL WITH DUPLICATE PREVENTION
-                        if should_generate_summary:
-                            # Update with complete transcript to ensure comprehensive summary
+                        if should_generate_analysis:
+                            # Update with complete transcript to ensure comprehensive analysis
                             complete_transcript = self.full_transcription
                             if complete_transcript.strip():
                                 self.llm.update_transcription(complete_transcript, None)
-                                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final summary")
+                                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final analysis")
 
                             # Single force inference call
                             await self.llm.force_inference()
-                            final_summary_generated = True
+                            final_analysis_generated = True
 
                             # Wait for the final inference to complete
-                            max_wait_time = 5.0  # Increased wait time for final summary
+                            max_wait_time = 5.0  # Increased wait time for final analysis
                             poll_interval = 0.3
                             waited_time = 0.0
-                            initial_summary_count = summaries_count
+                            initial_analysis_count = analyses_count
 
                             while waited_time < max_wait_time:
                                 await asyncio.sleep(poll_interval)
                                 waited_time += poll_interval
 
-                                # Check if new summary was added
+                                # Check if new analysis was added
                                 async with self.lock:
-                                    current_summary_count = len(getattr(self, "summaries", []))
+                                    current_analysis_count = len(getattr(self, "analyses", []))
 
-                                if current_summary_count > initial_summary_count:
-                                    logger.info(f"✅ Final summary added after {waited_time:.1f}s wait")
+                                if current_analysis_count > initial_analysis_count:
+                                    logger.info(f"✅ Final analysis added after {waited_time:.1f}s wait")
                                     break
 
                                 if waited_time >= max_wait_time:
-                                    logger.warning(f"⚠️ Final summary not added after {max_wait_time}s wait")
+                                    logger.warning(f"⚠️ Final analysis not added after {max_wait_time}s wait")
                                     break
 
-                        # CRITICAL: Set final summary flag AFTER final processing to prevent blocking final summary
-                        self._final_summary_generated = True
-                        logger.info("🛑 Set final summary flag AFTER final processing completed")
+                        # CRITICAL: Set final analysis flag AFTER final processing to prevent blocking final analysis
+                        self._final_analysis_generated = True
+                        logger.info("🛑 Set final analysis flag AFTER final processing completed")
 
                         # Stop LLM monitoring after final processing is complete
                         if self.llm:
@@ -1706,8 +1706,8 @@ class AudioProcessor:
                             except Exception as e:
                                 logger.warning(f"Error stopping LLM monitoring: {e}")
 
-                        if not final_summary_generated:
-                            logger.warning("❌ Final summary NOT generated - LLM unavailable or no content")
+                        if not final_analysis_generated:
+                            logger.warning("❌ Final analysis NOT generated - LLM unavailable or no content")
 
                         # Get updated final state after inference processing
                         final_state = await self.get_current_state()
@@ -1725,17 +1725,17 @@ class AudioProcessor:
                         # Create final response with remaining buffer text included
                         final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0, "diarization_enabled": self.args.diarization}
 
-                        # Add existing summaries
+                        # Add existing analyses
                         async with self.lock:
-                            if hasattr(self, "summaries") and self.summaries:
-                                final_response["summaries"] = self.summaries.copy()
-                                logger.info(f"🔄 Including {len(self.summaries)} final summaries in response")
+                            if hasattr(self, "analyses") and self.analyses:
+                                final_response["analyses"] = self.analyses.copy()
+                                logger.info(f"🔄 Including {len(self.analyses)} final analyses in response")
 
                         # Add LLM stats
                         if self.llm:
                             final_response["llm_stats"] = self.llm.get_stats()
 
-                        # Log final summary of transcription
+                        # Log final analysis of transcription
                         total_lines = len(final_lines_converted)
                         buffer_chars = len(final_buffer_transcription) + len(final_buffer_diarization)
                         logger.info(f"📋 Final transcription: {total_lines} committed lines, {buffer_chars} buffer characters")
@@ -2029,9 +2029,9 @@ class AudioProcessor:
             self.end_buffer = 0
             self.end_attributed_speaker = 0
             self.last_response_content = ""
-            if hasattr(self, "summaries"):
-                self.summaries.clear()
-            self._has_summaries = False
+            if hasattr(self, "analyses"):
+                self.analyses.clear()
+            self._has_analyses = False
             # Clear parsed transcript data
             if hasattr(self, "parsed_transcripts"):
                 self.parsed_transcripts.clear()
@@ -2052,7 +2052,7 @@ class AudioProcessor:
         # Reset timing and state flags
         self.beg_loop = time()
         self.is_stopping = False
-        self._final_summary_generated = False  # Reset final summary flag
+        self._final_analysis_generated = False  # Reset final analysis flag
 
         # CRITICAL FIX: Re-initialize LLM components if they were lost during reset
         if not self.llm or not self.transcript_parser:
