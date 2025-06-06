@@ -240,22 +240,17 @@ Remember to respond in the same language, script, and regional conventions as th
 
         Args:
             new_text: New transcription text to add
-            speaker_info: Optional speaker/diarization information
+            speaker_info: Optional speaker/diarization information (ignored, not passed to LLM)
         """
         if not new_text.strip():
             return
 
         try:
-            # Add to accumulated text with speaker info if available
-            if speaker_info and "speaker" in speaker_info:
-                formatted_text = f"[Speaker {speaker_info['speaker']}]: {new_text}"
-            else:
-                formatted_text = new_text
-
+            # Add to accumulated text without speaker info formatting
             if self.accumulated_data:
-                self.accumulated_data += " " + formatted_text
+                self.accumulated_data += " " + new_text
             else:
-                self.accumulated_data = formatted_text
+                self.accumulated_data = new_text
 
             logger.debug(f"Updated transcription: {len(self.accumulated_data)} chars total")
 

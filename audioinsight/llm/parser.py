@@ -169,9 +169,9 @@ class Parser(EventBasedProcessor):
     def llm_client(self) -> UniversalLLM:
         """Lazy initialization of LLM client to speed up startup."""
         if self._llm_client is None:
-            llm_config = LLMConfig(model_id=self.config.model_id, api_key=self.api_key, timeout=12.0)
+            llm_config = LLMConfig(model_id=self.config.model_id, api_key=self.api_key, timeout=12.0, temperature=0.0)
             self._llm_client = UniversalLLM(llm_config)
-            logger.debug(f"Lazy-initialized LLM client for model: {self.config.model_id}")
+            logger.debug(f"Lazy-initialized LLM client for model: {self.config.model_id} with temperature=0.0")
         return self._llm_client
 
     @property
@@ -530,6 +530,8 @@ async def parse_transcript(
     timestamps: Optional[Dict[str, float]] = None,
 ) -> ParsedTranscript:
     """Convenience function to quickly parse and structure transcript text.
+
+    Note: Always uses temperature=0.0 for consistent parsing results.
 
     Args:
         text: The text to parse and correct
