@@ -10,16 +10,40 @@ Transform speech into text instantly with AudioInsight - a production-ready stre
 
 ## ⚡ Quick Start
 
-Get up and running in seconds:
+- Get up and running in seconds with one of the following options:
+
+### Option 1: Full-stack with uv (recommended)
 
 ```bash
-# Install AudioInsight
+# Install uv (if not installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install dependencies
+git clone https://github.com/teron131/AudioInsight.git
+cd AudioInsight
+uv sync
+
+# Start both backend and frontend
+npm run dev
+
+# Backend: http://localhost:8080
+# Frontend: http://localhost:3030
+```
+
+### Option 2: Traditional pip
+
+```bash
+# Clone and install dependencies
+git clone https://github.com/teron131/AudioInsight.git
+cd AudioInsight
 pip install -e .
+npm install --prefix audioinsight-ui
 
-# Start the server with LLM analysis
-audioinsight-server --llm-inference
+# Start both backend and frontend
+npm run dev
 
-# Open http://localhost:8080 and start speaking! 🎤
+# Backend: http://localhost:8080
+# Frontend: http://localhost:3030
 ```
 
 ## 🎯 Why AudioInsight?
