@@ -3,11 +3,11 @@
   "private": true,
   "scripts": {
     "cleanup-ports": "../scripts/cleanup-ports.sh 3030 8080",
-    "dev": "npm run cleanup-ports && concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && python -c 'from audioinsight.app import main; main()'\" \"next dev -p 3030\"",
+    "dev": "npm run cleanup-ports && concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && (command -v uv >/dev/null && uv run audioinsight-server --llm_inference || audioinsight-server --llm_inference)\" \"next dev -p 3030\"",
     "dev:frontend": "next dev -p 3030",
     "dev:frontend-clean": "../scripts/cleanup-ports.sh 3030 && next dev -p 3030",
-    "dev:backend": "cd .. && python -c 'from audioinsight.app import main; main()'",
-    "dev:backend-clean": "cd .. && ../scripts/cleanup-ports.sh 8080 && python -c 'from audioinsight.app import main; main()'",
+    "dev:backend": "cd .. && (command -v uv >/dev/null && uv run audioinsight-server --llm_inference || audioinsight-server --llm_inference)",
+    "dev:backend-clean": "cd .. && ../scripts/cleanup-ports.sh 8080 && (command -v uv >/dev/null && uv run audioinsight-server --llm_inference || audioinsight-server --llm_inference)",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -52,7 +52,7 @@
     "next": "15.2.4",
     "next-themes": "^0.4.4",
     "react": "^19",
-    "react-day-picker": "8.10.1",
+    "react-day-picker": "^9.0.0",
     "react-dom": "^19",
     "react-hook-form": "^7.54.1",
     "react-resizable-panels": "^2.1.7",
