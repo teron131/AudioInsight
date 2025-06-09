@@ -93,6 +93,7 @@ class AudioProcessor(BaseProcessor):
         self.llm = None
         self.llm_task = None
         self._final_analysis_generated = False  # Flag to prevent multiple final analyses
+        self._final_analysis_in_progress = False  # Flag to prevent simultaneous final analysis generation
 
         # Initialize transcript parser for structured processing
         self.transcript_parser = None
@@ -489,6 +490,9 @@ class AudioProcessor(BaseProcessor):
 
     async def watchdog(self, tasks_to_monitor):
         """Monitors the health of critical processing tasks."""
+        # Track which tasks have already been logged as completed
+        logged_completed_tasks = set()
+
         while True:
             try:
                 await asyncio.sleep(15)  # Check every 15 seconds instead of 10
@@ -496,12 +500,16 @@ class AudioProcessor(BaseProcessor):
 
                 for i, task in enumerate(tasks_to_monitor):
                     if task.done():
-                        exc = task.exception()
-                        task_name = task.get_name() if hasattr(task, "get_name") else f"Task {i}"
-                        if exc:
-                            logger.error(f"{task_name} failed: {exc}")
-                        else:
-                            logger.info(f"{task_name} completed normally")
+                        task_name = task.get_name() if hasattr(task, "get_name") else f"Task-{i}"
+
+                        # Only log completion once per task
+                        if task_name not in logged_completed_tasks:
+                            exc = task.exception()
+                            if exc:
+                                logger.error(f"{task_name} failed: {exc}")
+                            else:
+                                logger.info(f"{task_name} completed normally")
+                            logged_completed_tasks.add(task_name)
 
                 # Sync FFmpeg activity timing
                 if self.ffmpeg_processor:
@@ -939,71 +947,90 @@ class AudioProcessor(BaseProcessor):
         final_analysis_generated = False
         should_generate_analysis = False  # Initialize flag
 
-        logger.info(f"🔍 Checking final analysis generation conditions...")
-        logger.info(f"🔍 self.llm exists: {self.llm is not None}")
-
-        if self.llm:
-            accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
-            logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
-            logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
-
-            # Always try to populate with full transcript first
-            if hasattr(self, "full_transcription") and self.full_transcription.strip():
-                logger.info("🔧 Ensuring LLM has full transcription for final analysis...")
-                self.llm.update_transcription(self.full_transcription, None)
-                accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
-                logger.info(f"🔧 LLM now has {accumulated_length} chars of accumulated data")
-
-            # Check if we have data to process
-            if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data.strip():
-                should_generate_analysis = True
-                if analyses_count == 0:
-                    logger.info("🔄 Generating final analysis (no analyses created during processing)...")
-                else:
-                    logger.info(f"🔄 Generating comprehensive final analysis (had {analyses_count} intermediate analyses)...")
-            else:
-                should_generate_analysis = False
-                logger.warning("❌ Final analysis NOT generated - no content available after populating LLM")
+        # Add flag to prevent multiple simultaneous final analysis generation
+        if hasattr(self, "_final_analysis_in_progress") and self._final_analysis_in_progress:
+            logger.info("🔄 Final analysis already in progress, skipping duplicate generation")
+            should_generate_analysis = False
         else:
-            logger.warning("❌ Final analysis NOT generated - no LLM instance available")
+            logger.info(f"🔍 Checking final analysis generation conditions...")
+            logger.info(f"🔍 self.llm exists: {self.llm is not None}")
+
+            if self.llm:
+                # Set flag to prevent multiple final analysis calls
+                self._final_analysis_in_progress = True
+
+                accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
+                logger.info(f"🔍 LLM accumulated_data length: {accumulated_length}")
+                logger.info(f"🔍 LLM accumulated_data preview: '{self.llm.accumulated_data[:100]}...' " if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data else "No accumulated data")
+
+                # Always try to populate with full transcript first
+                if hasattr(self, "full_transcription") and self.full_transcription.strip():
+                    logger.info("🔧 Ensuring LLM has full transcription for final analysis...")
+                    self.llm.update_transcription(self.full_transcription, None)
+                    accumulated_length = len(self.llm.accumulated_data.strip()) if hasattr(self.llm, "accumulated_data") else 0
+                    logger.info(f"🔧 LLM now has {accumulated_length} chars of accumulated data")
+
+                # Check if we have data to process
+                if hasattr(self.llm, "accumulated_data") and self.llm.accumulated_data.strip():
+                    should_generate_analysis = True
+                    if analyses_count == 0:
+                        logger.info("🔄 Generating final analysis (no analyses created during processing)...")
+                    else:
+                        logger.info(f"🔄 Generating comprehensive final analysis (had {analyses_count} intermediate analyses)...")
+                else:
+                    should_generate_analysis = False
+                    logger.warning("❌ Final analysis NOT generated - no content available after populating LLM")
+            else:
+                logger.warning("❌ Final analysis NOT generated - no LLM instance available")
 
         # SINGLE FORCE_INFERENCE CALL WITH DUPLICATE PREVENTION
         if should_generate_analysis:
-            # Update with complete transcript to ensure comprehensive analysis
-            complete_transcript = self.full_transcription
-            if complete_transcript.strip():
-                self.llm.update_transcription(complete_transcript, None)
-                logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final analysis")
+            try:
+                # Update with complete transcript to ensure comprehensive analysis
+                complete_transcript = self.full_transcription
+                if complete_transcript.strip():
+                    self.llm.update_transcription(complete_transcript, None)
+                    logger.info(f"🔄 Updated LLM with complete transcript ({len(complete_transcript)} chars) for final analysis")
 
-            # Single force inference call
-            await self.llm.force_inference()
-            final_analysis_generated = True
+                # Single force inference call
+                await self.llm.force_inference()
+                final_analysis_generated = True
 
-            # Wait for the final inference to complete
-            max_wait_time = 5.0  # Increased wait time for final analysis
-            poll_interval = 0.3
-            waited_time = 0.0
-            initial_analysis_count = analyses_count
+                # Wait for the final inference to complete AND the callback to be called
+                max_wait_time = 5.0  # Increased wait time for final analysis
+                poll_interval = 0.3
+                waited_time = 0.0
+                initial_analysis_count = analyses_count
 
-            while waited_time < max_wait_time:
-                await asyncio.sleep(poll_interval)
-                waited_time += poll_interval
+                while waited_time < max_wait_time:
+                    await asyncio.sleep(poll_interval)
+                    waited_time += poll_interval
 
-                # Check if new analysis was added
-                async with self.lock:
-                    current_analysis_count = len(getattr(self, "analyses", []))
+                    # Check if new analysis was added via callback
+                    async with self.lock:
+                        current_analysis_count = len(getattr(self, "analyses", []))
 
-                if current_analysis_count > initial_analysis_count:
-                    logger.info(f"✅ Final analysis added after {waited_time:.1f}s wait")
-                    break
+                    if current_analysis_count > initial_analysis_count:
+                        logger.info(f"✅ Final analysis added after {waited_time:.1f}s wait")
+                        # Set the flag ONLY after the analysis was successfully added
+                        self._final_analysis_generated = True
+                        break
 
-                if waited_time >= max_wait_time:
-                    logger.warning(f"⚠️ Final analysis not added after {max_wait_time}s wait")
-                    break
+                    if waited_time >= max_wait_time:
+                        logger.warning(f"⚠️ Final analysis not added after {max_wait_time}s wait")
+                        # Still set the flag to prevent infinite retries
+                        self._final_analysis_generated = True
+                        break
+
+            except Exception as e:
+                logger.error(f"Error during final analysis generation: {e}")
+            finally:
+                # Always reset the final analysis flag
+                if hasattr(self, "_final_analysis_in_progress"):
+                    self._final_analysis_in_progress = False
 
         # CRITICAL: Set final analysis flag AFTER final processing to prevent blocking final analysis
-        self._final_analysis_generated = True
-        logger.info("🛑 Set final analysis flag AFTER final processing completed")
+        logger.info("🛑 Final processing completed - final analysis flag set conditionally based on success")
 
         # Stop LLM monitoring after final processing is complete
         if self.llm:
@@ -1015,6 +1042,8 @@ class AudioProcessor(BaseProcessor):
 
         if not final_analysis_generated:
             logger.warning("❌ Final analysis NOT generated - LLM unavailable or no content")
+            # Set flag even when no analysis is generated to prevent hanging
+            self._final_analysis_generated = True
 
         # Get updated final state after inference processing
         final_state = await self.get_current_state()

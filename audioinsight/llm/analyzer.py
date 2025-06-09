@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from ..logging_config import get_logger
 from .llm_base import EventBasedProcessor, UniversalLLM
 from .llm_config import LLMConfig, LLMTrigger
+from .llm_utils import s2hk, truncate_text
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .retriever import prepare_rag_context
-from .llm_utils import s2hk, truncate_text
 
 logger = get_logger(__name__)
 
@@ -85,11 +85,13 @@ class AnalyzerStats:
 
 class Analyzer(EventBasedProcessor):
     """
-    LLM-based transcription processor that monitors transcription activity
-    and generates inference after periods of inactivity or after a certain number of conversations.
-    Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
+    LLM-powered analysis processor for generating insights from transcription data.
 
-    This processor is mostly stateless but uses coordination to prevent duplicate analyses.
+    Features:
+    - Event-based triggering (no polling)
+    - Adaptive frequency matching LLM processing times
+    - Non-blocking queue-based processing
+    - Work coordination to prevent duplicate analyses
     """
 
     def __init__(
@@ -98,32 +100,32 @@ class Analyzer(EventBasedProcessor):
         api_key: Optional[str] = None,
         trigger_config: Optional[LLMTrigger] = None,
     ):
-        """Initialize the LLM inference processor.
-
-        Args:
-            model_id: The model ID to use (defaults to openai/gpt-4.1-mini)
-            api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
-            trigger_config: Configuration for when to trigger LLM inference
-        """
-        # Initialize base class with coordination enabled for deduplication
-        # Use fewer workers to reduce duplicate processing while maintaining performance
-        super().__init__(queue_maxsize=100, cooldown_seconds=1.0, max_concurrent_workers=2, enable_work_coordination=True)  # Moderate queue to handle conversation bursts  # Conservative start, will adapt to actual processing times (typically 2-5s)  # Reduced from 3 to 2 workers to minimize duplicates  # Enable coordination for deduplication
-
         self.model_id = model_id
-        self.api_key = api_key  # Store for lazy initialization
+        self.api_key = api_key
         self.trigger_config = trigger_config or LLMTrigger()
 
-        # Lazy initialization - only create when first needed
-        self._llm_client = None
+        # Initialize LLM client
+        llm_config = LLMConfig(model_id=model_id, api_key=api_key)
+        self._llm_client = UniversalLLM(llm_config)
+
+        # Initialize prompt template for lazy loading
         self._prompt = None
 
-        # State tracking (use inherited accumulated_data from base class)
-        self.text_length_at_last_analysis = 0  # Track text length at last analysis for new text trigger
+        # Initialize with 2 workers for analysis (stateless processing)
+        # Increase queue size for better throughput
+        super().__init__(queue_maxsize=50, cooldown_seconds=5.0, max_concurrent_workers=2, enable_work_coordination=True)
+
+        # Analysis state
         self.last_inference = None
+        self.stats = AnalyzerStats()
         self.inference_callbacks = []
 
-        # Statistics - lightweight initialization
-        self.stats = AnalyzerStats()
+        # Tracking for trigger conditions
+        self.text_length_at_last_analysis = 0
+        self.last_processed_data = ""
+
+        # Add flag to prevent multiple simultaneous triggers
+        self._trigger_in_progress = False
 
         logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination")
 
@@ -134,10 +136,6 @@ class Analyzer(EventBasedProcessor):
     @property
     def llm_client(self) -> UniversalLLM:
         """Lazy initialization of LLM client to speed up startup."""
-        if self._llm_client is None:
-            llm_config = LLMConfig(model_id=self.model_id, api_key=self.api_key, timeout=20.0)
-            self._llm_client = UniversalLLM(llm_config)
-            logger.debug(f"Lazy-initialized LLM client for model: {self.model_id}")
         return self._llm_client
 
     @property
@@ -274,6 +272,11 @@ Remember to respond in the same language, script, and regional conventions as th
         if not self.accumulated_data.strip():
             return
 
+        # Prevent multiple simultaneous triggers
+        if self._trigger_in_progress:
+            logger.debug("Skipping trigger check - another trigger already in progress")
+            return
+
         # Check minimum text length requirement only (skip adaptive cooldown for analyzer)
         if len(self.accumulated_data) < self.trigger_config.min_text_length:
             return
@@ -298,6 +301,9 @@ Remember to respond in the same language, script, and regional conventions as th
         if has_enough_new_text or has_been_long_enough:
             trigger_reason = "new_text" if has_enough_new_text else "time_interval"
 
+            # Set flag to prevent multiple triggers
+            self._trigger_in_progress = True
+
             # Use base class method to queue for processing - NON-BLOCKING
             try:
                 # Create a task to handle the async queue operation
@@ -309,6 +315,8 @@ Remember to respond in the same language, script, and regional conventions as th
             except Exception as e:
                 # Don't let inference errors block transcription
                 logger.debug(f"Non-critical inference queue error: {e}")
+                # Reset flag on error
+                self._trigger_in_progress = False
         else:
             logger.debug(f"⏳ Not triggering analysis yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_analysis} more chars or {self.trigger_config.analysis_interval_seconds - time_since_last_analysis:.1f}s")
 
@@ -322,6 +330,10 @@ Remember to respond in the same language, script, and regional conventions as th
                 logger.debug(f"Inference queue full for: {trigger_reason}")
         except Exception as e:
             logger.debug(f"Error queuing inference: {e}")
+        finally:
+            # Always reset trigger flag when queue operation completes
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
 
     async def start_monitoring(self):
         """Start monitoring for inference triggers."""
@@ -340,6 +352,9 @@ Remember to respond in the same language, script, and regional conventions as th
             trigger_reason: Reason for triggering the inference ('new_text', 'text_length', 'forced', or 'manual')
         """
         if not self.accumulated_data.strip():
+            # Reset trigger flag even if no data
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
             return
 
         try:
@@ -362,11 +377,6 @@ Remember to respond in the same language, script, and regional conventions as th
                 logger.info(f"Generating comprehensive final inference for {len(text_to_process)} chars...")
             else:
                 logger.info(f"Generating comprehensive inference for {len(text_to_process)} chars of entire transcript...")
-
-            # # Prepare context information
-            # lines = text_to_process.split("\n")
-            # has_speakers = "[Speaker" in text_to_process
-            # duration_estimate = len(text_to_process) / 10  # Rough estimate: 10 chars per second
 
             # Generate structured response using universal LLM client
             variables = {"transcription": text_to_process}
@@ -394,13 +404,12 @@ Remember to respond in the same language, script, and regional conventions as th
                 except Exception as e:
                     logger.error(f"Error in inference callback: {e}")
 
-                    # Reset text length tracking for new text trigger after processing
+            # Reset text length tracking for new text trigger after processing
             if trigger_reason != "forced":
                 self.text_length_at_last_analysis = len(self.accumulated_data)
                 logger.debug(f"Reset text length tracking to {self.text_length_at_last_analysis} chars")
 
-            # Update last_processed_data to the current accumulated text
-            if trigger_reason != "forced":
+                # Update last_processed_data to the current accumulated text
                 self.last_processed_data = self.accumulated_data
 
                 # Keep the most recent text in buffer (last 5000 chars) to maintain context
@@ -412,6 +421,10 @@ Remember to respond in the same language, script, and regional conventions as th
 
         except Exception as e:
             logger.error(f"Failed to generate inference: {e}")
+        finally:
+            # Always reset trigger flag when processing completes
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
 
     def get_last_inference(self) -> Optional[AnalyzerResponse]:
         """Get the most recent inference."""
