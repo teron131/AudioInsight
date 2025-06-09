@@ -10,7 +10,7 @@ AudioInsight implements a sophisticated real-time streaming speech recognition s
 
 AudioInsight's LLM processing layer implements an advanced non-blocking event-based architecture that eliminates traditional polling bottlenecks and ensures zero transcription lag while enabling high-throughput concurrent analysis:
 
-#### **`audioinsight/llm/base.py`** - Non-Blocking Event Foundation
+#### **`audioinsight/llm/llm_base.py`** - Non-Blocking Event Foundation
 - `EventBasedProcessor`: Abstract base class implementing non-blocking concurrent worker management
 - `UniversalLLM`: Shared thread pool executor system eliminating per-call overhead
 - `get_shared_executor()`: Singleton pattern for 8-worker thread pool reuse across all LLM operations
@@ -37,7 +37,7 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - **Continuous analysis generation** with no artificial limits until processing ends
 - Conversation state management and context preservation
 
-#### **`audioinsight/llm/config.py`** - LLM Configuration Management
+#### **`audioinsight/llm/llm_config.py`** - LLM Configuration Management
 - `LLMConfig`: Base configuration for LLM models with environment variable support
 - `ParserConfig`: Specialized configuration for text parsing operations
 - `AnalyzerConfig`: Specialized configuration for conversation analysis
@@ -51,7 +51,7 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Performance statistics for optimization and debugging
 - Resource utilization monitoring for efficient processing
 
-#### **`audioinsight/llm/utils.py`** - LLM Utilities and Helpers
+#### **`audioinsight/llm/llm_utils.py`** - LLM Utilities and Helpers
 - Shared utility functions for LLM operations
 - Text processing and formatting helpers
 - Configuration validation and setup utilities
@@ -66,12 +66,13 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Configuration propagation across streaming components
 - System initialization and startup coordination
 
-#### **`audioinsight/processors.py`** - Real-Time Processing Pipeline
+#### **`audioinsight/processors/`** - Real-Time Processing Pipeline
 - `AudioProcessor`: Central coordinator managing shared state and inter-processor communication
 - `FFmpegProcessor`: Audio format conversion and PCM data processing  
 - `TranscriptionProcessor`: Whisper inference cycles and hypothesis buffer coordination
 - `DiarizationProcessor`: Independent speaker identification processing
-- `Formatter`: Result aggregation and output generation with 0.05s update intervals (20 FPS)
+- `FormatProcessor`: Result aggregation and output generation with 0.05s update intervals (20 FPS)
+- `BaseProcessor`: Abstract base class for all processor implementations
 - **Non-blocking integration**: Coordinates LLM workers through fire-and-forget event queuing system
 
 #### **`audioinsight/whisper_streaming/online_asr.py`** - Core Streaming Algorithms

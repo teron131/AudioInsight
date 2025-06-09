@@ -16,13 +16,12 @@ The core backend is located in the `audioinsight/` package:
 - **Main Application**: [audioinsight/app.py](mdc:audioinsight/app.py) - FastAPI server with REST and WebSocket endpoints
 - **CLI Interface**: [audioinsight/main.py](mdc:audioinsight/main.py) - AudioInsight class and command-line interface
 - **Configuration**: [audioinsight/config.py](mdc:audioinsight/config.py) - Centralized configuration management with Pydantic validation
-- **Audio Processing**: [audioinsight/processors.py](mdc:audioinsight/processors.py) - Core audio processing logic and Whisper integration
+- **Audio Processing**: [audioinsight/processors/](mdc:audioinsight/processors) - Core audio processing logic and Whisper integration
 - **Temporal Objects**: [audioinsight/timed_objects.py](mdc:audioinsight/timed_objects.py) - Time-aware data structures (ASRToken, SpeakerSegment)
 - **Logging System**: [audioinsight/logging_config.py](mdc:audioinsight/logging_config.py) - Application-wide logging configuration
 - **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation
 - **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing with LocalAgreement-2
 - **Server Components**: [audioinsight/server/](mdc:audioinsight/server) - Server utilities and helpers
-- **Frontend Utilities**: [audioinsight/frontend/](mdc:audioinsight/frontend) - Frontend integration helpers
 - **Non-Blocking LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Fire-and-forget language model features
 
 ### Frontend (Next.js/React)
@@ -38,7 +37,7 @@ The web interface is located in `audioinsight-ui/`:
 - **Integration with backend via REST APIs and WebSockets**
 
 ### Infrastructure
-- **Package Setup**: [setup.py](mdc:setup.py) - Python package configuration
+- **Package Setup**: [pyproject.toml](mdc:pyproject.toml) - Modern Python package configuration
 - **Startup Script**: [start.sh](mdc:start.sh) - Backend server startup
 - **Environment**: [.env](mdc:.env) - Environment configuration
 - **Dependencies**: [package.json](mdc:package.json) - Node.js dependencies and workspace coordination

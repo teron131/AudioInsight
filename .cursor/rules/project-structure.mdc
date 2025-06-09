@@ -15,21 +15,28 @@ AudioInsight/
 │   ├── app.py                 # FastAPI server & main entry point
 │   ├── config.py              # Centralized configuration management
 │   ├── main.py                # AudioInsight class & CLI entry point
-│   ├── processors.py          # Core audio processing logic with non-blocking LLM integration
+│   ├── processors/            # Core audio processing logic with non-blocking LLM integration
+│   │   ├── __init__.py
+│   │   ├── audio_processor.py    # Central coordinator and main processor
+│   │   ├── base_processor.py     # Abstract base class for processors
+│   │   ├── ffmpeg_processor.py   # Audio format conversion
+│   │   ├── format_processor.py   # Result formatting and output
+│   │   ├── transcription_processor.py  # Whisper inference coordination
+│   │   └── diarization_processor.py    # Speaker identification
 │   ├── logging_config.py      # Application-wide logging configuration
 │   ├── timed_objects.py       # Temporal data structures (ASRToken, SpeakerSegment)
 │   ├── diarization/           # Speaker identification modules
 │   ├── server/                # Server components and utilities
-│   ├── frontend/              # Frontend utilities and helpers
 │   ├── whisper_streaming/     # Real-time audio processing & LocalAgreement-2
 │   └── llm/                   # Non-blocking event-based LLM processing system
 │       ├── __init__.py
-│       ├── base.py            # EventBasedProcessor & shared executor foundation
+│       ├── llm_base.py        # EventBasedProcessor & shared executor foundation
 │       ├── parser.py          # Non-blocking text parsing (1 stateful worker)
-│       ├── analyzer.py      # Non-blocking conversation analysis (2 workers)
-│       ├── config.py          # LLM configuration & environment management
+│       ├── analyzer.py        # Non-blocking conversation analysis (2 workers)
+│       ├── llm_config.py      # LLM configuration & environment management
 │       ├── performance_monitor.py  # Performance tracking & metrics
-│       └── utils.py           # LLM utilities & helper functions
+│       ├── llm_utils.py       # LLM utilities & helper functions
+│       └── retriever.py       # Document retrieval and processing
 ├── audioinsight-ui/           # Frontend (Next.js/React)
 │   ├── app/                   # Next.js App Router implementation
 │   ├── components/            # Reusable React components
@@ -46,7 +53,7 @@ AudioInsight/
 ├── audio/                     # Audio input directory
 ├── logs/                      # Application logs
 ├── backups/                   # Backup files and archives
-├── setup.py                   # Python package configuration
+├── pyproject.toml             # Modern Python package configuration
 ├── start.sh                   # Backend startup script
 ├── package.json               # Root coordination & workspace management
 ├── Dockerfile                 # Container configuration
@@ -60,10 +67,10 @@ Reference key files:
 - Main entry point: [audioinsight/app.py](mdc:audioinsight/app.py)
 - CLI coordinator: [audioinsight/main.py](mdc:audioinsight/main.py)
 - Configuration: [audioinsight/config.py](mdc:audioinsight/config.py)
-- Core processing: [audioinsight/processors.py](mdc:audioinsight/processors.py)
+- Core processing: [audioinsight/processors/](mdc:audioinsight/processors)
 - Backend startup: [start.sh](mdc:start.sh)
-- Package setup: [setup.py](mdc:setup.py)
-- Non-blocking LLM foundation: [audioinsight/llm/base.py](mdc:audioinsight/llm/base.py)
+- Package setup: [pyproject.toml](mdc:pyproject.toml)
+- Non-blocking LLM foundation: [audioinsight/llm/llm_base.py](mdc:audioinsight/llm/llm_base.py)
 
 ## Development Setup
 Install the package in development mode:
@@ -111,14 +118,13 @@ Place in dedicated directories under `audioinsight/`:
 - `diarization/` - Speaker diarization functionality
 - `whisper_streaming/` - Real-time audio processing with LocalAgreement-2 algorithms
 - `server/` - Server-specific components and utilities
-- `frontend/` - Frontend utilities and helper functions
 - `llm/` - **Non-blocking event-based LLM processing system** with fire-and-forget workers
 
 ### Core Files
 - `app.py` - FastAPI application and main server entry point
 - `main.py` - AudioInsight class and CLI interface
 - `config.py` - Centralized configuration management with Pydantic validation
-- `processors.py` - Core audio processing logic with non-blocking LLM coordination
+- `processors/` - Core audio processing logic with non-blocking LLM coordination
 - `logging_config.py` - Application-wide logging setup and configuration
 - `timed_objects.py` - Temporal data structures for time-aware processing
 
@@ -126,12 +132,13 @@ Place in dedicated directories under `audioinsight/`:
 The `llm/` module implements high-performance non-blocking concurrent processing:
 
 #### **Core Components**
-- **`base.py`**: EventBasedProcessor abstract class with shared thread pool and fire-and-forget queuing
+- **`llm_base.py`**: EventBasedProcessor abstract class with shared thread pool and fire-and-forget queuing
 - **`parser.py`**: Real-time text correction with **1 stateful worker** for atomic state management
 - **`analyzer.py`**: Conversation analysis with **2 concurrent workers** for high-throughput processing  
-- **`config.py`**: LLM configuration classes with environment variable support
+- **`llm_config.py`**: LLM configuration classes with environment variable support
 - **`performance_monitor.py`**: Real-time performance tracking and adaptive optimization
-- **`utils.py`**: Shared utilities and helper functions for LLM operations
+- **`llm_utils.py`**: Shared utilities and helper functions for LLM operations
+- **`retriever.py`**: Document retrieval and processing capabilities
 
 #### **Performance Features**
 - **Shared Thread Pool**: Single 8-worker executor reused across all LLM operations (90% overhead reduction)
@@ -151,10 +158,10 @@ from .main import AudioInsight
 from .diarization.speaker_diarization import DiarizationProcessor
 
 # Non-blocking LLM imports
-from .llm.base import EventBasedProcessor, UniversalLLM
+from .llm.llm_base import EventBasedProcessor, UniversalLLM
 from .llm.parser import Parser  
 from .llm.analyzer import Analyzer
-from .llm.config import LLMConfig, ParserConfig, AnalyzerConfig
+from .llm.llm_config import LLMConfig, ParserConfig, AnalyzerConfig
 from .llm.performance_monitor import PerformanceMonitor
 ```
 
@@ -164,7 +171,7 @@ from .llm.performance_monitor import PerformanceMonitor
 The main `AudioProcessor` coordinates all components including non-blocking LLM workers:
 
 ```python
-# From audioinsight/processors.py
+# From audioinsight/processors/audio_processor.py
 class AudioProcessor:
     def __init__(self):
         # Initialize LLM components with non-blocking processing

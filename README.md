@@ -347,7 +347,7 @@ async def websocket_endpoint(websocket: WebSocket):
 **LLM Integration Example:**
 ```python
 from audioinsight.llm import Analyzer, Parser, UniversalLLM
-from audioinsight.llm.config import LLMConfig, LLMTrigger, ParserConfig
+from audioinsight.llm.llm_config import LLMConfig, LLMTrigger, ParserConfig
 import asyncio
 
 async def llm_transcript_analysis():
