@@ -35,6 +35,12 @@ ANALYSIS_INTERVAL_SECONDS = float(os.getenv("ANALYSIS_INTERVAL_SECONDS", "5.0"))
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gemini-2.5-flash-preview-05-20")
 MIN_TRANSCRIPT_LENGTH = int(os.getenv("MIN_TRANSCRIPT_LENGTH", "50"))
 
+# Configuration for transcription buffering
+CHINESE_BUFFER_SIZE = int(os.getenv("CHINESE_BUFFER_SIZE", "120"))  # Much larger for Chinese
+ENGLISH_BUFFER_SIZE = int(os.getenv("ENGLISH_BUFFER_SIZE", "80"))  # Increased for English
+CHINESE_TIMEOUT_SECONDS = float(os.getenv("CHINESE_TIMEOUT_SECONDS", "6.0"))  # Longer timeout
+ENGLISH_TIMEOUT_SECONDS = float(os.getenv("ENGLISH_TIMEOUT_SECONDS", "4.0"))  # Increased timeout
+
 # Global session tracking
 active_sessions: Dict[int, Dict[str, Any]] = {}
 
@@ -78,13 +84,13 @@ async def get_index():
 @app.get("/api/analysis/config")
 async def get_analysis_config():
     """Get current analysis configuration."""
-    return {"analysis_interval_seconds": ANALYSIS_INTERVAL_SECONDS, "analysis_model": ANALYSIS_MODEL, "min_transcript_length": MIN_TRANSCRIPT_LENGTH}
+    return {"analysis_interval_seconds": ANALYSIS_INTERVAL_SECONDS, "analysis_model": ANALYSIS_MODEL, "min_transcript_length": MIN_TRANSCRIPT_LENGTH, "chinese_buffer_size": CHINESE_BUFFER_SIZE, "english_buffer_size": ENGLISH_BUFFER_SIZE, "chinese_timeout_seconds": CHINESE_TIMEOUT_SECONDS, "english_timeout_seconds": ENGLISH_TIMEOUT_SECONDS}
 
 
 @app.post("/api/analysis/config")
 async def update_analysis_config(config: dict):
     """Update analysis configuration at runtime."""
-    global ANALYSIS_INTERVAL_SECONDS, MIN_TRANSCRIPT_LENGTH
+    global ANALYSIS_INTERVAL_SECONDS, MIN_TRANSCRIPT_LENGTH, CHINESE_BUFFER_SIZE, ENGLISH_BUFFER_SIZE, CHINESE_TIMEOUT_SECONDS, ENGLISH_TIMEOUT_SECONDS
 
     if "analysis_interval_seconds" in config:
         ANALYSIS_INTERVAL_SECONDS = float(config["analysis_interval_seconds"])
@@ -92,7 +98,19 @@ async def update_analysis_config(config: dict):
     if "min_transcript_length" in config:
         MIN_TRANSCRIPT_LENGTH = int(config["min_transcript_length"])
 
-    return {"status": "success", "message": "Analysis configuration updated", "current_config": {"analysis_interval_seconds": ANALYSIS_INTERVAL_SECONDS, "analysis_model": ANALYSIS_MODEL, "min_transcript_length": MIN_TRANSCRIPT_LENGTH}}
+    if "chinese_buffer_size" in config:
+        CHINESE_BUFFER_SIZE = int(config["chinese_buffer_size"])
+
+    if "english_buffer_size" in config:
+        ENGLISH_BUFFER_SIZE = int(config["english_buffer_size"])
+
+    if "chinese_timeout_seconds" in config:
+        CHINESE_TIMEOUT_SECONDS = float(config["chinese_timeout_seconds"])
+
+    if "english_timeout_seconds" in config:
+        ENGLISH_TIMEOUT_SECONDS = float(config["english_timeout_seconds"])
+
+    return {"status": "success", "message": "Configuration updated", "current_config": {"analysis_interval_seconds": ANALYSIS_INTERVAL_SECONDS, "analysis_model": ANALYSIS_MODEL, "min_transcript_length": MIN_TRANSCRIPT_LENGTH, "chinese_buffer_size": CHINESE_BUFFER_SIZE, "english_buffer_size": ENGLISH_BUFFER_SIZE, "chinese_timeout_seconds": CHINESE_TIMEOUT_SECONDS, "english_timeout_seconds": ENGLISH_TIMEOUT_SECONDS}}
 
 
 @app.get("/debug/sessions")
@@ -289,8 +307,8 @@ Respond naturally when you have meaningful observations to share.""",
                 "disabled": False,
                 "start_of_speech_sensitivity": gemini_types.StartSensitivity.START_SENSITIVITY_HIGH,
                 "end_of_speech_sensitivity": gemini_types.EndSensitivity.END_SENSITIVITY_HIGH,
-                "prefix_padding_ms": 200,
-                "silence_duration_ms": 5000,  # Reasonable pause detection
+                "prefix_padding_ms": 500,  # Increased for better Chinese capture
+                "silence_duration_ms": 5000,  # Reduced for faster Chinese processing
             }
         },
     }
@@ -319,9 +337,36 @@ Respond naturally when you have meaningful observations to share.""",
             async def listen_gemini_and_send_to_client():
                 print(f"[SessID: {current_session_id}] Listener task started.")
 
-                # Simple buffering for better Chinese text grouping
+                # Enhanced buffering for better Chinese text grouping
                 transcription_buffer = ""
                 last_transcription_send = time.time()
+
+                def is_chinese_text(text: str) -> bool:
+                    """Check if text contains Chinese characters."""
+                    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+                def should_send_transcription(buffer: str, new_text: str, time_since_last: float) -> bool:
+                    """Simplified logic - accumulate more text without punctuation filtering."""
+                    if not buffer.strip():
+                        return False
+
+                    is_chinese = is_chinese_text(buffer)
+
+                    if is_chinese:
+                        # For Chinese: much larger buffers and longer timeouts
+                        # Send only when we have substantial content or significant time passed
+                        if len(buffer) >= CHINESE_BUFFER_SIZE:
+                            return True
+                        if time_since_last >= CHINESE_TIMEOUT_SECONDS:
+                            return True
+                    else:
+                        # For English: moderate buffers
+                        if len(buffer) >= ENGLISH_BUFFER_SIZE:
+                            return True
+                        if time_since_last >= ENGLISH_TIMEOUT_SECONDS:
+                            return True
+
+                    return False
 
                 try:
                     async for response_message in session.receive():
@@ -345,13 +390,14 @@ Respond naturally when you have meaningful observations to share.""",
                         elif hasattr(response_message, "server_content") and response_message.server_content:
                             server_content = response_message.server_content
 
-                            # Handle native input transcription with smart buffering
+                            # Handle native input transcription with enhanced smart buffering
                             if hasattr(server_content, "input_transcription") and server_content.input_transcription:
                                 transcription_text = server_content.input_transcription.text
                                 if transcription_text and transcription_text.strip():
                                     # Accumulate transcription for better grouping
                                     transcription_buffer += transcription_text
                                     current_time = time.time()
+                                    time_since_last = current_time - last_transcription_send
 
                                     # Update session buffer for periodic analysis
                                     if current_session_id in active_sessions:
@@ -360,22 +406,14 @@ Respond naturally when you have meaningful observations to share.""",
                                         session_data["transcription_active"] = True
                                         session_data["last_transcript_time"] = time.time()
 
-                                    # Simple smart sending logic
-                                    should_send = False
-
-                                    # Send if we hit natural break points
-                                    if any(punct in transcription_text for punct in ["。", "！", "？", ".", "!", "?"]):
-                                        should_send = True
-                                    # Send if buffer is getting long (avoid memory issues)
-                                    elif len(transcription_buffer) >= 50:
-                                        should_send = True
-                                    # Send if enough time has passed (avoid long delays)
-                                    elif current_time - last_transcription_send >= 2.0:
-                                        should_send = True
-
-                                    if should_send and transcription_buffer.strip():
+                                    # Use enhanced smart sending logic
+                                    if should_send_transcription(transcription_buffer, transcription_text, time_since_last):
                                         text_to_send = f"🎤 TRANSCRIPTION: {transcription_buffer.strip()}"
-                                        print(f"[SessID: {current_session_id}] Grouped transcription: '{transcription_buffer.strip()}'")
+
+                                        # More detailed logging for Chinese vs English
+                                        is_chinese = is_chinese_text(transcription_buffer)
+                                        lang_info = "Chinese" if is_chinese else "English"
+                                        print(f"[SessID: {current_session_id}] {lang_info} transcription ({len(transcription_buffer)} chars): '{transcription_buffer.strip()}'")
 
                                         # Reset buffer
                                         transcription_buffer = ""
@@ -559,6 +597,9 @@ if __name__ == "__main__":
         print(f"Analysis Interval: {ANALYSIS_INTERVAL_SECONDS}s")
         print(f"Min Transcript Length: {MIN_TRANSCRIPT_LENGTH} chars")
         print("==========================================================")
-        print("Using NATIVE Gemini transcription (optimized for all languages)")
+        print("SIMPLIFIED BUFFERING - Raw text accumulation without punctuation filtering")
+        print(f"Chinese Buffer: {CHINESE_BUFFER_SIZE} chars | Timeout: {CHINESE_TIMEOUT_SECONDS}s")
+        print(f"English Buffer: {ENGLISH_BUFFER_SIZE} chars | Timeout: {ENGLISH_TIMEOUT_SECONDS}s")
+        print("==========================================================")
         print("Open http://localhost:8888 in your browser to start!")
         uvicorn.run(app, host="0.0.0.0", port=8888)
