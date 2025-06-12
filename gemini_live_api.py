@@ -292,7 +292,6 @@ async def websocket_endpoint(websocket: WebSocket):
     config = {
         "response_modalities": ["TEXT"],
         "input_audio_transcription": {},  # Enable high-quality native transcription
-        "output_audio_transcription": {},  # Also transcribe any audio responses
         "system_instruction": """You are an intelligent audio analysis assistant. Provide helpful analysis and insights about the audio content you hear.
 
 Focus on:
