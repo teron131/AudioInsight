@@ -6,6 +6,8 @@
 
 Transform speech into text instantly with AudioInsight - a production-ready streaming ASR system that runs entirely on your machine. Built on OpenAI's Whisper with advanced LocalAgreement streaming algorithms for low-latency, accurate transcription, enhanced with intelligent LLM-powered conversation analysis.
 
+![AudioInsight UI](ui.png)
+
 ---
 
 ## ⚡ Quick Start
