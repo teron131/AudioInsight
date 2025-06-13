@@ -18,6 +18,7 @@ export interface WebSocketMessage {
   error?: string;
   message?: string;
   final?: boolean;
+  timestamp?: number; // For keepalive messages
   
   // Analysis data
   key_points?: string[];
@@ -112,6 +113,13 @@ export class AudioInsightWebSocket {
         this.websocket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            
+            // Handle keepalive messages silently
+            if (data.type === 'keepalive') {
+              console.debug('Received WebSocket keepalive ping');
+              return;
+            }
+            
             this.onMessage(data);
           } catch (error) {
             console.error('Error parsing WebSocket message:', error);

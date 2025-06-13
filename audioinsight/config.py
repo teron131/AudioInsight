@@ -40,9 +40,9 @@ class ModelConfig(BaseModel):
 class ProcessingConfig(BaseModel):
     """Audio processing configuration settings."""
 
-    min_chunk_size: float = Field(default=0.5, gt=0, description="Minimum audio chunk size in seconds")
+    min_chunk_size: float = Field(default=0.25, gt=0, description="Minimum audio chunk size in seconds")
     buffer_trimming: str = Field(default="segment", description="Buffer trimming strategy")
-    buffer_trimming_sec: float = Field(default=15.0, gt=0, description="Buffer trimming threshold in seconds")
+    buffer_trimming_sec: float = Field(default=8.0, gt=0, description="Buffer trimming threshold in seconds")
     vac_chunk_size: float = Field(default=0.04, gt=0, description="VAC sample size in seconds")
 
     # Derived values (computed automatically)
@@ -107,14 +107,32 @@ class AudioConfig(BaseModel):
     """Audio processing configuration."""
 
     # Supported audio types
-    allowed_types: Set[str] = Field(default={"audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/wav", "audio/flac", "audio/ogg", "audio/webm"}, description="Allowed audio MIME types")
+    allowed_types: Set[str] = Field(
+        default={
+            "audio/wav",
+            "audio/wave",
+            "audio/x-wav",
+            "audio/mpeg",
+            "audio/mp3",
+            "audio/flac",
+            "audio/x-flac",
+            "audio/mp4",
+            "audio/x-m4a",
+            "audio/ogg",
+            "audio/webm",
+        },
+        description="Allowed audio file MIME types",
+    )
 
     # Processing settings
-    chunk_size: int = Field(default=4096, description="Audio chunk size for processing")
-    progress_log_interval: float = Field(default=2.0, description="Progress logging interval")
+    chunk_size: int = Field(default=2048, description="Audio chunk size for processing")
+    progress_log_interval: float = Field(default=2.0, description="Progress logging interval in seconds")
 
     # FFmpeg settings
-    ffmpeg_params: List[str] = Field(default=["-f", "webm", "-c:a", "libopus", "-ar", "16000", "-ac", "1"], description="FFmpeg audio processing parameters")
+    ffmpeg_params: List[str] = Field(
+        default=["-f", "webm", "-c:a", "libopus", "-ar", "16000", "-ac", "1"],
+        description="FFmpeg audio conversion parameters",
+    )
 
 
 class LoggingConfig(BaseModel):

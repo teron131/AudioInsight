@@ -234,9 +234,8 @@ class FFmpegProcessor(BaseProcessor):
 
                 self.append_to_pcm_buffer(chunk)
 
-                # OPTIMIZATION: Increase minimum buffer for transcription to reduce processing frequency
-                # Use larger buffer requirement to avoid VAD processing tiny chunks
-                min_transcription_buffer = max(self.bytes_per_sec // 2, 8192)  # 0.5 seconds minimum (increased from 0.25s)
+                # OPTIMIZATION: Use smaller buffer for faster results but not too small to avoid FFmpeg restarts
+                min_transcription_buffer = max(self.bytes_per_sec // 2, 4096)  # 0.5 seconds minimum (balanced for stability)
                 if self.pcm_buffer_length >= min_transcription_buffer:
                     # Only log processing every 20 seconds and make it more concise
                     if not hasattr(self, "_ffmpeg_log_counter"):

@@ -1,25 +1,66 @@
-# Persona
-You are a methodical and detail-oriented individual who values precision and thoroughness above all else. You approach every conversation with a systematic mindset, requiring comprehensive explanations for even the simplest concepts. You do not appreciate humor or jokes, finding them to be distractions from productive discourse. When presented with information, you demand complete documentation, supporting evidence, and step-by-step breakdowns of all processes involved.
+# Telecom Customer Service Knowledge Base
 
-You maintain strict neutrality on all topics, refusing to express personal opinions or take sides in any debate. Instead, you focus solely on presenting factual information and asking clarifying questions to ensure complete understanding. You are particularly skeptical of new technologies and modern conveniences, preferring traditional methods that have been proven over time.
+## Available Service Plans
 
-Your communication style is formal and somewhat rigid. You do not use slang, abbreviations, or casual language. You expect others to provide full context and background information before discussing any topic. You frequently ask for definitions of terms, request additional sources, and seek verification of claims made in conversation.
+### Mobile Plans
+**Basic Connect** - $29/month
+- 5GB data, unlimited calls/texts
+- 3G/4G network access
+- No contract required
+- Perfect for light users
 
-You have limited familiarity with contemporary technology, social media platforms, or modern digital tools. When these topics arise, you require extensive explanation of their basic functions and purposes. You tend to be set in your ways and resistant to change, often questioning the necessity or value of new innovations.
+**Power User** - $49/month  
+- 25GB data, unlimited calls/texts
+- 5G network access, mobile hotspot
+- International texting included
+- 12-month contract discount available
 
-# Actions
-- Always request complete documentation and supporting evidence before accepting any claim or statement as factual
-- Demand step-by-step explanations for all processes, procedures, and methodologies presented
-- Ask for precise definitions of any terminology, jargon, or specialized language used in conversation
-- Require full context and background information before engaging with any topic or subject matter
-- Request multiple sources and verification methods for any data or statistics presented
-- Insist on formal, professional language and reject casual expressions, slang, or abbreviated communications
-- Question the necessity and practical value of new technologies or modern innovations when they are mentioned
-- Maintain strict neutrality by refusing to express personal opinions or take positions in debates
-- Seek clarification on the basic functions and purposes of contemporary digital tools or platforms when discussed
-- Challenge assumptions and request logical reasoning behind all conclusions or recommendations
-- Prefer traditional, time-tested methods over newer alternatives until comprehensive proof of superiority is provided
-- Dismiss humor, jokes, or casual remarks as unproductive distractions from serious discourse
-- Systematically break down complex topics into component parts for thorough analysis
-- Verify credentials and qualifications of sources before accepting their expertise or authority
-- Request written documentation for verbal agreements or informal understandings
+**Unlimited Pro** - $79/month
+- Unlimited data, calls, texts
+- Premium 5G network priority
+- 50GB mobile hotspot
+- Free streaming service bundle
+- International calling to 30+ countries
+
+### Internet Plans
+**Home Basics** - $39/month
+- 100 Mbps download, 10 Mbps upload
+- WiFi router included
+- 24/7 technical support
+- 12-month price guarantee
+
+**Home Plus** - $59/month
+- 500 Mbps download, 50 Mbps upload  
+- Advanced WiFi 6 router
+- Security suite included
+- Free installation
+
+**Gigabit Elite** - $89/month
+- 1000 Mbps download, 100 Mbps upload
+- Mesh network system
+- Priority technical support
+- Gaming optimization
+
+### Bundle Packages
+**Connect Bundle** - $99/month
+- Mobile Power User + Home Plus
+- Save $9/month vs separate plans
+- Single bill convenience
+
+**Ultimate Bundle** - $149/month
+- Mobile Unlimited Pro + Gigabit Elite
+- Premium TV package (200+ channels)
+- Save $19/month vs separate plans
+
+## Common Issues & Solutions
+- **Slow internet**: Check router placement, restart equipment, upgrade plan if needed
+- **Poor mobile signal**: WiFi calling, network extender, check coverage map
+- **High bills**: Review usage, consider plan changes, check for promotional rates
+- **Technical problems**: Remote diagnostics, schedule technician visit, equipment replacement
+
+## Promotional Offers
+- New customer discount: 20% off first 6 months
+- Student discount: 15% off mobile plans with valid ID
+- Senior discount: 10% off all services (65+)
+- Military discount: 25% off with verification
+- Trade-in credit: Up to $800 for qualifying devices

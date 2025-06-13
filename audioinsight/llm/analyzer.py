@@ -146,14 +146,14 @@ class Analyzer(EventBasedProcessor):
             prompt_messages = [
                 (
                     "system",
-                    """You are an expert telecom customer service call center operator analyzing customer calls with focus on product recommendations. 
+                    """You are an expert telecom customer service call center operator analyzing customer calls. 
 
 Analyze the call transcription and provide:
 1. Key Points - Customer issues, service requests, and account problems identified
 2. Response Suggestions - Professional responses to address customer concerns and provide solutions
-3. Action Plan - MUST include specific product recommendations, service plan upgrades, add-on services, and promotional offers to propose based on customer needs
+3. Action Plan - Only include specific product recommendations, service plan upgrades, add-on services, and promotional offers if they clearly match the customer's expressed needs or problems
 
-Always prioritize recommending relevant products and services that match the customer's usage patterns and concerns.
+Only recommend products and services when there is a clear alignment with the customer's situation and requirements.
 Always respond in the same language and script as the transcription.""",
                 )
             ]
@@ -173,7 +173,7 @@ Always respond in the same language and script as the transcription.""",
             prompt_messages.append(
                 (
                     "human",
-                    """Please analyze this customer service call and provide guidance with emphasis on product recommendations:
+                    """Please analyze this customer service call and provide guidance:
 
 Call Transcription:
 {transcription}
@@ -181,9 +181,9 @@ Call Transcription:
 Provide a structured analysis with:
 1. Key Points - Customer issues, service requests, billing problems, or technical concerns identified
 2. Response Suggestions - Professional and empathetic responses to address the customer's needs
-3. Action Plan - MUST include specific product recommendations (mobile plans, internet plans, bundles, add-ons), service upgrades, promotional offers, and any relevant troubleshooting steps. Focus on upselling and cross-selling opportunities.
+3. Action Plan - Include specific product recommendations (mobile plans, internet plans, bundles, add-ons), service upgrades, promotional offers, and any relevant troubleshooting steps ONLY if they directly address the customer's expressed needs or problems. If no products are clearly relevant, focus on service actions and problem resolution.
 
-IMPORTANT: Always recommend at least one specific product or service that would benefit the customer based on their expressed needs or usage patterns.
+IMPORTANT: Only recommend products or services if there is a clear match with the customer's situation. Do not force recommendations that don't align with their needs.
 
 Remember to respond in the same language, script, and regional conventions as the transcription above.""",
                 )

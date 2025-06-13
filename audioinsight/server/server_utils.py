@@ -147,7 +147,7 @@ async def stream_chunks_realtime(
     process_func,
     progress_callback: Optional[callable] = None,
 ) -> float:
-    """Stream audio chunks with real-time pacing.
+    """Stream audio chunks with optimized pacing for faster processing.
 
     Args:
         chunks: List of audio chunks to stream
@@ -162,12 +162,18 @@ async def stream_chunks_realtime(
     stream_start_time = time.time()
     progress_log_interval = max(1, int(2.0 / chunk_interval)) if chunk_interval > 0 else 1
 
+    # OPTIMIZATION: Process 2x faster than real-time for better user experience
+    # while maintaining FFmpeg stability (4x was too fast and caused restarts)
+    optimized_chunk_interval = chunk_interval * 0.5  # 2x speed
+
+    logger.info(f"Optimized streaming: {len(chunks)} chunks at {1/optimized_chunk_interval:.1f}x real-time speed")
+
     for i, chunk in enumerate(chunks):
-        # Calculate target time for this chunk
-        target_time = stream_start_time + (i * chunk_interval)
+        # Calculate target time for this chunk (optimized)
+        target_time = stream_start_time + (i * optimized_chunk_interval)
         current_time = time.time()
 
-        # Sleep if we're ahead of schedule
+        # Sleep if we're ahead of schedule (much shorter delays now)
         sleep_time = target_time - current_time
         if sleep_time > 0:
             await asyncio.sleep(sleep_time)
@@ -185,7 +191,7 @@ async def stream_chunks_realtime(
     await process_func(b"")
 
     total_elapsed = time.time() - stream_start_time
-    logger.info(f"Finished streaming: {total_elapsed:.2f}s (target: {duration:.2f}s)")
+    logger.info(f"Finished optimized streaming: {total_elapsed:.2f}s (target: {duration:.2f}s, speedup: {duration/total_elapsed:.1f}x)")
 
     return total_elapsed
 

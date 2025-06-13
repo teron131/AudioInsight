@@ -113,6 +113,9 @@ async def handle_websocket_connection(websocket: WebSocket) -> None:
     results_generator = await audio_processor.create_tasks()
     websocket_task = asyncio.create_task(handle_websocket_results(websocket, results_generator))
 
+    # Start keepalive task to prevent timeouts during file processing
+    keepalive_task = asyncio.create_task(_send_keepalive_pings(websocket))
+
     try:
         while True:
             message = await websocket.receive()
@@ -154,7 +157,7 @@ async def handle_websocket_connection(websocket: WebSocket) -> None:
         logger.error(f"Unexpected error in websocket_endpoint main loop: {e}", exc_info=True)
 
     finally:
-        await _cleanup_websocket_connection(websocket_task, audio_processor)
+        await _cleanup_websocket_connection(websocket_task, audio_processor, keepalive_task)
 
 
 async def _handle_file_upload_message(
@@ -180,17 +183,50 @@ async def _handle_file_upload_message(
         await websocket.send_json({"type": "error", "error": "File not found or invalid file path"})
 
 
+async def _send_keepalive_pings(websocket: WebSocket) -> None:
+    """Send periodic keepalive pings to prevent WebSocket timeouts.
+
+    Args:
+        websocket: WebSocket connection
+    """
+    try:
+        while True:
+            await asyncio.sleep(15)  # Send ping every 15 seconds
+            try:
+                await websocket.send_json({"type": "keepalive", "timestamp": asyncio.get_event_loop().time()})
+                logger.debug("Sent WebSocket keepalive ping")
+            except Exception as e:
+                logger.debug(f"Failed to send keepalive ping: {e}")
+                break
+    except asyncio.CancelledError:
+        logger.debug("Keepalive task cancelled")
+    except Exception as e:
+        logger.debug(f"Keepalive task error: {e}")
+
+
 async def _cleanup_websocket_connection(
     websocket_task: asyncio.Task,
     audio_processor: AudioProcessor,
+    keepalive_task: asyncio.Task = None,
 ) -> None:
     """Clean up WebSocket connection resources.
 
     Args:
         websocket_task: WebSocket results handling task
         audio_processor: AudioProcessor instance
+        keepalive_task: Optional keepalive task
     """
     logger.info("Cleaning up WebSocket endpoint...")
+
+    # Cancel keepalive task
+    if keepalive_task and not keepalive_task.done():
+        keepalive_task.cancel()
+        try:
+            await keepalive_task
+        except asyncio.CancelledError:
+            logger.debug("Keepalive task cancelled successfully")
+        except Exception as e:
+            logger.warning(f"Exception while cancelling keepalive task: {e}")
 
     if not websocket_task.done():
         websocket_task.cancel()
