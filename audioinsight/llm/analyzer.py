@@ -22,9 +22,9 @@ logger = get_logger(__name__)
 class AnalyzerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
-    key_points: List[str] = Field(default_factory=list, description="Main points discussed")
-    response_suggestions: List[str] = Field(default_factory=list, description="Suggested responses to the speaker")
-    action_plan: List[str] = Field(default_factory=list, description="Recommended actions or next steps")
+    key_points: List[str] = Field(default_factory=list, description="Customer issues and service requests identified")
+    response_suggestions: List[str] = Field(default_factory=list, description="Suggested responses to address customer concerns")
+    action_plan: List[str] = Field(default_factory=list, description="Specific product recommendations, service plan upgrades, and account actions to propose")
 
 
 class AnalyzerStats:
@@ -111,9 +111,9 @@ class Analyzer(EventBasedProcessor):
         # Initialize prompt template for lazy loading
         self._prompt = None
 
-        # Initialize with 2 workers for analysis (stateless processing)
-        # Increase queue size for better throughput
-        super().__init__(queue_maxsize=50, cooldown_seconds=5.0, max_concurrent_workers=2, enable_work_coordination=True)
+        # FIXED: Disable work coordination for analyzer to prevent over-aggressive deduplication
+        # The analyzer needs to process growing accumulated text each time, not skip based on content overlap
+        super().__init__(queue_maxsize=50, cooldown_seconds=5.0, max_concurrent_workers=2, enable_work_coordination=False)
 
         # Analysis state
         self.last_inference = None
@@ -127,7 +127,7 @@ class Analyzer(EventBasedProcessor):
         # Add flag to prevent multiple simultaneous triggers
         self._trigger_in_progress = False
 
-        logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination")
+        logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination DISABLED to prevent over-deduplication")
 
     def _is_stateful_processor(self) -> bool:
         """Mark this processor as stateless to allow multiple workers with coordination."""
@@ -146,13 +146,14 @@ class Analyzer(EventBasedProcessor):
             prompt_messages = [
                 (
                     "system",
-                    """You are an expert at analyzing speech transcriptions. 
+                    """You are an expert telecom customer service call center operator analyzing customer calls with focus on product recommendations. 
 
-Analyze the transcription and provide:
-1. Key Points - Main topics and important information mentioned  
-2. Response Suggestions - How to engage with the speaker
-3. Action Plan - Recommended next steps
+Analyze the call transcription and provide:
+1. Key Points - Customer issues, service requests, and account problems identified
+2. Response Suggestions - Professional responses to address customer concerns and provide solutions
+3. Action Plan - MUST include specific product recommendations, service plan upgrades, add-on services, and promotional offers to propose based on customer needs
 
+Always prioritize recommending relevant products and services that match the customer's usage patterns and concerns.
 Always respond in the same language and script as the transcription.""",
                 )
             ]
@@ -172,15 +173,17 @@ Always respond in the same language and script as the transcription.""",
             prompt_messages.append(
                 (
                     "human",
-                    """Please analyze this transcription and provide response guidance:
+                    """Please analyze this customer service call and provide guidance with emphasis on product recommendations:
 
-Transcription:
+Call Transcription:
 {transcription}
 
 Provide a structured analysis with:
-1. Key Points - Main topics and important information mentioned
-2. Response Suggestions - How to appropriately respond to the speaker(s)
-3. Action Plan - Recommended next steps or actions to take
+1. Key Points - Customer issues, service requests, billing problems, or technical concerns identified
+2. Response Suggestions - Professional and empathetic responses to address the customer's needs
+3. Action Plan - MUST include specific product recommendations (mobile plans, internet plans, bundles, add-ons), service upgrades, promotional offers, and any relevant troubleshooting steps. Focus on upselling and cross-selling opportunities.
+
+IMPORTANT: Always recommend at least one specific product or service that would benefit the customer based on their expressed needs or usage patterns.
 
 Remember to respond in the same language, script, and regional conventions as the transcription above.""",
                 )
