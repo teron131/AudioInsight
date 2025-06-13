@@ -1,66 +1,194 @@
-# Telecom Customer Service Knowledge Base
+# Single Step Mobile Customer Service Knowledge Base
 
-## Available Service Plans
+## Company Overview
+**Single Step Mobile** - Premium wireless and telecommunications provider
+- Established leader in international calling and roaming services
+- Specialized in business and frequent traveler solutions
+- 24/7 customer support with dedicated account management
+- Network coverage across 200+ countries worldwide
 
-### Mobile Plans
-**Basic Connect** - $29/month
-- 5GB data, unlimited calls/texts
-- 3G/4G network access
-- No contract required
-- Perfect for light users
+## Mobile Service Plans
 
-**Power User** - $49/month  
-- 25GB data, unlimited calls/texts
-- 5G network access, mobile hotspot
-- International texting included
-- 12-month contract discount available
+### Basic Plans
+**Essential Connect** - $25/month
+- 2GB high-speed data, unlimited domestic calls/texts
+- 4G LTE network access nationwide
+- No contract required, cancel anytime
+- Perfect for light users and basic needs
+- Voicemail and call waiting included
 
-**Unlimited Pro** - $79/month
-- Unlimited data, calls, texts
-- Premium 5G network priority
-- 50GB mobile hotspot
-- Free streaming service bundle
-- International calling to 30+ countries
+**Standard Plus** - $35/month  
+- 8GB high-speed data, unlimited domestic calls/texts
+- 5G network access where available
+- Mobile hotspot (5GB included)
+- International texting to 50+ countries
+- Upgrade available from Basic plans
 
-### Internet Plans
-**Home Basics** - $39/month
-- 100 Mbps download, 10 Mbps upload
-- WiFi router included
-- 24/7 technical support
-- 12-month price guarantee
+### Premium International Plans
+**Globetrotter Plan** - $47.95/month (Currently $12.95 upgrade from Basic)
+- 20GB high-speed data, unlimited domestic calls/texts
+- **FREE international calling to 35+ European countries** (300 minutes/month)
+- **FREE roaming in Europe** - use data and make calls without extra charges
+- Includes: UK, France, Germany, Italy, Spain, Netherlands, Belgium, Switzerland, Austria, Sweden, Norway, Denmark
+- 15GB mobile hotspot included
+- Priority 5G network access
+- Business traveler optimized features
+- **PRICE INCREASE NOTICE: Will increase to $15.95 upgrade cost starting next month**
+- **Lock in current pricing with 12-month commitment before month-end**
 
-**Home Plus** - $59/month
-- 500 Mbps download, 50 Mbps upload  
-- Advanced WiFi 6 router
-- Security suite included
-- Free installation
+**World Business Elite** - $89/month
+- Unlimited high-speed data in US and Europe
+- Unlimited international calling to 60+ countries
+- Free roaming in 25+ countries (Europe, Canada, Mexico, Japan, Australia)
+- 50GB premium mobile hotspot
+- Dedicated business support line
+- Multi-device management tools
+- Expense reporting integration
 
-**Gigabit Elite** - $89/month
-- 1000 Mbps download, 100 Mbps upload
-- Mesh network system
-- Priority technical support
-- Gaming optimization
+### Family and Bundle Options
+**Family Globetrotter** - $39.95/line (4+ lines)
+- All Globetrotter features for each line
+- Shared 80GB high-speed data pool
+- Individual international calling allowances
+- Family locator and parental controls
+- Save up to $32/month vs individual plans
 
-### Bundle Packages
-**Connect Bundle** - $99/month
-- Mobile Power User + Home Plus
-- Save $9/month vs separate plans
-- Single bill convenience
+## International Calling Coverage
 
-**Ultimate Bundle** - $149/month
-- Mobile Unlimited Pro + Gigabit Elite
-- Premium TV package (200+ channels)
-- Save $19/month vs separate plans
+### Europe Package (Included in Globetrotter+)
+**Covered Countries:** United Kingdom, Ireland, France, Germany, Italy, Spain, Portugal, Netherlands, Belgium, Luxembourg, Switzerland, Austria, Czech Republic, Poland, Hungary, Sweden, Norway, Denmark, Finland
 
-## Common Issues & Solutions
-- **Slow internet**: Check router placement, restart equipment, upgrade plan if needed
-- **Poor mobile signal**: WiFi calling, network extender, check coverage map
-- **High bills**: Review usage, consider plan changes, check for promotional rates
-- **Technical problems**: Remote diagnostics, schedule technician visit, equipment replacement
+**Business Rates (Per Minute):**
+- Western Europe: $0.05/min
+- Eastern Europe: $0.12/min
+- Mobile rates: +$0.03/min
 
-## Promotional Offers
-- New customer discount: 20% off first 6 months
-- Student discount: 15% off mobile plans with valid ID
-- Senior discount: 10% off all services (65+)
-- Military discount: 25% off with verification
-- Trade-in credit: Up to $800 for qualifying devices
+### Asia-Pacific Add-On - $15/month
+- Japan, South Korea, Singapore, Hong Kong, Australia, New Zealand
+- 200 minutes included, $0.08/min overage
+
+### Americas Add-On - $10/month
+- Canada, Mexico unlimited; South America 150 minutes
+- $0.06/min overage rates
+
+## Roaming Services
+
+### European Roaming (FREE with Globetrotter+)
+- **27 EU countries plus UK, Switzerland, Norway**
+- Use your domestic data allowance at no extra cost
+- Domestic call rates apply for outgoing calls
+- Incoming calls FREE in all covered countries
+- Text messaging at domestic rates
+
+### Worldwide Roaming Options
+**Travel Pass Daily** - $12/day
+- Use domestic plan abroad in 100+ countries
+- 24-hour periods, only charged on days of use
+- Automatic activation when you arrive
+
+**International Data Plans**
+- 1GB/30 days: $25 (100+ countries)
+- 3GB/30 days: $60 (100+ countries)
+- 6GB/30 days: $100 (100+ countries)
+
+## Current Promotions & Pricing
+
+### Limited Time Offers (Expire End of Month)
+**Globetrotter Upgrade Special**
+- Current customers: Only $12.95/month upgrade cost
+- **PRICE INCREASE WARNING:** Will increase to $15.95/month starting next month
+- **Lock-in Guarantee:** Commit to 12 months and maintain current pricing
+- Free activation (normally $35) when upgrading this month
+
+**New Customer Incentives**
+- First 3 months: 50% off all plans
+- Free premium device with 24-month commitment
+- Waived activation fees for online enrollment
+
+**Business Customer Benefits**
+- Corporate discount: 15-25% off monthly charges
+- Expense management tools and detailed billing
+- Priority customer support with dedicated representatives
+- Volume discounts for 10+ lines
+
+### Loyalty Programs
+**Long-term Customer Rewards** (3+ years)
+- 10% permanent discount on plan upgrades
+- Priority customer service queue
+- Exclusive access to new features and devices
+- Annual loyalty credits ($50-$200 based on tenure)
+
+## Technical Support & Services
+
+### Network Coverage
+- 5G Ultra-Fast: Available in 200+ cities
+- 5G Nationwide: Covers 80% of US population  
+- 4G LTE: 99.9% nationwide coverage
+- International partners: 300+ networks in 200+ countries
+
+### Customer Support Tiers
+**Standard Support:** Available 24/7
+- General account questions and basic troubleshooting
+- Online chat, phone support, mobile app
+
+**Premium Support** (Globetrotter+ customers)
+- Dedicated support line with shorter wait times
+- Advanced technical support for business features
+- Account management assistance
+
+**Business Elite Support** (Business plans)
+- Dedicated account representative
+- Priority technical support with SLA guarantees
+- Custom billing and reporting solutions
+
+## Account Management Features
+
+### Online Account Tools
+- Real-time usage monitoring and alerts
+- International usage tracking and controls
+- Plan change options with immediate activation
+- Payment history and automated billing
+- Travel notifications and roaming controls
+
+### Mobile App Features
+- Usage monitoring with country-specific breakdowns
+- International rate calculator for travel planning
+- Roaming settings and country-specific plan activation
+- Customer support chat integration
+- Bill payment and plan management
+
+## Frequently Asked Questions
+
+### Plan Changes and Upgrades
+**Q: Can I change my plan anytime?**
+A: Yes, plan changes take effect within 24 hours. Upgrades are immediate; downgrades apply at next billing cycle.
+
+**Q: What happens if I exceed my international calling minutes?**
+A: Overage rates apply (listed above). We'll send notifications at 75% and 100% usage.
+
+**Q: How do I activate roaming when traveling?**
+A: Roaming is automatic for Globetrotter+ plans in covered countries. For other plans, activate Travel Pass through the app or by calling customer service.
+
+### Billing and Pricing
+**Q: Are there any hidden fees?**
+A: No hidden fees. All taxes and surcharges are clearly itemized. International usage beyond included allowances billed at published rates.
+
+**Q: Can I lock in current pricing?**
+A: Yes, 12-month commitments available to lock current pricing and protect against future increases.
+
+### International Services
+**Q: Does "free roaming" include data usage?**
+A: Yes, in covered European countries, you can use your domestic data allowance at no extra charge.
+
+**Q: What if I need calling to countries not in my plan?**
+A: Pay-per-use rates apply, or add specific regional packages. We'll notify you of rates when making international calls.
+
+## Emergency and Support Contacts
+- **Customer Service:** 1-800-SINGLE-STEP (1-800-746-4537)
+- **International Support:** +1-555-GLOBAL-1 (when abroad)
+- **Business Support:** 1-800-BIZ-STEP (1-800-249-7837)
+- **Technical Support:** 1-800-TECH-HELP (24/7)
+- **Emergency Account Suspension:** *611 from your device
+
+---
+*Knowledge base updated: Current promotions expire end of month. Pricing subject to change. International rates and coverage may vary by destination.*
