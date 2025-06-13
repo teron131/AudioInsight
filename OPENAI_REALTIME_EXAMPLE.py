@@ -60,7 +60,7 @@ class SessionConfig(BaseModel):
 # Serve index.html from the root path
 @app.get("/")
 async def get_index():
-    return FileResponse("index_openai.html")
+    return FileResponse("OPENAI_REALTIME_EXAMPLE_UI.html")
 
 
 @app.get("/api/transcription/config")

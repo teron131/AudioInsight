@@ -78,7 +78,7 @@ class TranscriptAnalyzer:
 # Serve index.html from the root path
 @app.get("/")
 async def get_index():
-    return FileResponse("index.html")
+    return FileResponse("GEMINI_LIVE_API_EXAMPLE_UI.html")
 
 
 @app.get("/api/analysis/config")
