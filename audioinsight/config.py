@@ -62,6 +62,13 @@ class FeatureConfig(BaseModel):
     llm_inference: bool = Field(default=True, description="Enable LLM-based inference")
 
 
+class UIConfig(BaseModel):
+    """User interface configuration settings."""
+
+    show_lag_info: bool = Field(default=False, description="Show lag information in UI")
+    show_speakers: bool = Field(default=False, description="Show speaker labels in transcript")
+
+
 class LLMConfig(BaseSettings):
     """Language model configuration with environment variable support."""
 
@@ -134,6 +141,7 @@ class UnifiedConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    ui: UIConfig = Field(default_factory=UIConfig)
 
     class Config:
         env_file = ".env"
@@ -282,6 +290,9 @@ def get_processing_parameters() -> Dict[str, Any]:
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
+        # UI Configuration
+        "show_lag_info": config.ui.show_lag_info,
+        "show_speakers": config.ui.show_speakers,
     }
 
 
@@ -310,6 +321,9 @@ def apply_parameter_updates(parameters: Dict[str, Any]) -> List[str]:
             updated_fields.append(frontend_field)
         elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens"]:
             setattr(config.llm, backend_field, value)
+            updated_fields.append(frontend_field)
+        elif backend_field in ["show_lag_info", "show_speakers"]:
+            setattr(config.ui, backend_field, value)
             updated_fields.append(frontend_field)
 
     # Recompute derived values
@@ -395,6 +409,9 @@ def get_runtime_configurable_fields() -> dict:
         # Optional paths (can be changed at runtime)
         "model_cache_dir": config.model.model_cache_dir,
         "model_dir": config.model.model_dir,
+        # UI Configuration
+        "show_lag_info": config.ui.show_lag_info,
+        "show_speakers": config.ui.show_speakers,
     }
 
     return {

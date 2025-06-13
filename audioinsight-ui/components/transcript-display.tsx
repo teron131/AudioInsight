@@ -10,6 +10,7 @@ interface TranscriptDisplayProps {
   className?: string;
   onContentUpdate?: () => void; // Callback to trigger parent scroll
   showLagInfo?: boolean; // Whether to show lag information
+  showSpeakers?: boolean; // Whether to show speaker labels
 }
 
 const speakerColors = {
@@ -35,7 +36,7 @@ const getSpeakerLabel = (speaker: number): string => {
   return "Speaker 1";
 };
 
-export function TranscriptDisplay({ transcriptData, className, onContentUpdate, showLagInfo = true }: TranscriptDisplayProps) {
+export function TranscriptDisplay({ transcriptData, className, onContentUpdate, showLagInfo = true, showSpeakers = true }: TranscriptDisplayProps) {
   const lastContentRef = useRef<string>('');
 
   // Notify parent when content changes so it can handle scrolling
@@ -115,14 +116,16 @@ export function TranscriptDisplay({ transcriptData, className, onContentUpdate, 
               )}>
                 {/* Speaker info and time */}
                 <div className="flex items-center flex-wrap gap-2 mb-2">
-                  <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl text-xs font-semibold tracking-wide">
-                    {getSpeakerLabel(line.speaker)}
-                    {line.beg && line.end && (
-                      <span className="text-xs opacity-90">
-                        {line.beg} - {line.end}
-                      </span>
-                    )}
-                  </span>
+                  {showSpeakers && (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl text-xs font-semibold tracking-wide">
+                      {getSpeakerLabel(line.speaker)}
+                      {line.beg && line.end && (
+                        <span className="text-xs opacity-90">
+                          {line.beg} - {line.end}
+                        </span>
+                      )}
+                    </span>
+                  )}
                   
                   {/* Processing indicators for last line */}
                   {isLastLine && !isFinalizing && showLagInfo && (

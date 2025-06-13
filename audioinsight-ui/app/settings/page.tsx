@@ -269,6 +269,14 @@ export default function SettingsPage() {
                   />
                   <Label htmlFor="show_lag_info">Show Lag Information</Label>
                 </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="show_speakers"
+                    checked={processingParams.show_speakers ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('show_speakers', checked)}
+                  />
+                  <Label htmlFor="show_speakers">Show Speaker Labels</Label>
+                </div>
               </div>
             </CardContent>
           </Card>

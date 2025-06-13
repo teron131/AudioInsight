@@ -30,6 +30,7 @@ export default function AudioInsightPage() {
     systemHealth,
     diarizationEnabled,
     showLagInfo,
+    showSpeakers,
     settingsLoading,
   } = useAudioInsight();
 
@@ -147,8 +148,6 @@ export default function AudioInsightPage() {
                 isIconOnly={true}
               />
             </div>
-
-
           </div>
           
           <div>
@@ -198,6 +197,7 @@ export default function AudioInsightPage() {
                 transcriptData={transcriptData} 
                 onContentUpdate={handleTranscriptContentUpdate}
                 showLagInfo={showLagInfo}
+                showSpeakers={showSpeakers}
               />
             </CardContent>
           </Card>

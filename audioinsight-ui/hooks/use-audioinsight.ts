@@ -47,6 +47,7 @@ export interface UseAudioInsightReturn {
   // Settings from processing parameters
   diarizationEnabled: boolean;
   showLagInfo: boolean;
+  showSpeakers: boolean;
   
   // Settings loading state
   settingsLoading: boolean;
@@ -68,6 +69,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
   // Derived values from processing parameters
   const diarizationEnabled = processingParams?.diarization ?? false;
   const showLagInfo = processingParams?.show_lag_info ?? false;
+  const showSpeakers = processingParams?.show_speakers ?? false;
 
   // Load processing parameters
   const loadProcessingParameters = useCallback(async () => {
@@ -469,6 +471,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
     systemHealth,
     diarizationEnabled,
     showLagInfo,
+    showSpeakers,
     settingsLoading,
   };
 } 

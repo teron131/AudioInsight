@@ -663,10 +663,11 @@ async def update_processing_parameters(parameters: dict):
 async def get_processing_parameters():
     """Get current audio processing parameters with runtime/startup classification."""
     try:
+        from .config import get_processing_parameters as get_config_params
         from .config import get_runtime_configurable_fields, get_startup_only_fields
 
         # Get all current parameters (backward compatibility)
-        all_params = get_processing_parameters()
+        all_params = get_config_params()
 
         # Get runtime vs startup classification
         runtime_fields = get_runtime_configurable_fields()
@@ -1257,18 +1258,5 @@ async def force_warmup():
         return {"status": "error", "message": f"Error forcing warmup: {str(e)}"}
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup."""
-    logger.info("🚀 AudioInsight starting up...")
-
-    # Start system warm-up for faster first connections
-    try:
-        from .processors import AudioProcessor
-
-        await AudioProcessor.warm_up_system()
-        logger.info("✅ System warm-up completed - reduced first-connection latency")
-    except Exception as e:
-        logger.warning(f"System warm-up failed (non-critical): {e}")
-
-    logger.info("✅ AudioInsight startup completed")
+if __name__ == "__main__":
+    main()

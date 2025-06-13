@@ -79,6 +79,7 @@ export interface ProcessingParameters {
   
   // UI Configuration
   show_lag_info: boolean;
+  show_speakers: boolean;
   
   // LLM Configuration
   fast_llm: string;
