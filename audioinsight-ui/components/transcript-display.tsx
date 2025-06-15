@@ -2,7 +2,6 @@
 
 import { cn } from '@/lib/utils';
 import { TranscriptData } from '@/lib/websocket';
-import { Loader2 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 
 interface TranscriptDisplayProps {
@@ -98,8 +97,9 @@ export function TranscriptDisplay({ transcriptData, className, onContentUpdate, 
           {lines.map((line, index) => {
             const isLastLine = index === lines.length - 1;
             let currentLineText = line.text || "";
-            
-            // Only show buffer text for the last line if not finalizing
+
+            // The backend now sends the correct text (parsed or raw) in the line object.
+            // We just need to append the buffer to the last line.
             if (isLastLine && !isFinalizing && (buffer_diarization || buffer_transcription)) {
               if (buffer_diarization) {
                 currentLineText += `<span class="text-muted-foreground opacity-70 bg-secondary ml-1 px-1 rounded">${buffer_diarization}</span>`;
@@ -110,58 +110,19 @@ export function TranscriptDisplay({ transcriptData, className, onContentUpdate, 
             }
 
             return (
-              <div key={index} className={cn(
-                "border-l-3 pl-3 pb-3 transition-all",
-                getSpeakerColor(line.speaker)
-              )}>
-                {/* Speaker info and time */}
+              <div key={index} className={cn("border-l-3 pl-3 pb-3 transition-all", getSpeakerColor(line.speaker))}>
                 <div className="flex items-center flex-wrap gap-2 mb-2">
                   {showSpeakers && (
                     <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl text-xs font-semibold tracking-wide">
                       {getSpeakerLabel(line.speaker)}
-                      {line.beg && line.end && (
-                        <span className="text-xs opacity-90">
-                          {line.beg} - {line.end}
-                        </span>
-                      )}
+                      {line.beg && line.end && <span className="text-xs opacity-90">{line.beg} - {line.end}</span>}
                     </span>
                   )}
-                  
-                  {/* Processing indicators for last line */}
-                  {isLastLine && !isFinalizing && showLagInfo && (
-                    <>
-                      {remaining_time_transcription != null && remaining_time_transcription > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-secondary border rounded text-xs text-blue-600 font-medium">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Transcription Lag {remaining_time_transcription.toFixed(1)}s
-                        </span>
-                      )}
-                      {diarization_enabled && buffer_diarization && remaining_time_diarization != null && remaining_time_diarization > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-secondary border rounded text-xs text-orange-600 font-medium">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Diarization lag {remaining_time_diarization.toFixed(1)}s
-                        </span>
-                      )}
-                    </>
-                  )}
                 </div>
-
-                {/* Transcript text */}
-                {line.speaker === -2 ? (
-                  <div className="text-muted-foreground bg-secondary border rounded-full px-3 py-1 text-xs font-medium inline-block">
-                    Silence
-                    {line.beg && line.end && (
-                      <span className="ml-1 opacity-70">
-                        {line.beg} - {line.end}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div 
-                    className="text-foreground leading-relaxed mt-2 pl-3 pt-2 border-l-0 rounded-bl-lg"
-                    dangerouslySetInnerHTML={{ __html: currentLineText }}
-                  />
-                )}
+                <div
+                  className="text-foreground leading-relaxed mt-2 pl-3 pt-2 border-l-0 rounded-bl-lg"
+                  dangerouslySetInnerHTML={{ __html: currentLineText }}
+                />
               </div>
             );
           })}

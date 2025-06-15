@@ -954,7 +954,9 @@ async def test_llm_connection(model_id: str = None):
 async def get_transcript_parser_status():
     """Get transcript parser status and statistics."""
     try:
-        global current_processor
+        from .server.websocket_handlers import _global_audio_processor
+
+        current_processor = _global_audio_processor
         if not current_processor or not hasattr(current_processor, "transcript_parser"):
             return {"status": "error", "message": "No active transcript parser"}
 
@@ -983,7 +985,9 @@ async def get_transcript_parser_status():
 async def enable_transcript_parser(enabled: bool = True):
     """Enable or disable transcript parsing."""
     try:
-        global current_processor
+        from .server.websocket_handlers import _global_audio_processor
+
+        current_processor = _global_audio_processor
         if not current_processor or not hasattr(current_processor, "enable_transcript_parsing"):
             return {"status": "error", "message": "No active transcript parser"}
 
@@ -1001,7 +1005,9 @@ async def enable_transcript_parser(enabled: bool = True):
 async def get_parsed_transcripts(limit: int = 10):
     """Get parsed transcripts with optional limit."""
     try:
-        global current_processor
+        from .server.websocket_handlers import _global_audio_processor
+
+        current_processor = _global_audio_processor
         if not current_processor or not hasattr(current_processor, "get_parsed_transcripts"):
             return {"status": "error", "message": "No active transcript parser"}
 
@@ -1024,7 +1030,9 @@ async def get_parsed_transcripts(limit: int = 10):
 async def get_latest_parsed_transcript():
     """Get the most recent parsed transcript."""
     try:
-        global current_processor
+        from .server.websocket_handlers import _global_audio_processor
+
+        current_processor = _global_audio_processor
         if not current_processor or not hasattr(current_processor, "get_last_parsed_transcript"):
             return {"status": "error", "message": "No active transcript parser"}
 

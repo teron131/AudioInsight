@@ -135,6 +135,10 @@ class AudioProcessor(BaseProcessor):
         try:
             parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0))
             self.transcript_parser = Parser(config=parser_config)
+
+            # Set up callback to update transcript lines with parsed text
+            self.transcript_parser.set_result_callback(self._handle_parsed_transcript_callback)
+
             logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s")
         except Exception as e:
             logger.warning(f"Failed to pre-initialize transcript parser: {e}")
@@ -257,6 +261,53 @@ class AudioProcessor(BaseProcessor):
             self._has_analyses = True  # Set efficient flag
             logger.info(f"✅ Added new inference result (total: {len(self.analyses)})")
 
+    async def _handle_parsed_transcript_callback(self, parsed_transcript: ParsedTranscript):
+        """Handle parsed transcript callback to replace entire committed transcript with parsed version.
+
+        Args:
+            parsed_transcript: The parsed transcript result containing the full parsed text
+        """
+        try:
+            async with self.lock:
+                # Store the parsed transcript
+                self.parsed_transcripts.append(parsed_transcript)
+                self.last_parsed_transcript = parsed_transcript
+
+                # Keep only the last 50 parsed transcripts to prevent memory growth
+                if len(self.parsed_transcripts) > 50:
+                    self.parsed_transcripts = self.parsed_transcripts[-50:]
+
+                # CRITICAL FIX: Replace the entire committed transcript with parsed content
+                # This ensures the UI shows the parsed text instead of the original
+                if parsed_transcript.parsed_text and parsed_transcript.parsed_text.strip():
+                    # Update the global transcript's parsed content
+                    self.global_transcript["parsed_content"] = parsed_transcript.parsed_text
+
+                    # Replace all committed tokens with a single parsed token
+                    # This approach treats the entire parsed transcript as one cohesive unit
+                    if self.global_transcript["committed_tokens"]:
+                        # Get timing info from the first and last tokens
+                        first_token = self.global_transcript["committed_tokens"][0]
+                        last_token = self.global_transcript["committed_tokens"][-1]
+
+                        # Create a new token that represents the entire parsed transcript
+                        from ..timed_objects import ASRToken
+
+                        parsed_token = ASRToken(start=first_token.start if hasattr(first_token, "start") else 0, end=last_token.end if hasattr(last_token, "end") else 0, text=parsed_transcript.parsed_text, speaker=last_token.speaker if hasattr(last_token, "speaker") else 0, is_parsed=True)  # Mark this as a parsed token
+
+                        # Store original tokens for reference
+                        parsed_token.original_tokens = self.global_transcript["committed_tokens"].copy()
+
+                        # Replace all committed tokens with the single parsed token
+                        self.global_transcript["committed_tokens"] = [parsed_token]
+
+                        logger.info(f"📝 Replaced {len(parsed_token.original_tokens)} tokens with parsed text: '{parsed_transcript.parsed_text[:50]}...'")
+
+            logger.info(f"📝 Processed parsed transcript callback: {len(parsed_transcript.original_text)} -> {len(parsed_transcript.parsed_text)} chars")
+
+        except Exception as e:
+            logger.warning(f"Failed to handle parsed transcript callback: {e}")
+
     async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
         """Parse transcript text and store it for sharing across the application.
 
@@ -327,14 +378,17 @@ class AudioProcessor(BaseProcessor):
             if self.end_buffer > 0:
                 remaining_transcription = max(0, round(current_time - self.beg_loop - self.end_buffer, 2))
 
+            # CRITICAL FIX: Use global transcript tokens instead of legacy tokens
+            global_tokens = self.global_transcript["committed_tokens"].copy()
+
             # Only calculate remaining_diarization if diarization is enabled
             remaining_diarization = 0
-            if self.args.diarization and self.tokens:
-                latest_end = max(self.end_buffer, self.tokens[-1].end if self.tokens else 0)
+            if self.args.diarization and global_tokens:
+                latest_end = max(self.end_buffer, global_tokens[-1].end if global_tokens else 0)
                 remaining_diarization = max(0, round(latest_end - self.end_attributed_speaker, 2))
 
             return {
-                "tokens": self.tokens.copy(),
+                "tokens": global_tokens,  # Use global transcript tokens (may contain parsed content)
                 "buffer_transcription": self.buffer_transcription,
                 "buffer_diarization": self.buffer_diarization,
                 "end_buffer": self.end_buffer,
@@ -748,8 +802,14 @@ class AudioProcessor(BaseProcessor):
                 if not lines:
                     lines = [{"speaker": 0, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
 
-                # Apply s2hk conversion to final output only (reduces latency) - optimize with list comprehension
-                final_lines = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in lines]
+                # CRITICAL FIX: The format processor already handles parsed tokens correctly
+                # Just apply s2hk conversion to the formatted lines
+                final_lines = []
+                for line in lines:
+                    line_text = line["text"] if line["text"] else ""
+                    # Apply s2hk conversion to the text (format processor already used parsed content if available)
+                    line_text = s2hk(line_text) if line_text else line_text
+                    final_lines.append({**line, "text": line_text})
 
                 final_buffer_transcription = s2hk(buffer_transcription) if buffer_transcription else buffer_transcription
                 final_buffer_diarization = s2hk(buffer_diarization) if buffer_diarization else buffer_diarization
@@ -912,19 +972,30 @@ class AudioProcessor(BaseProcessor):
             tokens_to_add.append(final_token)
             logger.info(f"🔄 Prepared final token {i+1} ({final_token.start:.1f}s-{final_token.end:.1f}s): '{final_token.text[:50]}...'")
 
-        # Add all tokens at once to avoid race conditions
+        # Add all tokens at once to avoid race conditions - but preserve parsed content
         if tokens_to_add:
             async with self.lock:
-                self.tokens.extend(tokens_to_add)
-                additional_tokens_created = len(tokens_to_add)
-                logger.info(f"🔄 Added {additional_tokens_created} final tokens to committed transcript")
+                # Check if we have parsed tokens in global transcript
+                has_parsed_tokens = any(hasattr(token, "is_parsed") and token.is_parsed for token in self.global_transcript["committed_tokens"])
 
-                # Update full transcription with any new content
-                if hasattr(self, "full_transcription"):
-                    # Calculate new full transcription from all tokens
-                    all_token_texts = [token.text for token in self.tokens if token.text and token.text.strip()]
-                    self.full_transcription = (final_state.get("sep", " ") or " ").join(all_token_texts)
-                    logger.info(f"🔄 Updated full transcription (now {len(self.full_transcription)} chars)")
+                if has_parsed_tokens:
+                    logger.info(f"🔄 Skipping addition of {len(tokens_to_add)} final tokens - parsed content already exists")
+                    # Don't add new tokens if we already have parsed content
+                    additional_tokens_created = 0
+                else:
+                    # Only add tokens if no parsed content exists
+                    self.tokens.extend(tokens_to_add)
+                    # Also add to global transcript for consistency
+                    self.global_transcript["committed_tokens"].extend(tokens_to_add)
+                    additional_tokens_created = len(tokens_to_add)
+                    logger.info(f"🔄 Added {additional_tokens_created} final tokens to committed transcript")
+
+                    # Update full transcription with any new content
+                    if hasattr(self, "full_transcription"):
+                        # Calculate new full transcription from all tokens
+                        all_token_texts = [token.text for token in self.tokens if token.text and token.text.strip()]
+                        self.full_transcription = (final_state.get("sep", " ") or " ").join(all_token_texts)
+                        logger.info(f"🔄 Updated full transcription (now {len(self.full_transcription)} chars)")
 
         # SINGLE SOURCE: All content is now in global memory
         logger.info(f"🔄 Using global memory for final processing: '{final_global_text[:100]}...' ({len(final_global_text)} chars)")
@@ -1048,8 +1119,12 @@ class AudioProcessor(BaseProcessor):
         # Get updated final state after inference processing
         final_state = await self.get_current_state()
 
-        # Format final lines and apply refinement and s2hk conversion
-        final_lines_raw = await self.formatter.format_by_speaker(final_state["tokens"], final_state["sep"], final_state["end_attributed_speaker"])
+        # CRITICAL FIX: Use global transcript tokens for final formatting to preserve parsed content
+        async with self.lock:
+            tokens_for_formatting = self.global_transcript["committed_tokens"].copy()
+
+        # Format final lines using global transcript tokens (which may contain parsed content)
+        final_lines_raw = await self.formatter.format_by_speaker(tokens_for_formatting, final_state["sep"], final_state["end_attributed_speaker"])
 
         # Apply s2hk conversion to output (refined or original)
         final_lines_converted = [{**line, "text": s2hk(line["text"]) if line["text"] else line["text"]} for line in final_lines_raw]
@@ -1060,6 +1135,8 @@ class AudioProcessor(BaseProcessor):
 
         # Create final response with remaining buffer text included
         final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0, "diarization_enabled": self.args.diarization}
+
+        # REWORK: The parsed data is now integrated into the `lines` object, so no separate block is needed.
 
         # Add existing analyses
         async with self.lock:

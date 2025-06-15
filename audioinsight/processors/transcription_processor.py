@@ -23,10 +23,7 @@ class TranscriptionProcessor(BaseProcessor):
             self.online = online_factory(self.args, asr, tokenizer)
             self.sep = self.online.asr.sep
 
-        # Incremental parsing optimization - track what's already been parsed
-        self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
-        self.min_text_threshold = 100  # Variable: parse all if text < this many chars
-        self.sentence_percentage = 0.4  # Variable: parse last 40% of sentences if text >= threshold
+        # No incremental parsing state needed anymore
 
     async def start_parser_worker(self):
         """Start the parser worker task that processes queued text."""
@@ -40,78 +37,8 @@ class TranscriptionProcessor(BaseProcessor):
             await self.coordinator.transcript_parser.stop_worker()
             logger.info("Stopped parser worker from transcript parser")
 
-    def _get_text_to_parse(self, current_text: str) -> str:
-        """Get only the new text that needs parsing using intelligent sentence-based splitting.
-
-        Args:
-            current_text: The full accumulated text
-
-        Returns:
-            str: Only the new text that needs to be parsed, or empty string if nothing new
-        """
-        # If no previous parsing, handle based on text length
-        if not self.last_parsed_text:
-            if len(current_text) < self.min_text_threshold:
-                # Parse all for short text
-                logger.info(f"🔍 Incremental parsing: No previous parsing, text < {self.min_text_threshold} chars, parsing ALL")
-                return current_text
-            else:
-                # Parse last 25% of sentences for longer text
-                result = self._get_last_sentences_percentage(current_text)
-                logger.info(f"🔍 Incremental parsing: No previous parsing, text >= {self.min_text_threshold} chars, parsing last 25% of sentences ({len(result)} chars)")
-                return result
-
-        # Find new text since last parsing
-        if self.last_parsed_text in current_text:
-            # Get the part after the last parsed text
-            last_index = current_text.rfind(self.last_parsed_text)
-            new_text_start = last_index + len(self.last_parsed_text)
-            new_text = current_text[new_text_start:].strip()
-
-            if not new_text:
-                logger.info("🔍 Incremental parsing: No new text to parse")
-                return ""  # No new text to parse
-
-            # For incremental updates, always parse the new content
-            logger.info(f"🔍 Incremental parsing: Found new text since last parsing ({len(new_text)} chars from {len(current_text)} total)")
-            return new_text
-        else:
-            # Text doesn't contain last parsed content (maybe reset occurred)
-            # Fall back to percentage-based parsing
-            if len(current_text) < self.min_text_threshold:
-                logger.info(f"🔍 Incremental parsing: Text doesn't contain last parsed content, < {self.min_text_threshold} chars, parsing ALL")
-                return current_text
-            else:
-                result = self._get_last_sentences_percentage(current_text)
-                logger.info(f"🔍 Incremental parsing: Text doesn't contain last parsed content, >= {self.min_text_threshold} chars, parsing last 25% ({len(result)} chars)")
-                return result
-
-    def _get_last_sentences_percentage(self, text: str) -> str:
-        """Get the last 25% of sentences from the text (rounded up).
-
-        Args:
-            text: The text to split into sentences
-
-        Returns:
-            str: The last 25% of sentences joined together
-        """
-        # Split by common punctuation (sentences)
-        sentences = _sentence_split_regex.split(text)
-        sentences = [s.strip() for s in sentences if s.strip()]
-
-        if not sentences:
-            return text
-
-        # Calculate 25% rounded up
-        num_sentences = len(sentences)
-        percentage_count = max(1, math.ceil(num_sentences * self.sentence_percentage))
-
-        # Get last N sentences
-        last_sentences = sentences[-percentage_count:]
-        result = ". ".join(last_sentences)
-
-        logger.debug(f"Sentence-based parsing: {num_sentences} total sentences, processing last {percentage_count} sentences ({len(result)} chars)")
-        return result
+    # Removed _get_text_to_parse and _get_last_sentences_percentage as they are no longer needed
+    # for the simplified "always parse full transcript" workflow.
 
     async def process(self, transcription_queue, update_callback, llm=None):
         """Process audio chunks for transcription."""
@@ -165,14 +92,19 @@ class TranscriptionProcessor(BaseProcessor):
                 new_tokens = self.online.process_iter()
 
                 if new_tokens:
+                    # Convert tokens to Traditional Chinese for consistency across the entire pipeline
+                    for token in new_tokens:
+                        if token.text:
+                            token.text = s2hk(token.text)
+
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
                     # Add minimal token generation logging for UI debugging
                     if len(new_tokens) > 0:
                         logger.debug(f"🎤 Generated {len(new_tokens)} new tokens: '{new_tokens[0].text[:30]}...'")
 
-                    # Get buffer information
+                    # Get buffer information and convert to Traditional Chinese
                     _buffer = self.online.get_buffer()
-                    buffer = _buffer.text
+                    buffer = s2hk(_buffer.text) if _buffer.text else _buffer.text
                     end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
                     # Buffer coordination now handled by work coordination system
@@ -182,8 +114,8 @@ class TranscriptionProcessor(BaseProcessor):
                     # Work with GLOBAL MEMORY instead of local accumulation
                     if self.coordinator and new_tokens:
                         new_text = self.sep.join([t.text for t in new_tokens])
-                        # Convert to Traditional Chinese for consistency
-                        new_text_converted = s2hk(new_text) if new_text else new_text
+                        # Text is already converted above, so use it directly
+                        new_text_converted = new_text
 
                         if new_text_converted.strip():
                             # NON-BLOCKING: Update LLM with new transcription text in background
@@ -200,53 +132,27 @@ class TranscriptionProcessor(BaseProcessor):
                                 except Exception as e:
                                     logger.debug(f"Non-critical LLM update error: {e}")
 
-                            # ATOMIC: Get current global transcript content for parsing decisions
-                            async with self.coordinator.lock:
-                                # Build current full text from global memory
-                                committed_text = self.coordinator.sep.join([token.text for token in self.coordinator.global_transcript["committed_tokens"] if token.text and token.text.strip()])
-                                current_buffer = self.coordinator.global_transcript["current_buffer"]
-                                full_current_text = (committed_text + " " + current_buffer).strip() if current_buffer else committed_text
+                            # REWORKED WORKFLOW: Parse the entire committed transcript each time for comprehensive context.
+                            if self.coordinator and self.coordinator.transcript_parser:
+                                # Get the entire committed transcript from global memory
+                                try:
+                                    async with self.coordinator.lock:
+                                        committed_tokens = self.coordinator.global_transcript.get("committed_tokens", [])
+                                        if committed_tokens:
+                                            # Build the full committed transcript text
+                                            full_committed_text = self.sep.join([token.text for token in committed_tokens if token.text])
 
-                            # Get accumulated speaker info (use most recent speaker)
-                            speaker_info = None
-                            if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
-                                speaker_info = [{"speaker": new_tokens[0].speaker}]
+                                            if full_committed_text and full_committed_text.strip():
+                                                # Get speaker info from the most recent token
+                                                speaker_info = None
+                                                if committed_tokens and hasattr(committed_tokens[-1], "speaker") and committed_tokens[-1].speaker is not None:
+                                                    speaker_info = [{"speaker": committed_tokens[-1].speaker}]
 
-                            # Use event-based Parser system reading from global memory
-                            min_batch_size = 200  # Maintain threshold for batching
-
-                            if len(full_current_text) >= min_batch_size:
-                                # OPTIMIZATION: Use intelligent incremental parsing from global memory
-                                text_to_parse = self._get_text_to_parse(full_current_text)
-
-                                if text_to_parse and text_to_parse.strip() and self.coordinator.transcript_parser:
-                                    # OPTIMIZATION: Smart batching to reduce API calls
-                                    current_time = time()
-                                    time_since_last_parse = current_time - getattr(self, "_last_parse_time", 0)
-                                    min_parse_interval = 2.0  # Minimum 2 seconds between parsing requests
-
-                                    should_parse_now = len(text_to_parse) >= 400 or time_since_last_parse >= min_parse_interval
-
-                                    if should_parse_now:
-                                        # CRITICAL: Make parser request completely non-blocking
-                                        try:
-                                            # Fire and forget - don't await the parser queue
-                                            asyncio.create_task(self._queue_parser_non_blocking(text_to_parse, speaker_info))
-                                            logger.info(f"✅ Queued {len(text_to_parse)} chars for non-blocking parser processing (from {len(full_current_text)} total in global memory)")
-
-                                            # Update last parsed text to track progress
-                                            self.last_parsed_text = full_current_text
-                                            self._last_parse_time = current_time
-
-                                        except Exception as e:
-                                            logger.debug(f"Non-critical parser queue error: {e}")
-                                    else:
-                                        logger.debug(f"⏳ Delaying parse - batch size: {len(text_to_parse)}, time since last: {time_since_last_parse:.1f}s")
-                                else:
-                                    logger.debug("⚠️ No new text to parse from global memory")
-                            else:
-                                # Continue building text in global memory until batch size is reached
-                                logger.debug(f"⏳ Building text in global memory: {len(full_current_text)}/{min_batch_size} chars")
+                                                logger.info(f"✅ Queueing entire committed transcript for parsing: {len(full_committed_text)} chars")
+                                                # Send the entire committed transcript to be parsed
+                                                asyncio.create_task(self._queue_parser_non_blocking(full_committed_text, speaker_info))
+                                except Exception as e:
+                                    logger.debug(f"Non-critical parser queue error: {e}")
 
                     # Get accumulated speaker info (use most recent speaker)
                     speaker_info = None
@@ -290,58 +196,44 @@ class TranscriptionProcessor(BaseProcessor):
 
     def finish_transcription(self):
         """Finish the transcription to get any remaining tokens."""
-        # Work with global memory instead of local accumulation
-        if self.coordinator:
-            try:
-                # ATOMIC: Get final content from global memory
-                async def flush_global_memory():
-                    async with self.coordinator.lock:
-                        # Build final text from global memory
-                        committed_text = self.coordinator.sep.join([token.text for token in self.coordinator.global_transcript["committed_tokens"] if token.text and token.text.strip()])
-                        current_buffer = self.coordinator.global_transcript["current_buffer"]
-                        final_text = (committed_text + " " + current_buffer).strip() if current_buffer else committed_text
-
-                        # Clear buffer since we're finishing
-                        self.coordinator.global_transcript["current_buffer"] = ""
-
-                        return final_text
-
-                # Get final text from global memory
-                import asyncio
-
-                try:
-                    # Try to get event loop, create one if needed
-                    loop = asyncio.get_running_loop()
-                    final_text = loop.run_until_complete(flush_global_memory())
-                except RuntimeError:
-                    # No event loop running
-                    final_text = asyncio.run(flush_global_memory())
-
-                if final_text.strip():
-                    # Update LLM with final text
-                    if self.coordinator.llm:
-                        self.coordinator.llm.update_transcription(final_text, None)
-                        logger.info(f"🔄 Updated LLM with final text from global memory: {len(final_text)} chars")
-
-                    # Queue final text for parsing
-                    if self.coordinator.transcript_parser:
-                        text_to_parse = self._get_text_to_parse(final_text)
-                        if text_to_parse and text_to_parse.strip():
-                            # Use the async queue method
-                            asyncio.create_task(self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, None, None))
-                            self.last_parsed_text = final_text
-                            logger.info(f"Queued final {len(text_to_parse)} chars for parsing from global memory")
-
-            except Exception as e:
-                logger.warning(f"Failed to process final text from global memory: {e}")
-
-        # Finish the ASR engine
+        # Finish the ASR engine first and convert any remaining tokens
+        final_tokens = []
         if self.online:
             try:
-                return self.online.finish()
+                final_result = self.online.finish()
+                # Handle both single Transcript object and list of tokens
+                if final_result:
+                    if hasattr(final_result, "text") and final_result.text:
+                        # Single Transcript object - convert to token
+                        from ..timed_objects import ASRToken
+
+                        final_token = ASRToken(start=getattr(final_result, "start", 0), end=getattr(final_result, "end", 0), text=s2hk(final_result.text), speaker=getattr(final_result, "speaker", 0))
+                        final_tokens = [final_token]
+                    elif hasattr(final_result, "__iter__"):
+                        # List of tokens
+                        final_tokens = []
+                        for token in final_result:
+                            if hasattr(token, "text") and token.text:
+                                token.text = s2hk(token.text)
+                                final_tokens.append(token)
+                    else:
+                        final_tokens = []
             except Exception as e:
                 logger.warning(f"Failed to finish transcription: {e}")
-        return None
+                final_tokens = []
+
+        # FINAL PROCESSING FIX: Simplified approach without async complications
+        # The final processing is now handled properly in audio_processor._process_final_results()
+        # This method just needs to return the final tokens from ASR
+        if self.coordinator and final_tokens:
+            try:
+                # Add final tokens to global memory synchronously
+                # This will be handled by the audio processor's final processing
+                logger.info(f"🔄 Returning {len(final_tokens)} final tokens for global memory processing")
+            except Exception as e:
+                logger.warning(f"Failed to process final tokens: {e}")
+
+        return final_tokens
 
     async def reset_parsing_state(self):
         """Reset the incremental parsing state for fresh sessions."""

@@ -133,7 +133,8 @@ export function useAudioInsight(): UseAudioInsightReturn {
           buffer_diarization = "",
           remaining_time_transcription,
           remaining_time_diarization,
-          diarization_enabled = false
+          diarization_enabled = false,
+          transcript_parser
         } = data;
         
         setTranscriptData((prevData) => ({
@@ -144,6 +145,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
           remaining_time_transcription,
           remaining_time_diarization,
           diarization_enabled, // This reflects backend status, not the toggle directly
+          transcript_parser, // CHINESE PARSER FIX: Include parsed transcript data
           timestamp: Date.now(),
           isFinalizing: isCompleting,
           analysis: prevData?.analysis, // Preserve existing analysis

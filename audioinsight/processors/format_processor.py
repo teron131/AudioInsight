@@ -19,7 +19,19 @@ class FormatProcessor(BaseProcessor):
             return []
 
         # Build full text from all tokens - optimize by filtering first
-        token_texts = [token.text for token in tokens if token.text and token.text.strip()]
+        # REWORK: Use parsed_text if available, prioritize parsed tokens
+        token_texts = []
+        for token in tokens:
+            # If this is a parsed token, use its text directly (it represents the full parsed transcript)
+            if hasattr(token, "is_parsed") and token.is_parsed:
+                token_texts = [token.text]  # Use only the parsed text, ignore other tokens
+                break
+            else:
+                # Use parsed_text if available, otherwise use original text
+                text = token.parsed_text or token.text
+                if text and text.strip():
+                    token_texts.append(text)
+
         if not token_texts:
             return []
 
@@ -103,7 +115,19 @@ class FormatProcessor(BaseProcessor):
         last_end_diarized = 0
         undiarized_text = []
 
-        # Process each token
+        # Check if we have a parsed token that represents the entire transcript
+        parsed_token = None
+        for token in tokens:
+            if hasattr(token, "is_parsed") and token.is_parsed:
+                parsed_token = token
+                break
+
+        if parsed_token:
+            # If we have a parsed token, create a single line with the parsed text
+            lines.append({"speaker": parsed_token.speaker, "text": parsed_token.text, "beg": format_time(parsed_token.start), "end": format_time(parsed_token.end), "diff": 0})
+            return lines
+
+        # Process each token (original behavior for non-parsed tokens)
         for token in tokens:
             speaker = token.speaker
 
@@ -122,11 +146,15 @@ class FormatProcessor(BaseProcessor):
 
             # Group by speaker
             if speaker != previous_speaker or not lines:
-                lines.append({"speaker": speaker, "text": token.text, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
+                # REWORK: Use parsed_text if available
+                text_to_add = token.parsed_text or token.text
+                lines.append({"speaker": speaker, "text": text_to_add, "beg": format_time(token.start), "end": format_time(token.end), "diff": round(token.end - last_end_diarized, 2)})
                 previous_speaker = speaker
-            elif token.text:  # Only append if text isn't empty
-                # Append token text directly - duplication prevented by work coordination
-                lines[-1]["text"] += sep + token.text
+            else:
+                text_to_add = token.parsed_text or token.text
+                if text_to_add:  # Only append if text isn't empty
+                    # Append token text directly - duplication prevented by work coordination
+                    lines[-1]["text"] += sep + text_to_add
                 lines[-1]["end"] = format_time(token.end)
                 lines[-1]["diff"] = round(token.end - last_end_diarized, 2)
 

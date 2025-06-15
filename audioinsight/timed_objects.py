@@ -10,6 +10,8 @@ class TimedText:
     speaker: Optional[int] = 0
     probability: Optional[float] = None
     is_dummy: Optional[bool] = False
+    parsed_text: Optional[str] = None
+    is_parsed: Optional[bool] = False
 
 
 @dataclass
@@ -23,7 +25,7 @@ class ASRToken(TimedText):
         # Handle None values efficiently without additional computation
         start = self.start + offset if self.start is not None else None
         end = self.end + offset if self.end is not None else None
-        return ASRToken(start, end, self.text, self.speaker, self.probability, self.is_dummy)
+        return ASRToken(start, end, self.text, self.speaker, self.probability, self.is_dummy, self.parsed_text, self.is_parsed)
 
 
 @dataclass

@@ -104,9 +104,8 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # Initialize base class with coordination enabled for stateful operations
-        # Single worker to avoid race conditions on incremental parsing state
-        super().__init__(queue_maxsize=50, cooldown_seconds=0.5, max_concurrent_workers=1, enable_work_coordination=True)  # Smaller queue since single worker  # Conservative start, will adapt to actual processing times  # Force single worker for stateful operations  # Enable coordination for deduplication
+        # STATELESS REWORK: Allow multiple workers and disable work coordination as it's no longer needed.
+        super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=4, enable_work_coordination=False)
 
         self.config = config or ParserConfig(model_id=model_id)
         self.api_key = api_key  # Store for lazy initialization
@@ -118,16 +117,16 @@ class Parser(EventBasedProcessor):
         # Statistics using the new standardized class - lightweight initialization
         self.stats = ParserStats()
 
-        # Stateful incremental parsing management - CRITICAL: Atomic state management
-        self._state_lock = asyncio.Lock()  # Protect shared state
-        self._last_processed_text = ""  # Track what was last processed to avoid duplicates
-        self._processing_in_progress = False  # Prevent concurrent processing
+        # STATELESS REWORK: Removed stateful variables (_state_lock, _last_processed_text, etc.)
+        # The parser will now process the full text provided in each request.
+        logger.info(f"Parser initialized in stateless mode.")
 
-        logger.info(f"Parser initialized in stateful mode with work coordination and single worker")
+        # Callback for storing parsed results
+        self._result_callback = None
 
     def _is_stateful_processor(self) -> bool:
-        """Mark this processor as stateful to enable single-worker coordination."""
-        return True
+        """Parser is now stateless."""
+        return False
 
     @property
     def llm_client(self) -> UniversalLLM:
@@ -150,8 +149,10 @@ class Parser(EventBasedProcessor):
 - Make minimal contextual changes.
 - Only fix typos if you are highly confident.
 - Add punctuation appropriately.
+- For Chinese text, use appropriate Chinese punctuation (、，。！？).
+- Preserve the original meaning and context.
 
-IMPORTANT: Always respond in the same language and script as the input text.""",
+IMPORTANT: Always respond in the same language and script as the input text. For Chinese text, maintain Traditional or Simplified Chinese as provided in the input.""",
                     ),
                     ("human", "{text}"),
                 ]
@@ -159,116 +160,42 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
             logger.debug("Lazy-initialized prompt template for parser")
         return self._prompt
 
-    async def _process_item(self, item: Tuple[str, Optional[List[Dict]], Optional[Dict[str, float]]]):
-        """Process a single parsing request from the queue with atomic state management.
-
-        Args:
-            item: Tuple of (text, speaker_info, timestamps)
+    async def _process_item(self, item):
+        """
+        Process a single parsing request from the queue.
+        This is now STATELESS and processes the full text provided.
         """
         start_time = time.time()
-        monitor = get_performance_monitor()
-
         try:
-            text, speaker_info, timestamps = item
+            # Handle WorkItem wrapper - extract the actual data
+            if hasattr(item, "data"):
+                text, speaker_info, timestamps = item.data
+            else:
+                # Fallback for direct tuple (backward compatibility)
+                text, speaker_info, timestamps = item
 
-            # Atomic check for incremental processing
-            async with self._state_lock:
-                # Check if this text was already processed
-                if text == self._last_processed_text:
-                    logger.debug(f"Skipping already processed text: {text[:50]}...")
-                    return
+            if not text or not text.strip():
+                logger.debug("Skipping empty text for parsing.")
+                return
 
-                # Check if we're already processing something
-                if self._processing_in_progress:
-                    logger.debug(f"Processing already in progress, queuing: {text[:50]}...")
-                    return
+            logger.info(f"Processing full text: {len(text)} chars")
 
-                # Mark as processing and update state atomically
-                self._processing_in_progress = True
-                current_last_processed = self._last_processed_text
+            # Process the full text
+            result = await self.parse_transcript(text, speaker_info, timestamps)
 
-            try:
-                # Get only the incremental text to process
-                incremental_text = self._get_incremental_text(text, current_last_processed)
+            # Use the callback to send the result back
+            if self._result_callback:
+                await self._result_callback(result)
+                logger.debug(f"Sent parsed result via callback: {len(result.parsed_text)} chars")
 
-                if not incremental_text or not incremental_text.strip():
-                    logger.debug("No new incremental text to process")
-                    return
-
-                logger.info(f"Processing incremental text: {len(incremental_text)} chars (from {len(text)} total)")
-
-                # Process the incremental text
-                result = await self.parse_transcript(incremental_text, speaker_info, timestamps)
-
-                # Atomically update the processed text state
-                async with self._state_lock:
-                    self._last_processed_text = text
-                    logger.debug(f"Updated last processed text to: {len(text)} chars")
-
-                # Record successful processing
-                processing_time = time.time() - start_time
-
-                # Record statistics
-                self.stats.record_processing(processing_time, len(incremental_text))
-
-                logger.info(f"Parser processed {len(incremental_text)} chars in {processing_time:.2f}s")
-
-            finally:
-                # Always clear the processing flag
-                async with self._state_lock:
-                    self._processing_in_progress = False
+            # Record statistics
+            processing_time = time.time() - start_time
+            self.stats.record_processing(processing_time, len(text))
+            logger.info(f"Parser processed {len(text)} chars in {processing_time:.2f}s")
 
         except Exception as e:
-            logger.error(f"Parser processing failed: {e}")
-            # Clear processing flag on error
-            async with self._state_lock:
-                self._processing_in_progress = False
-            raise
-
-    def _get_incremental_text(self, current_text: str, last_processed_text: str) -> str:
-        """Get only the new incremental text that needs processing.
-
-        Args:
-            current_text: The full current accumulated text
-            last_processed_text: The text that was last processed
-
-        Returns:
-            str: Only the new text that needs to be parsed
-        """
-        if not last_processed_text:
-            # First time processing - return all text if reasonable size
-            if len(current_text) < 500:
-                logger.debug(f"First time processing: returning all {len(current_text)} chars")
-                return current_text
-            else:
-                # For very long text, just return the last portion
-                incremental = current_text[-300:]  # Last 300 chars
-                logger.debug(f"First time processing long text: returning last 300 chars from {len(current_text)} total")
-                return incremental
-
-        # Find the new text since last processing
-        if last_processed_text in current_text:
-            # Find the last occurrence of the processed text
-            last_index = current_text.rfind(last_processed_text)
-            new_start = last_index + len(last_processed_text)
-            incremental_text = current_text[new_start:].strip()
-
-            if incremental_text:
-                logger.debug(f"Incremental text: {len(incremental_text)} new chars from position {new_start}")
-                return incremental_text
-            else:
-                logger.debug("No new text found since last processing")
-                return ""
-        else:
-            # Text doesn't contain last processed - might be a reset or different content
-            # In this case, process the last reasonable portion
-            if len(current_text) < 500:
-                logger.debug(f"Text changed, processing all {len(current_text)} chars")
-                return current_text
-            else:
-                incremental = current_text[-400:]  # Last 400 chars for changed content
-                logger.debug(f"Text changed, processing last 400 chars from {len(current_text)} total")
-                return incremental
+            logger.error(f"Parser processing failed: {e}", exc_info=True)
+            # Do not re-raise, as it would stop the worker.
 
     async def queue_parsing_request(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> bool:
         """Queue a parsing request with proper work item wrapping for deduplication.
@@ -306,7 +233,9 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
             if not text.strip():
                 return ParsedTranscript(original_text=text, parsed_text="", parsing_time=time.time() - start_time)
 
-            logger.debug(f"Parsing {len(text)} characters: '{text[:50]}...'")
+            # CHINESE PARSER FIX: Enhanced logging for Chinese text
+            is_chinese = contains_chinese(text)
+            logger.debug(f"Parsing {len(text)} characters (Chinese: {is_chinese}): '{text[:50]}...'")
 
             # Process text (with chunking if needed)
             if self.config.needs_chunking():
@@ -316,9 +245,22 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
                 parsed_text = await self._process_chunk(text)
                 self.stats.record_processing(time.time() - start_time, len(text), 1)
 
+            # CHINESE PARSER FIX: Validate parsing result for Chinese text
+            if is_chinese:
+                if not parsed_text or not parsed_text.strip():
+                    logger.warning(f"Chinese text parsing returned empty result, using original text")
+                    parsed_text = text
+                elif not contains_chinese(parsed_text):
+                    logger.warning(f"Chinese text parsing lost Chinese characters, using original text")
+                    parsed_text = text
+                else:
+                    logger.info(f"Chinese text parsed successfully: '{text[:30]}...' -> '{parsed_text[:30]}...'")
+
             # Apply s2hk conversion if the text contains Chinese
             if contains_chinese(parsed_text):
+                original_parsed = parsed_text
                 parsed_text = s2hk(parsed_text)
+                logger.debug(f"Applied s2hk conversion: '{original_parsed[:30]}...' -> '{parsed_text[:30]}...'")
 
             # Create segments from the parsed content
             segments = self._create_segments(text, parsed_text, speaker_info, timestamps)
@@ -332,8 +274,14 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
         except Exception as e:
             logger.error(f"Failed to parse transcript: {e}")
-            # Return original text as fallback
-            return ParsedTranscript(original_text=text, parsed_text=text, parsing_time=time.time() - start_time)  # Fallback to original
+            # CHINESE PARSER FIX: Better fallback for Chinese text
+            if contains_chinese(text):
+                logger.info(f"Using original Chinese text as fallback due to parsing error")
+                # Apply s2hk conversion to original text as fallback
+                fallback_text = s2hk(text)
+            else:
+                fallback_text = text
+            return ParsedTranscript(original_text=text, parsed_text=fallback_text, parsing_time=time.time() - start_time)
 
     async def parse_text(self, text: str) -> str:
         """Parse text and return only the corrected text string.
@@ -466,23 +414,28 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
         base_stats = super().get_queue_status()
         parser_stats = self.stats.to_dict()
 
-        # Add parser-specific state info
+        # STATELESS REWORK: Remove stateful info from stats
         parser_stats.update(
             {
-                "stateful_processor": True,
-                "last_processed_length": len(getattr(self, "_last_processed_text", "")),
-                "processing_in_progress": getattr(self, "_processing_in_progress", False),
+                "stateful_processor": False,
             }
         )
 
         return {**base_stats, **parser_stats}
 
     async def reset_state(self):
-        """Reset the incremental parsing state for fresh sessions."""
-        async with self._state_lock:
-            self._last_processed_text = ""
-            self._processing_in_progress = False
-            logger.info("Parser state reset for fresh session")
+        """STATELESS REWORK: No state to reset."""
+        logger.info("Parser is now stateless, no state to reset.")
+        pass
+
+    def set_result_callback(self, callback):
+        """Set a callback function to be called when parsing results are available.
+
+        Args:
+            callback: Async function that takes a ParsedTranscript object
+        """
+        self._result_callback = callback
+        logger.debug("Parser result callback set")
 
 
 # Convenience function for quick text parsing (returns structured data)

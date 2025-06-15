@@ -14,8 +14,8 @@ SENTINEL = object()  # unique sentinel object for end of stream marker
 # Cache OpenCC converter instance to avoid recreation
 _s2hk_converter = None
 
-# Pre-compile regex for sentence splitting
-_sentence_split_regex = re.compile(r"[.!?]+")
+# Pre-compile regex for sentence splitting (supports both English and Chinese punctuation)
+_sentence_split_regex = re.compile(r"[.!?。！？]+")  # Added Chinese punctuation: 。！？
 
 # Cache timedelta formatting for common values
 _cached_timedeltas = {}

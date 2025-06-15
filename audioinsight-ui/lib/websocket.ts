@@ -42,6 +42,22 @@ export interface WebSocketMessage {
     }>;
   };
 
+  // CHINESE PARSER FIX: Add transcript parser data to WebSocket message
+  transcript_parser?: {
+    enabled: boolean;
+    stats?: any;
+    last_parsed?: {
+      original_text: string;
+      parsed_text: string;
+      segments: any[];
+      timestamps: any;
+      speakers: any[];
+      parsing_time: number;
+    };
+    total_parsed?: number;
+    cumulative_parsed_text?: string;  // CUMULATIVE PARSED TRANSCRIPT FIX
+  };
+
   // Adaptive frequency monitoring
   llm_adaptive_frequency?: {
     current_hz: number;
@@ -76,6 +92,20 @@ export interface TranscriptData {
       response_suggestions?: string[];
       action_plan?: string[];
     }>;
+  };
+  transcript_parser?: {
+    enabled: boolean;
+    stats?: any;
+    last_parsed?: {
+      original_text: string;
+      parsed_text: string;
+      segments: any[];
+      timestamps: any;
+      speakers: any[];
+      parsing_time: number;
+    };
+    total_parsed?: number;
+    cumulative_parsed_text?: string;  // CUMULATIVE PARSED TRANSCRIPT FIX
   };
 }
 
