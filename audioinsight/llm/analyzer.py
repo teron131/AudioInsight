@@ -22,9 +22,9 @@ logger = get_logger(__name__)
 class AnalyzerResponse(BaseModel):
     """Structured response from the LLM inference."""
 
-    key_points: List[str] = Field(default_factory=list, description="Customer issues and service requests identified")
-    response_suggestions: List[str] = Field(default_factory=list, description="Suggested responses to address customer concerns")
-    action_plan: List[str] = Field(default_factory=list, description="Specific product recommendations, service plan upgrades, and account actions to propose")
+    key_points: List[str] = Field(default_factory=list, description="Key topics, main ideas, and summary of the analyzed text.")
+    response_suggestions: List[str] = Field(default_factory=list, description="Insightful questions for clarification, deeper understanding, or further discussion based on the text.")
+    action_plan: List[str] = Field(default_factory=list, description="Suggested next steps, research topics, or actions to take based on the text's content.")
 
 
 class AnalyzerStats:
@@ -146,15 +146,12 @@ class Analyzer(EventBasedProcessor):
             prompt_messages = [
                 (
                     "system",
-                    """You are an expert telecom customer service call center operator analyzing customer calls. 
+                    """Based on the provided text:
+1.  Identify and summarize the **Key Points**.
+2.  Formulate **Insightful Questions** that could lead to deeper understanding, clarification, or further discussion.
+3.  Suggest potential **Follow-up Actions** or areas for further exploration.
 
-Analyze the call transcription and provide:
-1. Key Points - Customer issues, service requests, and account problems identified
-2. Response Suggestions - Professional responses to address customer concerns and provide solutions
-3. Action Plan - Only include specific product recommendations, service plan upgrades, add-on services, and promotional offers if they clearly match the customer's expressed needs or problems
-
-Only recommend products and services when there is a clear alignment with the customer's situation and requirements.
-Always respond in the same language and script as the transcription.""",
+Always respond in the same language and script as the transcription. If a knowledge base is provided, use it to enrich your analysis and questions.""",
                 )
             ]
 
@@ -173,19 +170,18 @@ Always respond in the same language and script as the transcription.""",
             prompt_messages.append(
                 (
                     "human",
-                    """Please analyze this customer service call and provide guidance:
+                    """Please analyze the following text:
 
-Call Transcription:
+Text:
 {transcription}
 
 Provide a structured analysis with:
-1. Key Points - Customer issues, service requests, billing problems, or technical concerns identified
-2. Response Suggestions - Professional and empathetic responses to address the customer's needs
-3. Action Plan - Include specific product recommendations (mobile plans, internet plans, bundles, add-ons), service upgrades, promotional offers, and any relevant troubleshooting steps ONLY if they directly address the customer's expressed needs or problems. If no products are clearly relevant, focus on service actions and problem resolution.
+1.  Key Points - A concise summary of the main ideas, topics, and arguments presented in the text.
+2.  Insightful Questions - Thought-provoking questions that arise from the text. These could be for clarification, to explore related concepts, or to challenge assumptions.
+3.  Follow-up Actions - Suggestions for what one might do next after reading this text, such as further research topics, related content to explore, or practical steps to take.
 
-IMPORTANT: Only recommend products or services if there is a clear match with the customer's situation. Do not force recommendations that don't align with their needs.
-
-Remember to respond in the same language, script, and regional conventions as the transcription above.""",
+If a knowledge base or additional context was provided, please incorporate it into your analysis.
+Remember to respond in the same language, script, and regional conventions as the transcription provided.""",
                 )
             )
 
