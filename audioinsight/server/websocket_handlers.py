@@ -267,7 +267,7 @@ async def get_or_create_audio_processor() -> AudioProcessor:
                 logger.info("🔄 Resetting AudioProcessor - processor is in stopping state from previous session")
 
             # Reset if there's accumulated transcription data from previous session
-            elif hasattr(_global_audio_processor, "global_transcript") and (_global_audio_processor.global_transcript.get("committed_tokens") or _global_audio_processor.global_transcript.get("current_buffer")):
+            elif hasattr(_global_audio_processor, "committed_transcript") and (_global_audio_processor.committed_transcript.get("tokens") or _global_audio_processor.committed_transcript.get("buffer")):
                 should_reset = True
                 logger.info("🔄 Resetting AudioProcessor - has accumulated data from previous session")
 

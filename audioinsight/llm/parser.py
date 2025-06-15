@@ -87,8 +87,9 @@ class Parser(EventBasedProcessor):
     Returns structured ParsedTranscript objects for sharing between UI and analyzer.
     Uses the universal LLM client for consistent inference and EventBasedProcessor for queue management.
 
-    This is a STATEFUL processor that manages incremental parsing state, so it uses single-worker
-    mode to prevent race conditions and duplicate processing.
+    This parser works on the entire committed transcript regardless of language.
+    Duplication protection is removed since committed transcript already has underlying protection.
+    s2hk conversion is NOT applied here - it will be applied only at the final step.
     """
 
     def __init__(
@@ -104,7 +105,7 @@ class Parser(EventBasedProcessor):
             api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
             config: Configuration for the text parser
         """
-        # STATELESS REWORK: Allow multiple workers and disable work coordination as it's no longer needed.
+        # Remove duplication protection - committed transcript already handles this
         super().__init__(queue_maxsize=100, cooldown_seconds=0.5, max_concurrent_workers=4, enable_work_coordination=False)
 
         self.config = config or ParserConfig(model_id=model_id)
@@ -117,9 +118,7 @@ class Parser(EventBasedProcessor):
         # Statistics using the new standardized class - lightweight initialization
         self.stats = ParserStats()
 
-        # STATELESS REWORK: Removed stateful variables (_state_lock, _last_processed_text, etc.)
-        # The parser will now process the full text provided in each request.
-        logger.info(f"Parser initialized in stateless mode.")
+        logger.info(f"Parser initialized - works on entire committed transcript, no duplication protection needed.")
 
         # Callback for storing parsed results
         self._result_callback = None
@@ -256,12 +255,6 @@ IMPORTANT: Always respond in the same language and script as the input text. For
                 else:
                     logger.info(f"Chinese text parsed successfully: '{text[:30]}...' -> '{parsed_text[:30]}...'")
 
-            # Apply s2hk conversion if the text contains Chinese
-            if contains_chinese(parsed_text):
-                original_parsed = parsed_text
-                parsed_text = s2hk(parsed_text)
-                logger.debug(f"Applied s2hk conversion: '{original_parsed[:30]}...' -> '{parsed_text[:30]}...'")
-
             # Create segments from the parsed content
             segments = self._create_segments(text, parsed_text, speaker_info, timestamps)
 
@@ -274,14 +267,8 @@ IMPORTANT: Always respond in the same language and script as the input text. For
 
         except Exception as e:
             logger.error(f"Failed to parse transcript: {e}")
-            # CHINESE PARSER FIX: Better fallback for Chinese text
-            if contains_chinese(text):
-                logger.info(f"Using original Chinese text as fallback due to parsing error")
-                # Apply s2hk conversion to original text as fallback
-                fallback_text = s2hk(text)
-            else:
-                fallback_text = text
-            return ParsedTranscript(original_text=text, parsed_text=fallback_text, parsing_time=time.time() - start_time)
+            # Return original text as fallback without s2hk conversion
+            return ParsedTranscript(original_text=text, parsed_text=text, parsing_time=time.time() - start_time)
 
     async def parse_text(self, text: str) -> str:
         """Parse text and return only the corrected text string.

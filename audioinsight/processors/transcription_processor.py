@@ -92,32 +92,26 @@ class TranscriptionProcessor(BaseProcessor):
                 new_tokens = self.online.process_iter()
 
                 if new_tokens:
-                    # Convert tokens to Traditional Chinese for consistency across the entire pipeline
-                    for token in new_tokens:
-                        if token.text:
-                            token.text = s2hk(token.text)
-
+                    # Store tokens without s2hk conversion - conversion will be applied only at final step
                     self.full_transcription += self.sep.join([t.text for t in new_tokens])
                     # Add minimal token generation logging for UI debugging
                     if len(new_tokens) > 0:
                         logger.debug(f"🎤 Generated {len(new_tokens)} new tokens: '{new_tokens[0].text[:30]}...'")
 
-                    # Get buffer information and convert to Traditional Chinese
+                    # Get buffer information without s2hk conversion
                     _buffer = self.online.get_buffer()
-                    buffer = s2hk(_buffer.text) if _buffer.text else _buffer.text
+                    buffer = _buffer.text if _buffer.text else _buffer.text
                     end_buffer = _buffer.end if _buffer.end else (new_tokens[-1].end if new_tokens else 0)
 
                     # Buffer coordination now handled by work coordination system
 
                     await update_callback(new_tokens, buffer, end_buffer, self.full_transcription, self.sep)
 
-                    # Work with GLOBAL MEMORY instead of local accumulation
+                    # Work with COMMITTED TRANSCRIPT MEMORY instead of local accumulation
                     if self.coordinator and new_tokens:
                         new_text = self.sep.join([t.text for t in new_tokens])
-                        # Text is already converted above, so use it directly
-                        new_text_converted = new_text
 
-                        if new_text_converted.strip():
+                        if new_text.strip():
                             # NON-BLOCKING: Update LLM with new transcription text in background
                             if self.coordinator.llm:
                                 # Get speaker info for LLM context
@@ -127,19 +121,19 @@ class TranscriptionProcessor(BaseProcessor):
 
                                 # Make this completely non-blocking - fire and forget
                                 try:
-                                    self.coordinator.llm.update_transcription(new_text_converted, speaker_info_dict)
-                                    logger.debug(f"🔄 Updated LLM with {len(new_text_converted)} chars: '{new_text_converted[:50]}...'")
+                                    self.coordinator.llm.update_transcription(new_text, speaker_info_dict)
+                                    logger.debug(f"🔄 Updated LLM with {len(new_text)} chars: '{new_text[:50]}...'")
                                 except Exception as e:
                                     logger.debug(f"Non-critical LLM update error: {e}")
 
-                            # REWORKED WORKFLOW: Parse the entire committed transcript each time for comprehensive context.
+                            # PARSER SHOULD WORK ON ENTIRE COMMITTED TRANSCRIPT regardless of language
                             if self.coordinator and self.coordinator.transcript_parser:
                                 # Get the entire committed transcript from global memory
                                 try:
                                     async with self.coordinator.lock:
-                                        committed_tokens = self.coordinator.global_transcript.get("committed_tokens", [])
+                                        committed_tokens = self.coordinator.committed_transcript.get("tokens", [])
                                         if committed_tokens:
-                                            # Build the full committed transcript text
+                                            # Build the full committed transcript text (without s2hk conversion)
                                             full_committed_text = self.sep.join([token.text for token in committed_tokens if token.text])
 
                                             if full_committed_text and full_committed_text.strip():
@@ -196,7 +190,7 @@ class TranscriptionProcessor(BaseProcessor):
 
     def finish_transcription(self):
         """Finish the transcription to get any remaining tokens."""
-        # Finish the ASR engine first and convert any remaining tokens
+        # Finish the ASR engine first without s2hk conversion
         final_tokens = []
         if self.online:
             try:
@@ -204,17 +198,16 @@ class TranscriptionProcessor(BaseProcessor):
                 # Handle both single Transcript object and list of tokens
                 if final_result:
                     if hasattr(final_result, "text") and final_result.text:
-                        # Single Transcript object - convert to token
+                        # Single Transcript object - convert to token without s2hk
                         from ..timed_objects import ASRToken
 
-                        final_token = ASRToken(start=getattr(final_result, "start", 0), end=getattr(final_result, "end", 0), text=s2hk(final_result.text), speaker=getattr(final_result, "speaker", 0))
+                        final_token = ASRToken(start=getattr(final_result, "start", 0), end=getattr(final_result, "end", 0), text=final_result.text, speaker=getattr(final_result, "speaker", 0))
                         final_tokens = [final_token]
                     elif hasattr(final_result, "__iter__"):
-                        # List of tokens
+                        # List of tokens without s2hk conversion
                         final_tokens = []
                         for token in final_result:
                             if hasattr(token, "text") and token.text:
-                                token.text = s2hk(token.text)
                                 final_tokens.append(token)
                     else:
                         final_tokens = []
