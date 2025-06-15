@@ -107,6 +107,13 @@ class AudioProcessor(BaseProcessor):
         self.parsed_transcripts = []  # Store parsed transcript data
         self.last_parsed_transcript = None  # Most recent parsed transcript
         self._parser_enabled = True  # Enable transcript parsing by default
+        self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
+        self.min_text_threshold = 100  # Variable: parse all if text < this many chars
+        self.sentence_percentage = 0.40  # Variable: parse last 40% of sentences if text >= threshold
+
+        # VALIDATION: Track original text length when sent to parser for validation
+        self._parser_original_lengths = {}  # Store original lengths keyed by text hash
+        self._length_validation_tolerance = 0.3  # Allow 30% difference in length
 
         # OPTIMIZATION: Pre-initialize LLM components for faster first connection
         self._initialize_llm_components()
@@ -268,7 +275,7 @@ class AudioProcessor(BaseProcessor):
             logger.info(f"✅ Added new inference result (total: {len(self.analyses)})")
 
     async def _handle_parsed_transcript_callback(self, parsed_transcript: ParsedTranscript):
-        """Handle parsed transcript callback to update parsed transcript memory.
+        """Handle parsed transcript callback to update parsed transcript memory with length validation.
 
         Args:
             parsed_transcript: The parsed transcript result containing the full parsed text
@@ -283,10 +290,33 @@ class AudioProcessor(BaseProcessor):
                 if len(self.parsed_transcripts) > 50:
                     self.parsed_transcripts = self.parsed_transcripts[-50:]
 
-                # Update the parsed transcript memory with s2hk conversion applied
-                if parsed_transcript.parsed_text and parsed_transcript.parsed_text.strip():
+                # VALIDATION: Check if parsed text length is reasonable compared to original
+                original_text = parsed_transcript.original_text
+                parsed_text = parsed_transcript.parsed_text
+                original_hash = hash(original_text)
+
+                # Check if we have the stored original length for validation
+                stored_original_length = self._parser_original_lengths.get(original_hash)
+                should_update_parsed_transcript = True
+
+                if stored_original_length is not None:
+                    # Validate length difference
+                    length_diff_ratio = abs(len(parsed_text) - stored_original_length) / stored_original_length
+                    if length_diff_ratio > self._length_validation_tolerance:
+                        logger.warning(f"❌ Parsed transcript length validation failed: original={stored_original_length}, parsed={len(parsed_text)}, diff_ratio={length_diff_ratio:.2f} > {self._length_validation_tolerance}")
+                        should_update_parsed_transcript = False
+                    else:
+                        logger.info(f"✅ Parsed transcript length validation passed: original={stored_original_length}, parsed={len(parsed_text)}, diff_ratio={length_diff_ratio:.2f}")
+
+                    # Clean up stored length
+                    self._parser_original_lengths.pop(original_hash, None)
+                else:
+                    logger.debug(f"⚠️ No stored original length found for validation (hash: {original_hash}), proceeding with update")
+
+                # Update the parsed transcript memory only if validation passed
+                if should_update_parsed_transcript and parsed_text and parsed_text.strip():
                     # Apply s2hk conversion to parsed text at this final step
-                    parsed_text_with_s2hk = s2hk(parsed_transcript.parsed_text)
+                    parsed_text_with_s2hk = s2hk(parsed_text)
 
                     # Update the parsed transcript memory
                     self.parsed_transcript["text"] = parsed_text_with_s2hk
@@ -312,7 +342,12 @@ class AudioProcessor(BaseProcessor):
 
                         logger.info(f"📝 Replaced {len(parsed_token.original_tokens)} tokens with parsed text (s2hk applied): '{parsed_text_with_s2hk[:50]}...'")
 
-            logger.info(f"📝 Processed parsed transcript callback: {len(parsed_transcript.original_text)} -> {len(parsed_transcript.parsed_text)} chars (s2hk applied)")
+                    logger.info(f"📝 Updated parsed transcript: {len(original_text)} -> {len(parsed_text)} chars (s2hk applied)")
+                else:
+                    if not should_update_parsed_transcript:
+                        logger.warning(f"📝 Skipped parsed transcript update due to validation failure")
+                    else:
+                        logger.debug(f"📝 Skipped parsed transcript update - empty parsed text")
 
         except Exception as e:
             logger.warning(f"Failed to handle parsed transcript callback: {e}")
@@ -426,17 +461,29 @@ class AudioProcessor(BaseProcessor):
             }
 
             # Reset legacy fields for compatibility
-            self.tokens.clear()
-            self.buffer_transcription = self.buffer_diarization = ""
-            self.end_buffer = self.end_attributed_speaker = 0
-            self.full_transcription = self.last_response_content = ""
+            self.tokens = []
+            self.buffer_transcription = ""
+            self.buffer_diarization = ""
+            self.full_transcription = ""
+            self.end_buffer = 0
+            self.end_attributed_speaker = 0
             self.beg_loop = time()
+            self.last_response_content = ""
+
+            # Reset analysis data
+            self.analyses = []
+            self._has_analyses = False
+            self._last_analysis_check = 0
+            self._final_analysis_generated = False
+            self._final_analysis_in_progress = False
 
             # Reset parsed transcript data
-            self.parsed_transcripts.clear()
+            self.parsed_transcripts = []
             self.last_parsed_transcript = None
-            # Reset final analysis flag
-            self._final_analysis_generated = False
+            self.last_parsed_text = ""
+
+            # VALIDATION: Clear stored original lengths
+            self._parser_original_lengths = {}
 
         # Reset transcription processor's incremental parsing state
         if self.transcription_processor:
@@ -1012,6 +1059,29 @@ class AudioProcessor(BaseProcessor):
                         self.full_transcription = (final_state.get("sep", " ") or " ").join(all_token_texts)
                         logger.info(f"🔄 Updated full transcription (now {len(self.full_transcription)} chars)")
 
+                    # CRITICAL FIX: Send final committed transcript to parser to ensure last sentence gets processed
+                    if self.transcript_parser and self._parser_enabled:
+                        try:
+                            # Get the complete final committed transcript
+                            final_committed_text = self.sep.join([token.text for token in self.committed_transcript["tokens"] if token.text])
+
+                            if final_committed_text and final_committed_text.strip():
+                                # Store original text length for validation
+                                text_hash = hash(final_committed_text)
+                                self._parser_original_lengths[text_hash] = len(final_committed_text)
+                                logger.info(f"📏 Stored final transcript length for parsing: {len(final_committed_text)} chars")
+
+                                # Queue the final transcript for parsing
+                                success = await self.transcript_parser.queue_parsing_request(final_committed_text, None, None)
+                                if success:
+                                    logger.info(f"✅ Final committed transcript queued for parsing: {len(final_committed_text)} chars")
+                                else:
+                                    logger.warning(f"⏳ Failed to queue final transcript for parsing")
+                                    # Remove the stored length if queueing failed
+                                    self._parser_original_lengths.pop(text_hash, None)
+                        except Exception as e:
+                            logger.warning(f"Failed to queue final transcript for parsing: {e}")
+
         # SINGLE SOURCE: All content is now in global memory
         logger.info(f"🔄 Using global memory for final processing: '{final_global_text[:100]}...' ({len(final_global_text)} chars)")
 
@@ -1130,6 +1200,30 @@ class AudioProcessor(BaseProcessor):
             logger.warning("❌ Final analysis NOT generated - LLM unavailable or no content")
             # Set flag even when no analysis is generated to prevent hanging
             self._final_analysis_generated = True
+
+        # CRITICAL FIX: Wait for final parsing to complete before generating final response
+        if self.transcript_parser and self._parser_enabled and additional_tokens_created > 0:
+            logger.info("⏳ Waiting for final parsing to complete...")
+            max_parse_wait_time = 3.0  # Wait up to 3 seconds for final parsing
+            parse_poll_interval = 0.2
+            parse_waited_time = 0.0
+            initial_parsed_count = len(self.parsed_transcripts)
+
+            while parse_waited_time < max_parse_wait_time:
+                await asyncio.sleep(parse_poll_interval)
+                parse_waited_time += parse_poll_interval
+
+                # Check if new parsed transcript was added
+                async with self.lock:
+                    current_parsed_count = len(self.parsed_transcripts)
+
+                if current_parsed_count > initial_parsed_count:
+                    logger.info(f"✅ Final parsing completed after {parse_waited_time:.1f}s wait")
+                    break
+
+                if parse_waited_time >= max_parse_wait_time:
+                    logger.warning(f"⚠️ Final parsing not completed after {max_parse_wait_time}s wait")
+                    break
 
         # Get updated final state after inference processing
         final_state = await self.get_current_state()

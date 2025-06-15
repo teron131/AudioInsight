@@ -176,11 +176,18 @@ class TranscriptionProcessor(BaseProcessor):
         """Queue parser request without blocking transcription processing."""
         try:
             if self.coordinator and self.coordinator.transcript_parser:
+                # Store original text length for validation when parsed result comes back
+                text_hash = hash(text_to_parse)
+                self.coordinator._parser_original_lengths[text_hash] = len(text_to_parse)
+                logger.debug(f"📏 Stored original text length: {len(text_to_parse)} chars (hash: {text_hash})")
+
                 success = await self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, speaker_info, None)
                 if success:
                     logger.debug(f"✅ Parser queue accepted {len(text_to_parse)} chars")
                 else:
                     logger.debug(f"⏳ Parser queue busy, will retry later")
+                    # Remove the stored length if queueing failed
+                    self.coordinator._parser_original_lengths.pop(text_hash, None)
         except Exception as e:
             logger.debug(f"Parser queue error (non-critical): {e}")
 
