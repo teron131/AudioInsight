@@ -230,7 +230,6 @@ class TranscriptionProcessor(BaseProcessor):
 
     async def reset_parsing_state(self):
         """Reset the incremental parsing state for fresh sessions."""
-        self.last_parsed_text = ""
         # No local accumulation to reset - using global memory
 
         # Also reset parser state if available

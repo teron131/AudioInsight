@@ -107,9 +107,6 @@ class AudioProcessor(BaseProcessor):
         self.parsed_transcripts = []  # Store parsed transcript data
         self.last_parsed_transcript = None  # Most recent parsed transcript
         self._parser_enabled = True  # Enable transcript parsing by default
-        self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
-        self.min_text_threshold = 100  # Variable: parse all if text < this many chars
-        self.sentence_percentage = 0.40  # Variable: parse last 40% of sentences if text >= threshold
 
         # OPTIMIZATION: Pre-initialize LLM components for faster first connection
         self._initialize_llm_components()
@@ -816,30 +813,21 @@ class AudioProcessor(BaseProcessor):
                     await self.update_diarization(end_attributed_speaker, combined)
                     buffer_diarization = combined
 
-                # Create response object - apply s2hk conversion only to parsed transcript at final step
+                # Create response object - apply s2hk conversion to all tokens and buffers at final step
                 if not lines:
                     lines = [{"speaker": 0, "text": "", "beg": format_time(0), "end": format_time(tokens[-1].end if tokens else 0), "diff": 0}]
 
-                # Check if we have parsed transcript to apply s2hk conversion
+                # Apply s2hk conversion to all line text at final step
                 final_lines = []
                 for line in lines:
                     line_text = line["text"] if line["text"] else ""
-                    # Apply s2hk conversion only if this is parsed content
-                    if self.parsed_transcript["text"] and line_text in self.parsed_transcript["text"]:
-                        # This is parsed content - apply s2hk conversion
-                        line_text = s2hk(line_text) if line_text else line_text
-                    # Otherwise, keep original text without s2hk conversion
+                    # Apply s2hk conversion to all text at final step
+                    line_text = s2hk(line_text) if line_text else line_text
                     final_lines.append({**line, "text": line_text})
 
-                # Apply s2hk conversion only to parsed content in buffers
-                final_buffer_transcription = buffer_transcription
-                final_buffer_diarization = buffer_diarization
-                if self.parsed_transcript["text"]:
-                    # If we have parsed content, apply s2hk to buffers that contain parsed content
-                    if buffer_transcription and buffer_transcription in self.parsed_transcript["text"]:
-                        final_buffer_transcription = s2hk(buffer_transcription)
-                    if buffer_diarization and buffer_diarization in self.parsed_transcript["text"]:
-                        final_buffer_diarization = s2hk(buffer_diarization)
+                # Apply s2hk conversion to all buffers at final step
+                final_buffer_transcription = s2hk(buffer_transcription) if buffer_transcription else buffer_transcription
+                final_buffer_diarization = s2hk(buffer_diarization) if buffer_diarization else buffer_diarization
 
                 response = {"lines": final_lines, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": state["remaining_time_transcription"], "remaining_time_diarization": state["remaining_time_diarization"], "diarization_enabled": self.args.diarization}
 
@@ -1153,26 +1141,17 @@ class AudioProcessor(BaseProcessor):
         # Format final lines using global transcript tokens (which may contain parsed content)
         final_lines_raw = await self.formatter.format_by_speaker(tokens_for_formatting, final_state["sep"], final_state["end_attributed_speaker"])
 
-        # Apply s2hk conversion only to parsed transcript content at final step
+        # Apply s2hk conversion to all tokens and buffers at final step
         final_lines_converted = []
         for line in final_lines_raw:
             line_text = line["text"] if line["text"] else ""
-            # Apply s2hk conversion only if this is parsed content
-            if self.parsed_transcript["text"] and line_text in self.parsed_transcript["text"]:
-                # This is parsed content - apply s2hk conversion
-                line_text = s2hk(line_text) if line_text else line_text
-            # Otherwise, keep original text without s2hk conversion
+            # Apply s2hk conversion to all text at final step
+            line_text = s2hk(line_text) if line_text else line_text
             final_lines_converted.append({**line, "text": line_text})
 
-        # Apply s2hk conversion only to parsed content in buffers
-        final_buffer_transcription = final_state["buffer_transcription"]
-        final_buffer_diarization = final_state["buffer_diarization"]
-        if self.parsed_transcript["text"]:
-            # If we have parsed content, apply s2hk to buffers that contain parsed content
-            if final_buffer_transcription and final_buffer_transcription in self.parsed_transcript["text"]:
-                final_buffer_transcription = s2hk(final_buffer_transcription)
-            if final_buffer_diarization and final_buffer_diarization in self.parsed_transcript["text"]:
-                final_buffer_diarization = s2hk(final_buffer_diarization)
+        # Apply s2hk conversion to all buffers at final step
+        final_buffer_transcription = s2hk(final_state["buffer_transcription"]) if final_state["buffer_transcription"] else ""
+        final_buffer_diarization = s2hk(final_state["buffer_diarization"]) if final_state["buffer_diarization"] else ""
 
         # Create final response with remaining buffer text included
         final_response = {"lines": final_lines_converted, "buffer_transcription": final_buffer_transcription, "buffer_diarization": final_buffer_diarization, "remaining_time_transcription": 0, "remaining_time_diarization": 0, "diarization_enabled": self.args.diarization}

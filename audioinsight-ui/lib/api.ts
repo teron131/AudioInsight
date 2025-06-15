@@ -468,15 +468,9 @@ export class AudioInsightAPI {
 
   async cleanupSession(): Promise<void> {
     try {
-      // Try new API first
       await fetch(`${this.baseUrl}/api/sessions/reset`, { method: 'POST' });
     } catch (error) {
-      // Fallback to legacy API
-      try {
-        await fetch(`${this.baseUrl}/cleanup-session`, { method: 'POST' });
-      } catch (legacyError) {
-        console.warn('Session cleanup failed:', legacyError);
-      }
+      console.warn('Session cleanup failed:', error);
     }
   }
 

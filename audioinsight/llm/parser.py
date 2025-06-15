@@ -162,7 +162,7 @@ IMPORTANT: Always respond in the same language and script as the input text. For
     async def _process_item(self, item):
         """
         Process a single parsing request from the queue.
-        This is now STATELESS and processes the full text provided.
+        Processes the full text provided in each request.
         """
         start_time = time.time()
         try:
@@ -170,7 +170,7 @@ IMPORTANT: Always respond in the same language and script as the input text. For
             if hasattr(item, "data"):
                 text, speaker_info, timestamps = item.data
             else:
-                # Fallback for direct tuple (backward compatibility)
+                # Direct tuple format
                 text, speaker_info, timestamps = item
 
             if not text or not text.strip():
@@ -401,7 +401,7 @@ IMPORTANT: Always respond in the same language and script as the input text. For
         base_stats = super().get_queue_status()
         parser_stats = self.stats.to_dict()
 
-        # STATELESS REWORK: Remove stateful info from stats
+        # Add processor info to stats
         parser_stats.update(
             {
                 "stateful_processor": False,
@@ -411,8 +411,8 @@ IMPORTANT: Always respond in the same language and script as the input text. For
         return {**base_stats, **parser_stats}
 
     async def reset_state(self):
-        """STATELESS REWORK: No state to reset."""
-        logger.info("Parser is now stateless, no state to reset.")
+        """No state to reset since parser processes full text each time."""
+        logger.info("Parser processes full text each time, no state to reset.")
         pass
 
     def set_result_callback(self, callback):

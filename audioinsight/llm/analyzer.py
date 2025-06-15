@@ -228,10 +228,6 @@ Remember to respond in the same language, script, and regional conventions as th
         """
         self.inference_callbacks.append(callback)
 
-    def add_analysis_callback(self, callback):
-        """Legacy method for backward compatibility. Use add_inference_callback instead."""
-        self.add_inference_callback(callback)
-
     def update_transcription(self, new_text: str, speaker_info: Optional[Dict] = None):
         """Update with new transcription text - COMPLETELY NON-BLOCKING.
 
@@ -429,10 +425,6 @@ Remember to respond in the same language, script, and regional conventions as th
         """Get the most recent inference."""
         return self.last_inference
 
-    def get_last_analysis(self) -> Optional[AnalyzerResponse]:
-        """Legacy method for backward compatibility. Use get_last_inference instead."""
-        return self.get_last_inference()
-
     def get_stats(self) -> Dict[str, Any]:
         """Get inference statistics."""
         base_stats = self.get_queue_status()
@@ -447,7 +439,3 @@ Remember to respond in the same language, script, and regional conventions as th
         # Force inference bypasses the queue system
         await self._generate_inference(trigger_reason="forced")
         return self.last_inference
-
-    async def force_analysis(self) -> Optional[AnalyzerResponse]:
-        """Legacy method for backward compatibility. Use force_inference instead."""
-        return await self.force_inference()
