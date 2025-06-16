@@ -4,7 +4,7 @@ from time import time
 from typing import Optional
 
 from ..llm import Analyzer, LLMTrigger, ParsedTranscript, Parser, ParserConfig
-from ..main import AudioInsight
+from ..audioinsight_kit import AudioInsight
 from ..timed_objects import ASRToken
 from .base_processor import BaseProcessor, format_time, logger, s2hk
 from .diarization_processor import DiarizationProcessor

@@ -37,4 +37,4 @@ diarization = [
 ]
 
 [project.scripts]
-audioinsight-server = "audioinsight.app:main"
+audioinsight-server = "audioinsight.audioinsight_server:main"
