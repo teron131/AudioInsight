@@ -32,13 +32,13 @@ npm run dev
 # Frontend: http://localhost:3030
 ```
 
-### Option 2: Traditional pip
+### Option 2: Traditional approach (fallback)
 
 ```bash
 # Clone and install dependencies
 git clone https://github.com/teron131/AudioInsight.git
 cd AudioInsight
-pip install -e .
+uv sync
 npm install --prefix audioinsight-ui
 
 # Start both backend and frontend
@@ -142,26 +142,28 @@ flowchart TD
 
 ## 🚀 Installation & Setup
 
-### Standard Installation
+### Standard Installation with uv
 
 ```bash
 # Clone the repository
 git clone https://github.com/teron131/AudioInsight
 cd AudioInsight
 
-# Install in development mode
-pip install -e .
+# Install with uv (recommended)
+uv sync
+
+# Install as editable package
+uv pip install -e .
 ```
 
 ### Development Installation with Full Features
 
 ```bash
-# Install with all features
-pip install -e ".[complete]"
+# Install with speaker diarization support
+uv sync --extra diarization
 
-# Or install specific feature sets
-pip install -e ".[diarization,llm]"  # Speaker diarization + LLM analysis
-pip install -e ".[vac,whisper]"      # Voice activity + Whisper variants
+# Or manually add the extra dependency group
+uv add --group diarization "pyannote-audio>=3.3.2" "huggingface-hub>=0.32.4" "torchaudio>=2.7.1" "torchvision>=0.22.1"
 ```
 
 ### System Requirements
@@ -177,20 +179,13 @@ brew install ffmpeg           # macOS
 **Optional Enhancements:**
 ```bash
 # Voice Activity Detection (recommended)
-pip install torch
-
-# Advanced sentence tokenization
-pip install mosestokenizer
+uv add torch
 
 # Speaker diarization
-pip install "audioinsight[diarization]"
+uv sync --extra diarization
 
 # LLM inference capabilities (for conversation analysis)
-pip install "audioinsight[llm]"
-
-# Alternative Whisper backends
-pip install "audioinsight[whisper]"   # Original Whisper
-pip install "audioinsight[openai]"    # OpenAI API
+# Set environment variables for API keys
 ```
 
 ### Speaker Diarization Setup
@@ -204,8 +199,8 @@ For multi-speaker identification, configure pyannote.audio:
 
 2. Login to Hugging Face:
    ```bash
-   pip install huggingface_hub
-   huggingface-cli login
+   uv add huggingface-hub
+   uv run huggingface-cli login
    ```
 
 ### LLM Configuration
@@ -232,10 +227,10 @@ export GOOGLE_API_KEY="your-google-api-key"
 **Basic Usage:**
 ```bash
 # English transcription with default model
-audioinsight-server
+uv run audioinsight-server
 
 # Advanced configuration with LLM analysis
-audioinsight-server \
+uv run audioinsight-server \
   --model large-v3-turbo \
   --language auto \
   --diarization \
@@ -249,7 +244,7 @@ audioinsight-server \
 **LLM-Enhanced Processing:**
 ```bash
 # Enable conversation analysis with custom settings
-audioinsight-server \
+uv run audioinsight-server \
   --model large-v3-turbo \
   --diarization \
   --llm-inference \
@@ -259,7 +254,7 @@ audioinsight-server \
 
 **SSL/HTTPS Support:**
 ```bash
-audioinsight-server \
+uv run audioinsight-server \
   --ssl-certfile cert.pem \
   --ssl-keyfile key.pem
 # Access via https://localhost:8080
@@ -279,7 +274,7 @@ npm run dev
 ```bash
 # Backend only
 ./start.sh
-# Or: audioinsight-server
+# Or: uv run audioinsight-server
 
 # Frontend only  
 cd audioinsight-ui && npm run dev:frontend
@@ -440,7 +435,7 @@ AudioInsight provides comprehensive API endpoints for different processing modes
 - `/api/batch/*` - Batch processing operations
 
 **Processing Modes:**
-- **Live Recording**: Direct WebSocket connection with browser microphone and real-time LLM analysis
+- **Live Recording**: Direct browser microphone with real-time LLM analysis
 - **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation and integrated LLM analysis
 - **Direct File Processing**: Immediate processing with complete JSON response including LLM insights
 - **Streaming File Processing**: Real-time progress updates via Server-Sent Events with integrated LLM analysis
@@ -570,7 +565,7 @@ docker run --gpus all -p 8080:8080 \
 ```bash
 # Include additional features
 docker build \
-  --build-arg EXTRAS="complete" \
+  --build-arg EXTRAS="diarization" \
   --build-arg HF_TOKEN="your_hf_token" \
   -t audioinsight-full .
 ```
@@ -578,26 +573,6 @@ docker build \
 ---
 
 ## 🌐 Production Deployment
-
-### Nginx Reverse Proxy
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    # WebSocket support
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
 
 ### Environment Variables
 
@@ -621,10 +596,94 @@ sudo systemctl enable audioinsight
 sudo systemctl start audioinsight
 
 # Using PM2 with environment variables
-pm2 start "audioinsight-server --model large-v3-turbo --llm-inference" \
+pm2 start "uv run audioinsight-server --model large-v3-turbo --llm-inference" \
   --name audioinsight \
   --env OPENAI_API_KEY="your-key"
 
 # Using Docker Compose
 docker-compose up -d
+```
+
+### Nginx Reverse Proxy
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    # WebSocket support
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+---
+
+## 🛠️ Development Workflow
+
+### Setting up Development Environment
+
+```bash
+# Clone and setup with uv
+git clone https://github.com/teron131/AudioInsight
+cd AudioInsight
+
+# Install dependencies
+uv sync
+
+# Install as editable package
+uv pip install -e .
+
+# Install frontend dependencies
+npm install --prefix audioinsight-ui
+```
+
+### Running Development Services
+
+```bash
+# Full-stack development (recommended)
+npm run dev                  # Starts both backend and frontend
+
+# Individual services
+uv run audioinsight-server   # Backend only
+npm run ui:dev              # Frontend only
+```
+
+### Adding Dependencies
+
+```bash
+# Add runtime dependencies
+uv add requests fastapi
+
+# Add development dependencies  
+uv add --dev pytest black ruff
+
+# Add optional dependency groups
+uv add --group diarization pyannote-audio
+
+# Sync all dependencies
+uv sync --all-extras
+```
+
+### Testing and Quality
+
+```bash
+# Run tests
+uv run pytest
+
+# Code formatting
+uv run black .
+
+# Linting
+uv run ruff check .
+
+# Type checking
+uv run mypy audioinsight/
 ```

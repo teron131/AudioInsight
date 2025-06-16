@@ -43,7 +43,7 @@ AudioInsight's LLM processing layer implements a clean async architecture for ef
 
 ### **Streaming Pipeline Components**
 
-#### **`audioinsight/main.py`** - System Coordination and CLI Entry Point
+#### **`audioinsight/audioinsight_kit.py`** - System Coordination and Main Entry Point
 - `AudioInsight` class: Main system coordinator and model management
 - Command-line interface implementation with comprehensive argument parsing
 - Model loading orchestration and backend selection
@@ -85,7 +85,7 @@ AudioInsight's LLM processing layer implements a clean async architecture for ef
 - Performance and debugging log management
 - Structured logging for monitoring and analysis
 
-#### **`audioinsight/app.py`** - FastAPI Server Implementation
+#### **`audioinsight/audioinsight_server.py`** - FastAPI Server Implementation
 - FastAPI application with comprehensive API endpoints
 - WebSocket handling for real-time communication
 - File upload and processing endpoints
