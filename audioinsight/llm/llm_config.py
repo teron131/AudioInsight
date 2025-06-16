@@ -51,6 +51,7 @@ class ParserConfig(LLMConfig):
     model_id: str = Field(default="openai/gpt-4.1-nano", description="Fast model for parsing")
     max_output_tokens: int = Field(default=33000, description="Large token limit for comprehensive parsing")
     trigger_interval_seconds: float = Field(default=0.8, description="Minimum time between parsing triggers")
+    parser_window: int = Field(default=100, description="Character window size for sentence processing")
 
     def needs_chunking(self) -> bool:
         """Check if input needs to be chunked based on model limits."""
@@ -83,6 +84,7 @@ def get_parser_config() -> ParserConfig:
         model_id=config.llm.fast_llm,
         max_output_tokens=config.llm.parser_output_tokens,
         trigger_interval_seconds=config.llm.parser_trigger_interval,
+        parser_window=config.llm.parser_window,
     )
 
 
@@ -121,6 +123,7 @@ def get_runtime_settings() -> dict:
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
+        "parser_window": config.llm.parser_window,
         "llm_inference": config.features.llm_inference,
         "analyzer_output_tokens": config.llm.analyzer_output_tokens,
         "analyzer_max_input_length": config.llm.analyzer_max_input_length,
@@ -144,7 +147,7 @@ def update_runtime_config(updates: dict) -> dict:
     updated = {}
 
     # LLM-specific fields that can be updated at runtime
-    llm_fields = {"fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "analyzer_output_tokens", "analyzer_max_input_length"}
+    llm_fields = {"fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "parser_window", "analyzer_output_tokens", "analyzer_max_input_length"}
 
     for key, value in updates.items():
         if key in llm_fields and hasattr(config.llm, key):

@@ -24,21 +24,6 @@ class TranscriptionProcessor(BaseProcessor):
 
         # No incremental parsing state needed anymore
 
-    async def start_parser_worker(self):
-        """Start the parser worker task that processes queued text."""
-        if self.coordinator and self.coordinator.transcript_parser:
-            await self.coordinator.transcript_parser.start_worker()
-            logger.info("Started parser worker from transcript parser")
-
-    async def stop_parser_worker(self):
-        """Stop the parser worker task."""
-        if self.coordinator and self.coordinator.transcript_parser:
-            await self.coordinator.transcript_parser.stop_worker()
-            logger.info("Stopped parser worker from transcript parser")
-
-    # Removed _get_text_to_parse and _get_last_sentences_percentage as they are no longer needed
-    # for the simplified "always parse full transcript" workflow.
-
     async def process(self, transcription_queue, update_callback, llm=None):
         """Process audio chunks for transcription."""
         self.full_transcription = ""
@@ -111,21 +96,30 @@ class TranscriptionProcessor(BaseProcessor):
                         new_text = self.sep.join([t.text for t in new_tokens])
 
                         if new_text.strip():
-                            # NON-BLOCKING: Update LLM with new transcription text in background
+                            # NON-BLOCKING: Update LLM with new transcription text using direct await
                             if self.coordinator.llm:
                                 # Get speaker info for LLM context
                                 speaker_info_dict = None
                                 if new_tokens and hasattr(new_tokens[0], "speaker") and new_tokens[0].speaker is not None:
                                     speaker_info_dict = {"speaker": new_tokens[0].speaker}
 
-                                # Make this completely non-blocking - fire and forget
+                                # Make this completely non-blocking - fire and forget with direct await
                                 try:
-                                    self.coordinator.llm.update_transcription(new_text, speaker_info_dict)
-                                    logger.debug(f"🔄 Updated LLM with {len(new_text)} chars: '{new_text[:50]}...'")
+                                    # Get the entire committed transcript from global memory for LLM analysis
+                                    async with self.coordinator.lock:
+                                        committed_tokens = self.coordinator.committed_transcript.get("tokens", [])
+                                        if committed_tokens:
+                                            # Build the full committed transcript text (without s2hk conversion)
+                                            full_committed_text = self.sep.join([token.text for token in committed_tokens if token.text])
+
+                                            if full_committed_text and full_committed_text.strip():
+                                                # Update LLM with full transcript using direct await (non-blocking)
+                                                asyncio.create_task(self.coordinator.llm.update_transcription_direct(full_committed_text, speaker_info_dict))
+                                                logger.debug(f"🔄 Updated LLM with {len(full_committed_text)} chars using direct await")
                                 except Exception as e:
                                     logger.debug(f"Non-critical LLM update error: {e}")
 
-                            # PARSER SHOULD WORK ON ENTIRE COMMITTED TRANSCRIPT regardless of language
+                            # PARSER SHOULD WORK ON ENTIRE COMMITTED TRANSCRIPT using direct await
                             if self.coordinator and self.coordinator.transcript_parser:
                                 # Get the entire committed transcript from global memory
                                 try:
@@ -141,11 +135,11 @@ class TranscriptionProcessor(BaseProcessor):
                                                 if committed_tokens and hasattr(committed_tokens[-1], "speaker") and committed_tokens[-1].speaker is not None:
                                                     speaker_info = [{"speaker": committed_tokens[-1].speaker}]
 
-                                                logger.info(f"✅ Queueing entire committed transcript for parsing: {len(full_committed_text)} chars")
-                                                # Send the entire committed transcript to be parsed
-                                                asyncio.create_task(self._queue_parser_non_blocking(full_committed_text, speaker_info))
+                                                logger.info(f"✅ Processing entire committed transcript with direct await: {len(full_committed_text)} chars")
+                                                # Process the entire committed transcript using direct await (non-blocking)
+                                                asyncio.create_task(self._parse_transcript_direct(full_committed_text, speaker_info))
                                 except Exception as e:
-                                    logger.debug(f"Non-critical parser queue error: {e}")
+                                    logger.debug(f"Non-critical parser processing error: {e}")
 
                     # Get accumulated speaker info (use most recent speaker)
                     speaker_info = None
@@ -171,24 +165,22 @@ class TranscriptionProcessor(BaseProcessor):
             # Log errors but don't let them affect transcription
             logger.warning(f"Transcript parsing update failed (non-critical): {e}")
 
-    async def _queue_parser_non_blocking(self, text_to_parse: str, speaker_info):
-        """Queue parser request without blocking transcription processing."""
+    async def _parse_transcript_direct(self, text_to_parse: str, speaker_info):
+        """Parse transcript using direct await (simplified from queue-based processing)."""
         try:
             if self.coordinator and self.coordinator.transcript_parser:
-                # Store original text length for validation when parsed result comes back
-                text_hash = hash(text_to_parse)
-                self.coordinator._parser_original_lengths[text_hash] = len(text_to_parse)
-                logger.debug(f"📏 Stored original text length: {len(text_to_parse)} chars (hash: {text_hash})")
-
-                success = await self.coordinator.transcript_parser.queue_parsing_request(text_to_parse, speaker_info, None)
-                if success:
-                    logger.debug(f"✅ Parser queue accepted {len(text_to_parse)} chars")
+                # Parse transcript using direct await
+                parsed_result = await self.coordinator.transcript_parser.parse_transcript_direct(text_to_parse, speaker_info, None)
+                if parsed_result:
+                    logger.debug(f"✅ Parsed transcript with direct await: {len(text_to_parse)} -> {len(parsed_result.parsed_text)} chars")
                 else:
-                    logger.debug(f"⏳ Parser queue busy, will retry later")
-                    # Remove the stored length if queueing failed
-                    self.coordinator._parser_original_lengths.pop(text_hash, None)
+                    logger.debug(f"⚠️ Transcript parsing returned no result")
         except Exception as e:
-            logger.debug(f"Parser queue error (non-critical): {e}")
+            logger.debug(f"Transcript parsing error (non-critical): {e}")
+
+    async def _queue_parser_non_blocking(self, text_to_parse: str, speaker_info):
+        """Legacy method - now redirects to direct await processing."""
+        await self._parse_transcript_direct(text_to_parse, speaker_info)
 
     async def _get_end_buffer(self):
         """Get current end buffer value - to be implemented by coordinator."""

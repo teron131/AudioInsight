@@ -64,6 +64,7 @@ def _get_argument_parser() -> ArgumentParser:
     llm_group.add_argument("--llm_new_text_trigger", type=int, default=DEFAULT_CONFIG["llm"]["llm_new_text_trigger"], help="Text length trigger for LLM processing. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_trigger_interval", type=float, default=DEFAULT_CONFIG["llm"]["parser_trigger_interval"], help="Parser trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_output_tokens", type=int, default=DEFAULT_CONFIG["llm"]["parser_output_tokens"], help="Maximum parser output tokens. [RUNTIME CONFIGURABLE]")
+    llm_group.add_argument("--parser_window", type=int, default=DEFAULT_CONFIG["llm"]["parser_window"], help="Character window size for sentence processing. [RUNTIME CONFIGURABLE]")
 
     # Development and debugging (STARTUP ONLY)
     debug_group = parser.add_argument_group("Development & Debugging (Startup Only)")
@@ -108,6 +109,12 @@ def _validate_args(args: Namespace) -> None:
 
     if args.parser_output_tokens > 100000:
         raise ValueError(f"parser_output_tokens too high (max 100000), got {args.parser_output_tokens}")
+
+    if args.parser_window <= 10:
+        raise ValueError(f"parser_window must be greater than 10, got {args.parser_window}")
+
+    if args.parser_window > 1000:
+        raise ValueError(f"parser_window too high (max 1000), got {args.parser_window}")
 
     # Validate feature combinations
     if args.no_transcription and not args.diarization:
@@ -361,6 +368,8 @@ class AudioInsight:
             self.config.llm.parser_trigger_interval = self.args.parser_trigger_interval
         if hasattr(self.args, "parser_output_tokens"):
             self.config.llm.parser_output_tokens = self.args.parser_output_tokens
+        if hasattr(self.args, "parser_window"):
+            self.config.llm.parser_window = self.args.parser_window
 
         # Recompute derived values
         self.config.model_post_init(None)

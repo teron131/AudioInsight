@@ -69,6 +69,7 @@ export interface ProcessingParameters {
   llm_new_text_trigger: number;
   parser_trigger_interval: number;
   parser_output_tokens: number;
+  parser_window: number;
 }
 
 export interface ConfigurationPreset {

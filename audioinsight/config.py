@@ -88,6 +88,7 @@ class LLMConfig(BaseSettings):
     # Parser Configuration
     parser_trigger_interval: float = Field(default=1.0, gt=0, description="Parser trigger interval")
     parser_output_tokens: int = Field(default=33000, gt=1000, le=100000, description="Parser max output tokens")
+    parser_window: int = Field(default=100, gt=10, le=1000, description="Character window size for sentence processing")
 
     # Analyzer Configuration
     analyzer_output_tokens: int = Field(default=4000, gt=100, le=8000, description="Analyzer max output tokens")
@@ -216,6 +217,7 @@ DEFAULT_CONFIG = {
         "llm_new_text_trigger": 50,
         "parser_trigger_interval": 1.0,
         "parser_output_tokens": 33000,
+        "parser_window": 100,
     },
 }
 
@@ -308,6 +310,7 @@ def get_processing_parameters() -> Dict[str, Any]:
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
+        "parser_window": config.llm.parser_window,
         # UI Configuration
         "show_lag_info": config.ui.show_lag_info,
         "show_speakers": config.ui.show_speakers,
@@ -337,7 +340,7 @@ def apply_parameter_updates(parameters: Dict[str, Any]) -> List[str]:
         elif backend_field in ["transcription", "diarization", "vad", "vac", "confidence_validation", "llm_inference"]:
             setattr(config.features, backend_field, value)
             updated_fields.append(frontend_field)
-        elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens"]:
+        elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "parser_window"]:
             setattr(config.llm, backend_field, value)
             updated_fields.append(frontend_field)
         elif backend_field in ["show_lag_info", "show_speakers"]:

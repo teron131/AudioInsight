@@ -30,7 +30,7 @@ AudioInsight/
 │   ├── whisper_streaming/     # Real-time audio processing & LocalAgreement-2
 │   └── llm/                   # Non-blocking event-based LLM processing system
 │       ├── __init__.py
-│       ├── llm_base.py        # EventBasedProcessor & shared executor foundation
+│       ├── llm_base.py        # UniversalLLM & shared executor foundation
 │       ├── parser.py          # Non-blocking text parsing (1 stateful worker)
 │       ├── analyzer.py        # Non-blocking conversation analysis (2 workers)
 │       ├── llm_config.py      # LLM configuration & environment management
@@ -132,7 +132,7 @@ Place in dedicated directories under `audioinsight/`:
 The `llm/` module implements high-performance non-blocking concurrent processing:
 
 #### **Core Components**
-- **`llm_base.py`**: EventBasedProcessor abstract class with shared thread pool and fire-and-forget queuing
+- **`llm_base.py`**: UniversalLLM client with shared thread pool for optimized LLM operations
 - **`parser.py`**: Real-time text correction with **1 stateful worker** for atomic state management
 - **`analyzer.py`**: Conversation analysis with **2 concurrent workers** for high-throughput processing  
 - **`llm_config.py`**: LLM configuration classes with environment variable support
@@ -158,7 +158,7 @@ from .main import AudioInsight
 from .diarization.speaker_diarization import DiarizationProcessor
 
 # Non-blocking LLM imports
-from .llm.llm_base import EventBasedProcessor, UniversalLLM
+from .llm.llm_base import UniversalLLM
 from .llm.parser import Parser  
 from .llm.analyzer import Analyzer
 from .llm.llm_config import LLMConfig, ParserConfig, AnalyzerConfig

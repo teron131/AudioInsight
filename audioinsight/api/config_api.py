@@ -121,7 +121,7 @@ async def update_processing_parameters(parameters: dict):
 
 
 @router.get("/api/processing/parameters")
-async def get_processing_parameters():
+async def get_processing_parameters_endpoint():
     """Get current audio processing parameters with runtime/startup classification."""
     try:
         # Get all current parameters (backward compatibility)

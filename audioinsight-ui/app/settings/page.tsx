@@ -479,6 +479,21 @@ export default function SettingsPage() {
                     <strong>Maximum OUTPUT tokens</strong> the parser model can generate. Parser will automatically chunk text to stay within this limit. Higher values = fewer API calls but require more capable models.
                   </p>
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="parser_window">Parser Character Window</Label>
+                  <Input
+                    id="parser_window"
+                    type="number"
+                    min="10"
+                    max="1000"
+                    step="10"
+                    value={processingParams.parser_window ?? 100}
+                    onChange={(e) => updateProcessingParam('parser_window', parseInt(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Character window size for sentence processing. Parser processes sentences that fall within the last N characters of the transcript. Larger values = more sentences processed.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
