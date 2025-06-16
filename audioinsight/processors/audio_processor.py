@@ -750,18 +750,21 @@ class AudioProcessor(BaseProcessor):
         if self.llm:
             try:
                 await self.llm.stop_monitoring()
-                # DO NOT set self.llm = None - keep the instance for re-use
-                logger.info("LLM monitoring stopped but instance preserved for re-use")
+                # DEEP RESET: Clear all accumulated data and state using comprehensive reset
+                await self.llm.reset_state()
+                logger.info("LLM monitoring stopped and complete state reset for fresh session")
             except Exception as e:
                 logger.warning(f"Error stopping LLM monitoring: {e}")
                 # Only null the LLM if there was an error stopping it
                 self.llm = None
 
-        # Similarly preserve transcript parser
+        # Similarly preserve transcript parser but clear its state
         if self.transcript_parser:
             try:
                 await self.transcript_parser.stop_worker()
-                logger.info("Parser workers stopped but instance preserved for re-use")
+                # DEEP RESET: Clear all parser state using comprehensive reset
+                await self.transcript_parser.reset_state()
+                logger.info("Parser workers stopped and complete state reset for fresh session")
             except Exception as e:
                 logger.warning(f"Error stopping parser workers: {e}")
                 # Only null if there was an error

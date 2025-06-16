@@ -797,9 +797,18 @@ IMPORTANT: Always respond in the same language and script as the input text.""",
 
     async def reset_state(self):
         """Reset parser state and clear sentence cache."""
+        # Call parent reset first for complete state cleanup
+        await super().reset_state()
+
+        # Clear parser-specific state
         self.sentence_cache = SentenceCache(max_size=self.sentence_cache.max_size)
         self.stats.reset()
-        logger.info("Sentence parser state reset - cache cleared")
+
+        # Clear any additional accumulated state
+        if hasattr(self, "last_processed_sentence"):
+            self.last_processed_sentence = ""
+
+        logger.info("Sentence parser state reset - cache cleared and all state reset")
 
     def cleanup_cache(self, max_age_seconds: float = 3600):
         """Clean up old cache entries."""

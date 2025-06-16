@@ -3,11 +3,14 @@
   "private": true,
   "scripts": {
     "cleanup-ports": "../scripts/cleanup-ports.sh 3030 8080",
-    "dev": "npm run cleanup-ports && concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && ./start.sh\" \"next dev -p 3030\"",
+    "dev": "npm run cleanup-ports && npm run dev:sequential",
+    "dev:sequential": "npm run start-backend-and-wait && npm run dev:frontend",
+    "start-backend-and-wait": "cd .. && ./scripts/start-backend-and-wait.sh",
     "dev:frontend": "next dev -p 3030",
     "dev:frontend-clean": "../scripts/cleanup-ports.sh 3030 && next dev -p 3030",
     "dev:backend": "cd .. && ./start.sh",
     "dev:backend-clean": "cd .. && ../scripts/cleanup-ports.sh 8080 && ./start.sh",
+    "dev:concurrent": "concurrently --names \"Backend,Frontend\" --prefix-colors \"magenta,cyan\" \"cd .. && ./start.sh\" \"next dev -p 3030\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

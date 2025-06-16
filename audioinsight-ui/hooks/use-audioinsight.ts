@@ -19,6 +19,7 @@ export interface AnalysisData {
 export interface UseAudioInsightReturn {
   // Connection state
   isConnected: boolean;
+  isConnecting: boolean;
   
   // Recording state
   isRecording: boolean;
@@ -52,6 +53,7 @@ export interface UseAudioInsightReturn {
 
 export function useAudioInsight(): UseAudioInsightReturn {
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(true); // Start as connecting
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [transcriptData, setTranscriptData] = useState<TranscriptData | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
@@ -243,6 +245,7 @@ export function useAudioInsight(): UseAudioInsightReturn {
 
   const handleStatusChange = useCallback((connected: boolean) => {
     setIsConnected(connected);
+    setIsConnecting(false); // Connection attempt completed
     if (connected) {
       toast({ title: "Connected", description: "Connected to AudioInsight server" });
     } else {
@@ -251,51 +254,86 @@ export function useAudioInsight(): UseAudioInsightReturn {
   }, [toast]);
 
   const initializeWebSocket = useCallback(async (diarizationSetting: boolean) => {
-    // First, check if backend is ready
+    setIsConnecting(true); // Start connecting
+    
+    // First, check if backend is ready with improved error handling
     try {
       const baseUrl = typeof window !== 'undefined' 
         ? `${window.location.protocol}//${window.location.hostname}:8080`
         : '';
-      const healthResponse = await fetch(`${baseUrl}/health`);
+      
+      console.log("Checking backend readiness...");
+      
+      // Use AbortController for proper timeout support
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const healthResponse = await fetch(`${baseUrl}/health`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      if (!healthResponse.ok) {
+        throw new Error(`Backend health check failed: ${healthResponse.status} ${healthResponse.statusText}`);
+      }
+      
       const healthData = await healthResponse.json();
+      console.log("Backend health status:", healthData);
       
       if (!healthData.backend_ready) {
-        console.log("Backend not ready, waiting...");
-        // Wait up to 30 seconds for backend to be ready
+        console.log("Backend not ready, waiting for initialization...");
+        // Wait up to 15 seconds for backend to be ready (reduced from 30s)
         let attempts = 0;
-        const maxAttempts = 30; // 30 seconds with 1 second intervals
+        const maxAttempts = 15; // 15 seconds with 1 second intervals
         let currentHealthData = healthData;
         
         while (!currentHealthData.backend_ready && attempts < maxAttempts) {
+          console.log(`Waiting for backend readiness... (${attempts + 1}/${maxAttempts})`);
           await new Promise(resolve => setTimeout(resolve, 1000));
-          const retryResponse = await fetch(`${baseUrl}/health`);
-          currentHealthData = await retryResponse.json();
-          if (currentHealthData.backend_ready) {
-            console.log("Backend is now ready!");
-            break;
+          
+          try {
+            const retryController = new AbortController();
+            const retryTimeoutId = setTimeout(() => retryController.abort(), 3000); // 3s timeout for retries
+            
+            const retryResponse = await fetch(`${baseUrl}/health`, {
+              signal: retryController.signal
+            });
+            clearTimeout(retryTimeoutId);
+            
+            if (retryResponse.ok) {
+              currentHealthData = await retryResponse.json();
+              if (currentHealthData.backend_ready) {
+                console.log("Backend is now ready!");
+                break;
+              }
+            }
+          } catch (retryError) {
+            console.warn(`Health check retry ${attempts + 1} failed:`, retryError);
           }
+          
           attempts++;
         }
         
         if (attempts >= maxAttempts) {
-          throw new Error("Backend failed to become ready within 30 seconds");
+          throw new Error("Backend failed to become ready within 15 seconds");
         }
+      } else {
+        console.log("Backend is ready!");
       }
     } catch (error) {
-      console.warn("Could not check backend readiness, proceeding anyway:", error);
+      console.warn("Backend readiness check failed, proceeding with connection attempt:", error);
       // Continue with connection attempt even if health check fails
+      // This provides fallback behavior in case health endpoint has issues
     }
 
+    // WebSocket connection logic
     if (websocketRef.current && websocketRef.current.getConnectionState()) {
       // Check if diarization setting is different from the one used for current connection
-      // This requires AudioInsightWebSocket to expose its currentDiarizationSetting or a way to check it.
-      // For now, we assume if it's connected, we might need to reconnect if diarization changes.
-      // A more robust way would be for websocket.connect to handle this internally or expose the setting.
-      // currentDiarizationSetting is private, so we can't directly access it here.
-      // We will rely on the setDiarizationEnabled to disconnect first if settings change.
+      console.log("WebSocket already connected, checking diarization setting compatibility...");
     }
 
     if (!websocketRef.current) {
+      console.log("Creating new AudioInsightWebSocket instance...");
       websocketRef.current = new AudioInsightWebSocket(
         handleWebSocketMessage,
         handleWebSocketError,
@@ -304,20 +342,26 @@ export function useAudioInsight(): UseAudioInsightReturn {
     }
     
     // Disconnect if connected and diarization setting will change
-    // This is a simplified check; ideally, AudioInsightWebSocket would expose its current setting
     if(websocketRef.current.getConnectionState() && websocketRef.current.getCurrentDiarizationSetting() !== diarizationSetting){
+        console.log("Diarization setting changed, disconnecting existing connection...");
         websocketRef.current.disconnect();
     }
 
-
     if (!websocketRef.current.getConnectionState()) {
         try {
+            console.log(`Connecting WebSocket with diarization=${diarizationSetting}...`);
             await websocketRef.current.connect(diarizationSetting);
+            console.log("WebSocket connected successfully!");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'WebSocket connection failed';
+            console.error("WebSocket connection error:", errorMessage);
+            setIsConnecting(false); // Connection failed
             toast({ title: "Connection Error", description: errorMessage, variant: "destructive" });
             throw error; 
         }
+    } else {
+      console.log("WebSocket already connected, skipping connection attempt");
+      setIsConnecting(false); // Already connected
     }
   }, [handleWebSocketMessage, handleWebSocketError, handleStatusChange, toast]);
   
@@ -415,11 +459,29 @@ export function useAudioInsight(): UseAudioInsightReturn {
   }, [checkHealth]);
 
   useEffect(() => {
-    initializeWebSocket(diarizationEnabled).catch(error => {
-        console.error("Initial WebSocket connection failed:", error);
-    });
+    // Simple initial connection - backend is guaranteed to be ready before frontend starts
+    const connectToReadyBackend = async () => {
+      console.log("🔌 Connecting to ready backend...");
+      
+      try {
+        await initializeWebSocket(diarizationEnabled);
+        console.log("✅ Connected to backend successfully!");
+      } catch (error) {
+        console.error("❌ Failed to connect to ready backend:", error);
+        // Show user-friendly message since backend should be ready
+        toast({
+          title: "Connection Failed",
+          description: "Failed to connect to backend. Please try refreshing the page.",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    console.log("🏁 Frontend started - connecting to ready backend");
+    connectToReadyBackend();
     
     return () => {
+      console.log("🧹 useEffect cleanup running");
       if (websocketRef.current) {
         websocketRef.current.disconnect();
       }
@@ -428,12 +490,11 @@ export function useAudioInsight(): UseAudioInsightReturn {
       }
       apiRef.current.cleanupSession().catch(console.warn);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps 
-  }, [diarizationEnabled]); // Re-run if diarizationEnabled changes from the parent component (though it shouldn't directly)
-                           // The primary way diarization change triggers re-connect is via setDiarizationEnabled -> initializeWebSocket
+  }, [diarizationEnabled, initializeWebSocket, toast]);
 
   return {
     isConnected,
+    isConnecting,
     isRecording: audioCtx.isRecording,
     startRecording,
     stopRecording,

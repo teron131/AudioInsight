@@ -127,6 +127,9 @@ class Analyzer(EventBasedProcessor):
         # Add flag to prevent multiple simultaneous triggers
         self._trigger_in_progress = False
 
+        # Initialize accumulated speaker info for multi-speaker scenarios
+        self.accumulated_speaker_info = {}
+
         logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination DISABLED to prevent over-deduplication")
 
     def _is_stateful_processor(self) -> bool:
@@ -339,6 +342,23 @@ Remember to respond in the same language, script, and regional conventions as th
         """Stop monitoring."""
         await self.stop_worker()
         logger.info("Stopped LLM inference monitoring")
+
+    async def reset_state(self):
+        """Reset analyzer state and clear all accumulated data."""
+        # Call parent reset first
+        await super().reset_state()
+
+        # Clear analyzer-specific state
+        self.last_inference = None
+        self.stats.reset()
+        self.text_length_at_last_analysis = 0
+        self.last_processed_data = ""
+        self._trigger_in_progress = False
+
+        # Clear accumulated speaker info
+        self.accumulated_speaker_info = {}
+
+        logger.info("Analyzer state reset - all analysis data and statistics cleared")
 
     async def _generate_inference(self, trigger_reason: str = "manual"):
         """Generate inference using the LLM.

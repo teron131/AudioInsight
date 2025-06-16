@@ -240,6 +240,49 @@ class EventBasedProcessor(ABC):
                     self._processed_contents.clear()
                 logger.info(f"{self.__class__.__name__} workers stopped")
 
+    async def reset_state(self):
+        """Reset all accumulated state and data for fresh session.
+
+        This method ensures complete memory cleanup while preserving the instance
+        for performance benefits. Should be called during session resets.
+        """
+        # Clear accumulated data
+        self.accumulated_data = ""
+        self.last_processed_data = ""
+
+        # Reset timing and processing state
+        import time
+
+        self.last_completion_time = time.time()
+        self.last_processing_time = 0.0
+        self.is_processing = False
+
+        # Reset performance tracking
+        self.total_processed = 0
+        self.total_processing_time = 0.0
+        self.last_performance_log = 0.0
+        self.recent_processing_times.clear()
+        self.adaptive_cooldown = self.cooldown_seconds
+
+        # Clear work coordination state
+        if self.enable_work_coordination:
+            async with self._coordination_lock:
+                self._processing_items.clear()
+                self._processed_hashes.clear()
+                self._processed_signatures.clear()
+                self._processed_contents.clear()
+
+        # Clear any pending items in the queue
+        if hasattr(self, "processing_queue") and self.processing_queue:
+            while not self.processing_queue.empty():
+                try:
+                    self.processing_queue.get_nowait()
+                    self.processing_queue.task_done()
+                except:
+                    break
+
+        logger.info(f"{self.__class__.__name__} state reset - all accumulated data cleared")
+
     async def _worker(self):
         """Worker task that processes queued items with coordination."""
         worker_id = id(asyncio.current_task())
