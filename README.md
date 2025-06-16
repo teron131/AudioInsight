@@ -55,18 +55,18 @@ AudioInsight solves the fundamental challenge of real-time speech recognition by
 ### ✨ Core Advantages
 
 🔒 **100% Local Processing** - No data leaves your machine (except optional LLM API calls)  
-🎙️ **Real-time Streaming** - See words appear as you speak with 20 FPS updates  
+🎙️ **Real-time Streaming** - See words appear as you speak with smooth updates  
 👥 **Multi-Speaker Support** - Identify different speakers automatically  
 🧠 **LLM-Powered Analysis** - Intelligent conversation analysis and text parsing  
 🌐 **Multi-User Ready** - Handle multiple sessions simultaneously  
-⚡ **Ultra-Low Latency** - Optimized streaming algorithms with non-blocking concurrent processing  
+⚡ **Ultra-Low Latency** - Optimized streaming algorithms with simple async processing  
 🛠️ **Production Ready** - Built for real-world applications  
-🎯 **Non-Blocking Event Architecture** - True parallel processing without transcription delays  
+🎯 **Clean Architecture** - Simple async patterns with efficient processing  
 📁 **Comprehensive File Support** - Multiple processing modes for audio files  
 🔄 **Unified Processing Pipeline** - Same engine for live and file processing  
 📊 **Multiple Response Formats** - JSON, WebSocket, and Server-Sent Events  
 🔍 **Intelligent Text Processing** - LLM-based transcript correction and enhancement  
-🚀 **Non-Blocking Worker System** - Multi-threaded LLM processing with zero transcription lag
+🚀 **Simple Async System** - Direct async/await patterns for clean processing
 
 ### 🏗️ Architecture Overview
 
@@ -91,14 +91,10 @@ flowchart TD
         Diarization["👥 Speaker Diarization<br/>Real-time Identification"]
     end
 
-    subgraph LLM["<b>🧠 NON-BLOCKING LLM LAYER</b>"]
+    subgraph LLM["<b>🧠 SIMPLE LLM LAYER</b>"]
         direction TB
-        Queue["🔄 Fire-and-Forget Queues<br/>Zero Transcription Lag"]
-        subgraph Workers["<b>Parallel Workers (8 Thread Pool)</b>"]
-            direction LR
-            Parser["📝 Text Parser<br/>⚡ 2 Workers"]
-            Analyzer["📊 Conversation Analysis<br/>⚡ 2 Workers"]
-        end
+        Parser["📝 Text Parser<br/>Direct Async Processing"]
+        Analyzer["📊 Conversation Analyzer<br/>Simple Async Processing"]
     end
 
     %% Main processing flow (solid arrows)
@@ -109,15 +105,15 @@ flowchart TD
     WS --> ASR
     ASR --> Diarization
 
-    %% Non-blocking LLM flow (dashed arrows)
-    ASR -.-> Queue
-    Diarization -.-> Queue
-    Queue --> Workers
+    %% Simple LLM flow (dashed arrows)
+    ASR -.-> Parser
+    Diarization -.-> Analyzer
 
     %% Output flow
     ASR --> WS
     Diarization --> WS
-    Workers -.-> WS
+    Parser -.-> WS
+    Analyzer -.-> WS
     WS --> Browser
 
     %% Meaningful color categorization
@@ -125,24 +121,22 @@ flowchart TD
     classDef communication fill:#E8F5E8,stroke:#4CAF50,stroke-width:2px,color:#1B5E20
     classDef processing fill:#FFF3E0,stroke:#FF9800,stroke-width:2px,color:#E65100
     classDef intelligence fill:#F3E5F5,stroke:#9C27B0,stroke-width:2px,color:#4A148C
-    classDef infrastructure fill:#F5F5F5,stroke:#757575,stroke-width:2px,color:#212121
 
     %% Apply colors by function
     class Browser,Audio frontend
     class WS,Files,API communication
     class ASR,Diarization processing
     class Parser,Analyzer intelligence
-    class Queue,Workers infrastructure
 ```
 
 **🎯 Key Architecture Principles:**
 
-🔄 **Non-Blocking Design**: LLM processing runs in parallel without affecting real-time transcription  
-⚡ **Zero-Lag Streaming**: Words appear instantly as spoken with LocalAgreement-2 algorithms  
-🧠 **Intelligent Background Analysis**: 4+ concurrent workers enhance transcripts without delays  
+🔄 **Simple Async Design**: Clean async/await patterns for all processing components  
+⚡ **Direct Processing**: Words appear instantly as spoken with LocalAgreement-2 algorithms  
+🧠 **Integrated Analysis**: Simple async LLM processing that enhances transcripts cleanly  
 🌐 **Unified Processing**: Same engine handles live audio and file uploads seamlessly  
 🎙️ **Multi-Speaker Aware**: Real-time speaker identification integrated with transcription flow  
-🔤 **Smart Text Processing**: Intelligent transcript correction and enhancement via global atomic parser
+🔤 **Smart Text Processing**: Intelligent transcript correction and enhancement via direct async calls
 
 ---
 
@@ -318,7 +312,7 @@ async def get_interface():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
-    # Create session-specific processor with non-blocking LLM analysis
+    # Create session-specific processor with simple LLM analysis
     processor = AudioProcessor()
     
     # Start processing pipeline
@@ -327,7 +321,7 @@ async def websocket_endpoint(websocket: WebSocket):
     # Handle bidirectional communication
     async def send_results():
         async for result in results_generator:
-            # Results include LLM analyses processed in background
+            # Results include LLM analyses processed with direct async calls
             if result.get('type') == 'analysis':
                 print(f"LLM Analysis: {result['content']}")
             await websocket.send_json(result)
@@ -355,23 +349,23 @@ import asyncio
 async def llm_transcript_analysis():
     """Example of using LLM components for transcript analysis."""
     
-    # Configure LLM for analysis with non-blocking processing
+    # Configure LLM for analysis with simple async processing
     analyzer_config = LLMConfig(
         model_id="openai/gpt-4.1-mini",
         temperature=0.0  # Fixed for consistent results
     )
     
-    # Initialize analyzer with 2 non-blocking workers
+    # Initialize analyzer with simple async processing
     analyzer = Analyzer(config=analyzer_config)
     
-    # Start monitoring (non-blocking)
-    await analyzer.start_worker()
+    # Start analyzer (simple initialization)
+    await analyzer.initialize()
     
-    # Simulate transcript updates (fire-and-forget)
+    # Simulate transcript updates (direct async processing)
     transcript_text = "Speaker 1: Hello, how are you today? Speaker 2: I'm doing well, thanks for asking!"
     await analyzer.update_transcription(transcript_text)
     
-    # Text parsing example with concurrent workers
+    # Text parsing example with direct async calls
     parser_config = ParserConfig(model_id="openai/gpt-4.1-nano")
     parser = Parser(config=parser_config)
     
@@ -431,9 +425,9 @@ AudioInsight provides comprehensive API endpoints for different processing modes
 | Endpoint | Method | Purpose | Response Format |
 |----------|--------|---------|-----------------|
 | `/` | GET | Web interface | HTML |
-| `/asr` | WebSocket | Real-time transcription (live + file) with background LLM analysis | WebSocket JSON |
+| `/asr` | WebSocket | Real-time transcription (live + file) with integrated LLM analysis | WebSocket JSON |
 | `/upload-file` | POST | Prepare file for WebSocket processing | JSON |
-| `/upload` | POST | Direct file processing with background LLM analysis | JSON |
+| `/upload` | POST | Direct file processing with integrated LLM analysis | JSON |
 | `/upload-stream` | POST | File processing with real-time updates | Server-Sent Events |
 | `/cleanup-file` | POST | Clean up temporary files | JSON |
 | `/cleanup-session` | POST | Reset all processing state | JSON |
@@ -447,9 +441,9 @@ AudioInsight provides comprehensive API endpoints for different processing modes
 
 **Processing Modes:**
 - **Live Recording**: Direct WebSocket connection with browser microphone and real-time LLM analysis
-- **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation and background LLM analysis
+- **File Upload + WebSocket**: Unified processing through WebSocket with real-time simulation and integrated LLM analysis
 - **Direct File Processing**: Immediate processing with complete JSON response including LLM insights
-- **Streaming File Processing**: Real-time progress updates via Server-Sent Events with background LLM analysis
+- **Streaming File Processing**: Real-time progress updates via Server-Sent Events with integrated LLM analysis
 
 ---
 
@@ -472,80 +466,57 @@ def commit_tokens(previous_hypothesis, current_hypothesis):
     return committed
 ```
 
-### Non-Blocking LLM-Powered Conversation Analysis
+### Simple LLM-Powered Conversation Analysis
 
-AudioInsight enhances raw transcription with intelligent analysis that never blocks real-time processing:
+AudioInsight enhances raw transcription with intelligent analysis using clean async patterns:
 
 ```python
-# Non-blocking LLM analysis workflow
-async def analyze_conversation_non_blocking(transcript_text, speaker_info):
-    """Analyze conversation for insights without blocking transcription"""
-    # 1. Fire-and-forget text parsing (doesn't block transcription)
-    asyncio.create_task(parser.queue_for_processing(transcript_text))
+# Simple async LLM analysis workflow
+async def analyze_conversation(transcript_text, speaker_info):
+    """Analyze conversation for insights using direct async calls"""
+    # 1. Direct async text parsing
+    parsed_text = await parser.process_text(transcript_text)
     
-    # 2. Deferred conversation monitoring (scheduled for next event loop)
-    loop = asyncio.get_event_loop()
-    loop.call_soon(lambda: monitor_speaker_turns(speaker_info))
+    # 2. Simple conversation analysis
+    if should_trigger_analysis(speaker_info):
+        analysis_result = await analyzer.analyze_conversation(transcript_text)
+        return analysis_result
     
-    # 3. Background analysis (processes in worker threads)
-    if should_trigger_analysis():
-        # Queue for background processing - returns immediately
-        analyzer.queue_for_processing("conversation_trigger")
-    
-    # Transcription continues immediately while analysis happens in background
-    return transcript_text  # Return immediately, no blocking
+    # Return processed transcript with enhancements
+    return parsed_text
 ```
 
-### Non-Blocking Event-Based Architecture
+### Simple Async Architecture
 
-AudioInsight's enhanced LLM layer uses a non-blocking event-based architecture for zero transcription lag:
+AudioInsight's LLM layer uses clean async patterns for efficient processing:
 
 ```python
-# Non-blocking event-based processing
-class EventBasedProcessor:
-    def __init__(self, queue_maxsize=75, max_concurrent_workers=2):
-        self.processing_queue = asyncio.Queue(maxsize=queue_maxsize)
-        self.worker_tasks = [
-            asyncio.create_task(self._worker()) 
-            for _ in range(max_concurrent_workers)
-        ]
-        self.shared_executor = get_shared_executor()  # 8-thread pool
+# Simple async processing
+class SimpleProcessor:
+    def __init__(self, config):
+        self.config = config
+        self.client = UniversalLLM(config)
     
-    async def queue_for_processing(self, item):
-        """Queue item for background processing - returns immediately"""
+    async def process_text(self, text):
+        """Process text using direct async calls"""
         try:
-            self.processing_queue.put_nowait(item)  # Non-blocking put
-            return True
-        except asyncio.QueueFull:
-            return False  # Queue full, but don't block transcription
+            result = await self.client.process(text)
+            return result
+        except Exception as e:
+            logger.warning(f"LLM processing failed: {e}")
+            return text  # Return original text on failure
     
-    async def _worker(self):
-        """Individual worker processing items from shared queue in background"""
-        while self.is_running:
-            item = await self.processing_queue.get()
-            if item is None:  # Shutdown signal
-                break
-            
-            # Process using shared thread pool executor (background)
-            await self._process_item(item)
-            self.processing_queue.task_done()
+    async def initialize(self):
+        """Simple initialization without complex worker management"""
+        await self.client.initialize()
 ```
 
-**Performance Optimizations:**
-- **Fire-and-Forget Queuing**: Parser and analyzer requests return immediately
-- **Shared Thread Pool**: 8-worker thread pool reused across all LLM operations
-- **Adaptive Cooldowns**: Dynamic processing frequency based on actual performance
-- **Non-Blocking Workers**: 2+ parser workers + 2+ analyzer workers process in background
-- **Exception Isolation**: LLM errors never affect transcription flow
-- **Ultra-Fast Updates**: 0.05s UI updates (20 FPS) for smooth real-time display
-
-**Key Benefits:**
-- **Zero Transcription Lag**: LLM processing never blocks real-time speech recognition
-- **Smooth UI Updates**: Words appear immediately as they're recognized
-- **Background Intelligence**: Analysis happens transparently in background
-- **Fault Tolerance**: LLM failures don't impact core transcription
-- **High Throughput**: True parallel processing across all components
-- **Responsive Interface**: UI updates at 20 FPS for smooth text streaming
+**Architecture Benefits:**
+- **Clean Async Patterns**: Direct async/await for all operations
+- **Simple Error Handling**: Straightforward error recovery patterns
+- **Easy Maintenance**: Clear, readable code structure
+- **Reliable Processing**: Proven async patterns for stable operation
+- **Configuration-Driven**: Environment-based feature management
 
 ### Processing Pipeline
 
@@ -554,8 +525,8 @@ class EventBasedProcessor:
 3. **Streaming Buffer** → LocalAgreement-2 manages token validation
 4. **Speaker Diarization** → Parallel speaker identification (optional)
 5. **Display Enhancement** → Smart text formatting and presentation
-6. **Non-Blocking LLM Analysis** → Background text processing and conversation analysis
-7. **Real-time Output** → JSON responses via WebSocket with enhanced insights (no delays)
+6. **Simple LLM Analysis** → Direct async text processing and conversation analysis
+7. **Real-time Output** → JSON responses via WebSocket with enhanced insights
 
 ---
 
@@ -567,7 +538,7 @@ class EventBasedProcessor:
 # Build image with LLM support
 docker build -t audioinsight .
 
-# Run with GPU support (recommended) and background LLM analysis
+# Run with GPU support (recommended) and integrated LLM analysis
 docker run --gpus all -p 8080:8080 \
   -e OPENAI_API_KEY="your-key" \
   -e GOOGLE_API_KEY="your-key" \
@@ -582,7 +553,7 @@ docker run -p 8080:8080 \
 ### Custom Configuration
 
 ```bash
-# Custom model and settings with background LLM
+# Custom model and settings with integrated LLM
 docker run --gpus all -p 8080:8080 \
   -e OPENAI_API_KEY="your-key" \
   audioinsight \

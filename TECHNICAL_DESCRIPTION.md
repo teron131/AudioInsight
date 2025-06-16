@@ -2,40 +2,31 @@
 
 ## Overview
 
-AudioInsight implements a sophisticated real-time streaming speech recognition system that transforms OpenAI's Whisper from a batch-processing model into a low-latency streaming ASR system. The core innovation lies in the LocalAgreement-2 algorithm, non-blocking event-based concurrent processing architecture, and modular processing pipeline that enable stable real-time transcription with intelligent LLM-powered analysis that never blocks transcription flow.
+AudioInsight implements a sophisticated real-time streaming speech recognition system that transforms OpenAI's Whisper from a batch-processing model into a low-latency streaming ASR system. The core innovation lies in the LocalAgreement-2 algorithm, simple async processing architecture, and modular processing pipeline that enable stable real-time transcription with intelligent LLM-powered analysis using clean async patterns.
 
 ## Core Technical Architecture
 
-### **Non-Blocking Event-Based Concurrent Processing System**
+### **Simple Async Processing System**
 
-AudioInsight's LLM processing layer implements an advanced non-blocking event-based architecture that eliminates traditional polling bottlenecks and ensures zero transcription lag while enabling high-throughput concurrent analysis:
+AudioInsight's LLM processing layer implements a clean async architecture for efficient processing without blocking transcription:
 
-#### **`audioinsight/llm/llm_base.py`** - Non-Blocking Event Foundation
-- `EventBasedProcessor`: Abstract base class implementing non-blocking concurrent worker management
-- `UniversalLLM`: Shared thread pool executor system eliminating per-call overhead
-- `get_shared_executor()`: Singleton pattern for 8-worker thread pool reuse across all LLM operations
-- Non-blocking worker task lifecycle management with proper shutdown coordination
-- Fire-and-forget queuing system that never blocks transcription processing
-- Adaptive cooldown system based on actual processing performance
+#### **`audioinsight/llm/llm_base.py`** - Async Processing Foundation
+- `UniversalLLM`: Simple async LLM client with direct processing patterns
+- Direct async/await patterns for all LLM operations
+- Clean error handling and recovery mechanisms
+- Configuration-based feature management
 
-#### **`audioinsight/llm/parser.py`** - Stateful Non-Blocking Text Processing
-- `Parser`: Real-time text correction with **single worker** for stateful incremental parsing
-- **Atomic state management** preventing race conditions on shared parsing state
-- **Work coordination system** with content hashing for duplicate detection
-- Incremental processing that only parses new text portions to avoid re-processing
-- Queue-based processing with intelligent batching (50-item capacity for single worker)
-- Adaptive cooldown optimization for ultra-responsive processing
-- Fire-and-forget queuing that returns immediately without blocking transcription
-- Performance monitoring and statistics tracking
+#### **`audioinsight/llm/parser.py`** - Simple Text Processing
+- `Parser`: Text parsing with direct async calls
+- Simple error handling and fallback mechanisms
+- Configuration-driven processing with environment variables
+- Direct async processing without complex queue management
 
-#### **`audioinsight/llm/analyzer.py`** - Non-Blocking Conversation Analysis
-- `Analyzer`: Intelligent conversation analysis with 2 coordinated concurrent workers
-- **Work coordination system** preventing duplicate analyses of identical content
-- Moderate queue capacity (100 items) for handling burst processing without blocking
-- Adaptive cooldown for balanced performance and API efficiency
-- Deferred trigger checking that never interrupts real-time transcription flow
-- **Continuous analysis generation** with no artificial limits until processing ends
-- Conversation state management and context preservation
+#### **`audioinsight/llm/analyzer.py`** - Simple Conversation Analysis
+- `Analyzer`: Conversation analysis with clean async patterns
+- Direct async processing for conversation insights
+- Simple trigger mechanisms for analysis processing
+- Clean integration with transcription flow
 
 #### **`audioinsight/llm/llm_config.py`** - LLM Configuration Management
 - `LLMConfig`: Base configuration for LLM models with environment variable support
@@ -43,13 +34,6 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `AnalyzerConfig`: Specialized configuration for conversation analysis
 - `LLMTrigger`: Trigger condition management for processing events
 - Environment-based configuration with secure API key management
-
-#### **`audioinsight/llm/performance_monitor.py`** - Performance Tracking System
-- Real-time performance metrics collection and analysis
-- Queue status monitoring and worker performance tracking
-- Adaptive cooldown calculation based on processing history
-- Performance statistics for optimization and debugging
-- Resource utilization monitoring for efficient processing
 
 #### **`audioinsight/llm/llm_utils.py`** - LLM Utilities and Helpers
 - Shared utility functions for LLM operations
@@ -71,9 +55,9 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `FFmpegProcessor`: Audio format conversion and PCM data processing  
 - `TranscriptionProcessor`: Whisper inference cycles and hypothesis buffer coordination
 - `DiarizationProcessor`: Independent speaker identification processing
-- `FormatProcessor`: Result aggregation and output generation with 0.05s update intervals (20 FPS)
+- `FormatProcessor`: Result aggregation and output generation with regular update intervals
 - `BaseProcessor`: Abstract base class for all processor implementations
-- **Non-blocking integration**: Coordinates LLM workers through fire-and-forget event queuing system
+- **Simple integration**: Coordinates LLM components through direct async calls
 
 #### **`audioinsight/whisper_streaming/online_asr.py`** - Core Streaming Algorithms
 - `HypothesisBuffer`: Token validation state machine implementing LocalAgreement-2
@@ -85,7 +69,6 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - `TimedText`: Base class for temporal text objects
 - `SpeakerSegment`: Speaker identification segments with temporal boundaries
 - Time-aware data structures for synchronization and temporal alignment
-
 
 #### **`audioinsight/config.py`** - Unified Configuration System
 - `UnifiedConfig`: Centralized configuration management with Pydantic validation
@@ -111,110 +94,53 @@ AudioInsight's LLM processing layer implements an advanced non-blocking event-ba
 - Session management and cleanup
 - CORS middleware and security configuration
 
-## Non-Blocking Event-Based Processing Architecture
+## Simple Async Processing Architecture
 
-### **Fire-and-Forget Worker Management**
+### **Direct Async Processing**
 
-The non-blocking system ensures transcription flow is never interrupted by LLM processing:
+The simplified system ensures clean processing flow with standard async patterns:
 
 ```python
-class EventBasedProcessor:
-    def __init__(self, queue_maxsize=10, cooldown_seconds=2.0, max_concurrent_workers=2):
-        self.processing_queue = asyncio.Queue(maxsize=queue_maxsize)
-        self.worker_tasks = []
-        self.max_concurrent_workers = max_concurrent_workers
-        self.shared_executor = get_shared_executor()  # 8-thread pool
-        self.adaptive_cooldown = cooldown_seconds
+class SimpleProcessor:
+    def __init__(self, config):
+        self.config = config
+        self.client = UniversalLLM(config)
     
-    async def queue_for_processing(self, item):
-        """Queue item for background processing - returns immediately"""
+    async def process_text(self, text):
+        """Process text using direct async calls"""
         try:
-            self.processing_queue.put_nowait(item)  # Non-blocking put
-            return True
-        except asyncio.QueueFull:
-            return False  # Queue full, but don't block transcription
+            result = await self.client.process(text)
+            return result
+        except Exception as e:
+            logger.warning(f"Processing failed: {e}")
+            return text  # Return original on failure
     
-    async def _worker(self):
-        """Individual worker processing items from shared queue in background"""
-        while self.is_running:
-            item = await self.processing_queue.get()
-            if item is None:  # Shutdown signal
-                break
-            
-            # Process using shared thread pool executor (background)
-            await self._process_item(item)
-            self.processing_queue.task_done()
+    async def initialize(self):
+        """Simple initialization without complex management"""
+        await self.client.initialize()
 ```
 
-### **Shared Thread Pool Optimization**
+### **Clean Error Handling**
 
-Critical performance improvement eliminating executor creation overhead:
+Simple error isolation patterns that don't affect core processing:
 
 ```python
-# Global shared executor - created once, reused everywhere
-_shared_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-executor")
-
-def get_shared_executor() -> ThreadPoolExecutor:
-    """Get or create the shared thread pool executor for LLM operations."""
-    global _shared_executor
-    if _shared_executor is None:
-        _shared_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-executor")
-    return _shared_executor
-
-async def invoke_llm(prompt, variables):
-    """Optimized LLM invocation using shared executor"""
-    executor = get_shared_executor()  # Reuse existing executor
-    result = await asyncio.get_event_loop().run_in_executor(
-        executor, lambda: chain.invoke(variables)
-    )
-    return result
+async def process_with_fallback(self, text):
+    """Process with simple fallback handling"""
+    try:
+        result = await self.llm_client.process(text)
+        return result
+    except Exception as e:
+        logger.warning(f"LLM processing failed: {e}")
+        return text  # Continue with original text
 ```
 
-**Performance Impact:**
-- **Before**: New `ThreadPoolExecutor` created for every LLM call
-- **After**: Single shared 8-worker executor reused across all operations
-- **Result**: ~90% reduction in execution overhead
-
-### **Adaptive Performance Monitoring**
-
-Dynamic cooldown adjustment based on actual processing performance:
-
-```python
-def _record_processing_completion(self, processing_time: float):
-    """Record processing completion and update adaptive cooldown."""
-    self.recent_processing_times.append(processing_time)
-    
-    # Keep only recent samples for adaptive calculation
-    if len(self.recent_processing_times) > self.max_recent_samples:
-        self.recent_processing_times.pop(0)
-    
-    # Update adaptive cooldown based on recent performance
-    self._update_adaptive_cooldown()
-
-def _update_adaptive_cooldown(self):
-    """Update adaptive cooldown based on recent processing times."""
-    if not self.recent_processing_times:
-        return
-    
-    # Calculate average processing time
-    avg_processing_time = sum(self.recent_processing_times) / len(self.recent_processing_times)
-    
-    # Set cooldown to 2x average processing time (with bounds)
-    self.adaptive_cooldown = max(
-        self.min_cooldown,
-        min(self.max_cooldown, avg_processing_time * 2.0)
-    )
-```
-
-### **Non-Blocking Queue Management**
-
-Optimized queue sizes and cooldowns for different processing types with zero transcription lag:
-
-| Component | Queue Size | Workers | Coordination | Purpose | Blocking Behavior |
-|-----------|------------|---------|--------------|---------|-------------------|
-| Parser | 50 items | **1 worker** | **Stateful + Dedup** | Incremental text correction | Never blocks |
-| Analyzer | 100 items | 2 workers | **Content Dedup** | Conversation analysis | Never blocks |
-| UI Updates | N/A | 1 worker | None | Real-time display | 20 FPS smooth updates |
+**Performance Benefits:**
+- **Clean Async Patterns**: Standard async/await for all operations
+- **Simple Error Handling**: Straightforward error recovery patterns
+- **Easy Maintenance**: Clear, readable code structure
+- **Reliable Processing**: Proven async patterns for stable operation
+- **Configuration-Driven**: Environment-based feature management
 
 ## Theoretical Foundation: The Streaming Challenge
 
@@ -226,8 +152,8 @@ Traditional ASR models process complete audio sequences, presenting challenges f
 2. **Output Stability**: Partial inputs produce fluctuating and inconsistent outputs  
 3. **Context Management**: Maintaining conversational context across streaming chunks
 4. **Latency vs. Accuracy Trade-off**: Balancing immediate response with transcription quality
-5. **LLM Processing Bottlenecks**: Sequential processing causing lag in analysis pipeline
-6. **Real-Time Display Lag**: Blocking operations preventing smooth UI updates
+5. **LLM Processing Integration**: Seamless integration of language model enhancements
+6. **Real-Time Display**: Maintaining smooth UI updates during processing
 
 ### LocalAgreement Policy: Core Innovation
 
@@ -281,92 +207,77 @@ def flush(self) -> List[ASRToken]:
 - Efficient list slicing instead of O(n) pop operations
 - Memory-efficient buffer management
 
-## Advanced Non-Blocking Performance Optimizations
+## Simple Async Performance Optimizations
 
-### **Fire-and-Forget Concurrent Processing**
+### **Direct Async Processing**
 
-Worker coordination that never blocks transcription flow:
+Clean async patterns for all LLM operations:
 
 ```python
-async def _update_coordinator_llm_non_blocking(self, coordinator, text, speaker_info):
-    """Update LLM without blocking transcription - fire and forget"""
+async def update_llm_simple(self, coordinator, text, speaker_info):
+    """Update LLM with simple async processing"""
     try:
         if coordinator and hasattr(coordinator, "llm"):
-            # Queue for background processing - returns immediately
-            await coordinator.llm.queue_for_processing(text)
+            # Direct async processing
+            result = await coordinator.llm.process(text)
+            return result
     except Exception as e:
-        # Log errors but don't let them affect transcription
-        logger.warning(f"LLM update failed (non-critical): {e}")
+        # Simple error handling
+        logger.warning(f"LLM processing failed: {e}")
+        return text
 
 async def update_transcription(self, new_text: str, speaker_info: Optional[Dict] = None):
-    """Update with new transcription text - COMPLETELY NON-BLOCKING."""
+    """Update with new transcription text using clean async patterns"""
     if not new_text.strip():
         return
 
-    # Add to accumulated text immediately
-    if self.accumulated_data:
-        self.accumulated_data += " " + new_text
-    else:
-        self.accumulated_data = new_text
-
-    # Check if processing should be triggered (non-blocking)
-    if self.should_process(self.accumulated_data):
-        await self.queue_for_processing(self.accumulated_data)
+    # Process text with simple async calls
+    if self.should_process(new_text):
+        result = await self.process_text(new_text)
+        return result
 ```
 
-### **Exception Isolation and Fault Tolerance**
+### **Simple Configuration Management**
 
-Intelligent processing that isolates LLM failures from transcription:
+Environment-driven configuration with validation:
 
 ```python
-async def _process_item(self, item: Any):
-    """Process a single item with full exception isolation."""
-    try:
-        # Actual LLM processing in background thread
-        result = await self._invoke_llm_safely(item)
-        
-        # Update internal state with result
-        self._update_state(result)
-        
-    except Exception as e:
-        # LLM errors never affect transcription
-        logger.warning(f"LLM processing failed (non-critical): {e}")
-        # Continue processing other items
+class SimpleConfig:
+    def __init__(self):
+        self.model_id = os.getenv("LLM_MODEL", "openai/gpt-4.1-mini")
+        self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.0"))
+        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "1000"))
+    
+    def validate(self):
+        """Simple validation without complex logic"""
+        if not self.model_id:
+            raise ValueError("Model ID is required")
+        return True
 ```
 
-### **Ultra-Responsive UI Updates**
+### **Clean UI Updates**
 
-Real-time display optimization for smooth user experience:
+Simple update patterns for responsive user experience:
 
 ```python
-async def _format_and_yield_response(self, response_data):
-    """Format response and yield with 20 FPS updates for smooth UI."""
+async def format_and_yield_response(self, response_data):
+    """Format response and yield with regular updates"""
     current_time = time.time()
     
-    # Always yield if content has actually changed
+    # Yield if content has changed
     if response_data != self.last_response_data:
         self.last_response_data = response_data
         self.last_yield_time = current_time
         yield response_data
     
-    # Also yield periodically for progress updates
-    elif current_time - self.last_yield_time > 1.0:
+    # Regular update intervals for progress
+    elif current_time - self.last_yield_time > 0.5:
         self.last_yield_time = current_time
         yield response_data
     
-    # 20 FPS update rate for smooth real-time responsiveness
-    await asyncio.sleep(0.05)
+    # Regular sleep for responsive updates
+    await asyncio.sleep(0.1)
 ```
-
-### **Memory Management and Resource Pooling**
-
-**Pre-allocated Shared Resources**: Thread pool executor shared across all LLM operations
-
-**Efficient Queue Operations**: Adaptive queue sizes prevent blocking with intelligent backpressure
-
-**Worker Pool Management**: Dynamic worker lifecycle with graceful shutdown
-
-**Exception Resilience**: LLM failures isolated from core transcription pipeline
 
 ## Hypothesis Buffer Management System
 
@@ -404,15 +315,15 @@ The buffer operates with three validation phases:
 
 ### Processing Pipeline Efficiency
 
-**Parallel Processing**: Transcription, diarization, and LLM analysis operate concurrently without blocking
+**Parallel Processing**: Transcription, diarization, and LLM analysis operate with simple async patterns
 
-**Non-Blocking Event Coordination**: Fire-and-forget inter-processor communication with queue-based triggers
+**Direct Async Coordination**: Clean async/await patterns for inter-processor communication
 
-**Resource Pooling**: Shared thread pool and timing coordination
+**Simple Resource Management**: Straightforward resource allocation and cleanup
 
-**Intelligent Batching**: Optimal batch sizes for different processing types
+**Efficient Processing**: Optimal async patterns for different processing types
 
-**Exception Isolation**: Component failures don't propagate to transcription flow
+**Simple Error Handling**: Clean error recovery that doesn't affect transcription flow
 
 ## Voice Activity Detection Integration
 
@@ -450,7 +361,7 @@ The buffer operates with three validation phases:
 - `/api/processing/parameters`: Processing parameter configuration
 
 **LLM Integration**:
-- `/api/llm/status`: LLM processing status and performance metrics
+- `/api/llm/status`: LLM processing status and basic metrics
 - `/api/llm/test`: LLM connectivity and model testing
 - `/api/transcript-parser/*`: Text parsing configuration and status
 
@@ -460,7 +371,7 @@ The buffer operates with three validation phases:
 - `/api/sessions/*`: Session state management
 
 **Analytics and Monitoring**:
-- `/api/analytics/usage`: Usage statistics and performance metrics
+- `/api/analytics/usage`: Usage statistics and basic metrics
 - `/api/batch/*`: Batch processing operations and status
 - `/api/warmup/*`: Model warmup and initialization
 
@@ -468,25 +379,23 @@ The buffer operates with three validation phases:
 
 **Unified Processing**: Single WebSocket endpoint handles both live recording and file upload processing
 
-**Real-time Updates**: 20 FPS update rate for smooth UI responsiveness
+**Regular Updates**: Consistent update intervals for smooth UI responsiveness
 
-**Background LLM Integration**: Non-blocking LLM analysis results delivered via WebSocket
+**Integrated LLM Processing**: Simple async LLM analysis results delivered via WebSocket
 
 **Error Handling**: Graceful error recovery with continued processing
 
 ## Error Recovery and Fault Tolerance
 
-**Process Health Monitoring**: Continuous task health monitoring with automatic recovery
+**Simple Health Monitoring**: Basic health monitoring with straightforward recovery
 
 **Graceful Degradation**: Core transcription continues even when auxiliary components fail
 
-**State Recovery**: Critical system state maintained for recovery from failures
+**State Recovery**: Essential system state maintained for recovery from failures
 
-**Coordinated Recovery**: Central coordinator manages cross-processor recovery procedures
+**Coordinated Recovery**: Central coordinator manages simple recovery procedures
 
-**Worker Resilience**: Individual worker failures don't impact overall processing
-
-**Exception Isolation**: LLM processing errors never affect real-time transcription flow
+**Simple Error Handling**: Clean error patterns that don't affect core processing
 
 **Session Cleanup**: Comprehensive resource cleanup and session reset capabilities
 
@@ -570,25 +479,22 @@ The buffer operates with three validation phases:
 
 ## Conclusion
 
-AudioInsight's enhanced non-blocking streaming architecture solves the fundamental challenges of real-time speech recognition and intelligent analysis through:
+AudioInsight's simplified async streaming architecture solves the fundamental challenges of real-time speech recognition and intelligent analysis through:
 
 1. **LocalAgreement-2 Algorithm**: Ensures output stability through hypothesis validation
-2. **Non-Blocking Event-Based Processing**: Eliminates all transcription blocking with fire-and-forget queuing
-3. **Shared Thread Pool Optimization**: 90% reduction in LLM processing overhead with 8-worker pool
-4. **Fire-and-Forget Queue Management**: Adaptive queue sizes with non-blocking puts prevent any delays
-5. **Non-Blocking Worker Pools**: 2 parser + 2 analyzer workers for background processing
-6. **Exception Isolation**: LLM failures never affect transcription flow
-7. **Ultra-Responsive UI**: 0.05s update intervals (20 FPS) for smooth real-time display
-8. **Adaptive Performance**: Dynamic cooldown adjustment based on actual processing performance
-9. **Efficient Buffer Management**: Optimized memory operations minimize latency  
-10. **Parallel Processing**: Independent transcription, diarization, and LLM pipelines
-11. **Context Preservation**: Intelligent buffer trimming maintains conversational coherence
-12. **Voice Activity Detection**: Adaptive processing based on speech detection
-13. **Fault Tolerance**: Robust error recovery and graceful degradation
-14. **Unified Configuration**: Type-safe, environment-based configuration management
-15. **Comprehensive API**: Full-featured REST and WebSocket APIs for all operations
-16. **Modern Frontend Architecture**: Next.js-based UI with real-time WebSocket integration
-17. **Performance Monitoring**: Real-time metrics and adaptive optimization
-18. **Container Deployment**: Production-ready Docker containers with GPU support
+2. **Simple Async Processing**: Clean async/await patterns for all processing components
+3. **Direct LLM Integration**: Straightforward async processing for language model enhancements
+4. **Clean Error Handling**: Simple error recovery patterns that don't affect core processing
+5. **Configuration-Driven Processing**: Environment-based feature management and configuration
+6. **Efficient Buffer Management**: Optimized memory operations minimize latency  
+7. **Parallel Processing**: Independent transcription, diarization, and LLM processing
+8. **Context Preservation**: Intelligent buffer trimming maintains conversational coherence
+9. **Voice Activity Detection**: Adaptive processing based on speech detection
+10. **Fault Tolerance**: Simple error recovery and graceful degradation
+11. **Unified Configuration**: Type-safe, environment-based configuration management
+12. **Comprehensive API**: Full-featured REST and WebSocket APIs for all operations
+13. **Modern Frontend Architecture**: Next.js-based UI with real-time WebSocket integration
+14. **Simple Monitoring**: Basic performance metrics and health monitoring
+15. **Container Deployment**: Production-ready Docker containers with GPU support
 
-This enhanced non-blocking architecture enables production-grade real-time speech recognition with maintained accuracy and zero transcription lag, supporting high-throughput multi-user deployment scenarios with intelligent conversation analysis that operates transparently in the background without ever interrupting the real-time transcription flow.
+This simplified async architecture enables production-grade real-time speech recognition with maintained accuracy and clean processing patterns, supporting high-throughput multi-user deployment scenarios with intelligent conversation analysis that integrates seamlessly with the real-time transcription flow using proven async patterns.

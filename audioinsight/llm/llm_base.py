@@ -107,6 +107,499 @@ class WorkItem:
         return overlap_ratio > threshold
 
 
+class EventBasedProcessor(ABC):
+    """
+    Base class for event-based processing with queue management and worker tasks.
+
+    Provides common functionality for:
+    - Event-based triggering instead of polling
+    - Queue-based processing to prevent overflow
+    - Worker task management with coordination
+    - Trigger condition checking
+    - Concurrent processing for better performance
+    - Adaptive frequency matching actual processing times
+    - Work deduplication and atomic state management
+    """
+
+    def __init__(self, queue_maxsize: int = 10, cooldown_seconds: float = 2.0, max_concurrent_workers: int = 2, enable_work_coordination: bool = True):
+        """Initialize the event-based processor.
+
+        Args:
+            queue_maxsize: Maximum size of the processing queue
+            cooldown_seconds: Initial cooldown time (will be adapted based on actual processing)
+            max_concurrent_workers: Maximum number of concurrent worker tasks
+            enable_work_coordination: Enable work coordination to prevent duplicate processing
+        """
+        # Event-based triggering
+        self.new_event = asyncio.Event()
+        self.processing_queue = asyncio.Queue(maxsize=queue_maxsize)
+        self.worker_tasks = []
+        self.max_concurrent_workers = max_concurrent_workers
+        self.enable_work_coordination = enable_work_coordination
+
+        # Processing state
+        self.is_running = False
+        self.is_processing = False
+        self.last_processing_time = 0.0
+
+        # Initialize completion time to current time so first call isn't delayed
+        import time
+
+        self.last_completion_time = time.time()
+
+        self.cooldown_seconds = cooldown_seconds
+        self.active_workers = 0
+
+        # Adaptive frequency tracking
+        self.recent_processing_times = []  # Rolling window of recent processing times
+        self.max_recent_samples = 10  # Keep last 10 processing times for adaptive calculation
+        self.adaptive_cooldown = cooldown_seconds  # Dynamic cooldown based on actual performance
+        self.min_cooldown = 0.1  # Minimum cooldown to prevent overwhelming
+        self.max_cooldown = 10.0  # Maximum cooldown as safety limit
+
+        # Performance tracking
+        self.total_processed = 0
+        self.total_processing_time = 0.0
+        self.last_performance_log = 0.0
+
+        # Tracking
+        self.accumulated_data = ""
+        self.last_processed_data = ""
+
+        # Work coordination and deduplication
+        if self.enable_work_coordination:
+            self._coordination_lock = asyncio.Lock()
+            self._processing_items: Set[str] = set()  # Track items being processed
+            self._processed_hashes: Set[str] = set()  # Track completed work by content hash
+            self._processed_signatures: Set[str] = set()  # Track completed work by content signature
+            self._processed_contents: list = []  # Track recent processed content for overlap detection
+            self._max_processed_hashes = 100  # Limit memory usage
+            self._max_processed_contents = 50  # Limit overlap detection memory
+            logger.info(f"{self.__class__.__name__}: Work coordination enabled")
+
+    async def start_worker(self):
+        """Start the worker task for processing with coordination support."""
+        if self.worker_tasks == [] and not self.is_running:
+            self.is_running = True
+
+            # For stateful operations, use single worker to avoid race conditions
+            # For stateless operations, use multiple workers for performance
+            actual_workers = 1 if self.enable_work_coordination and self._is_stateful_processor() else self.max_concurrent_workers
+
+            if actual_workers != self.max_concurrent_workers:
+                logger.info(f"{self.__class__.__name__}: Using single worker mode for stateful operations (requested {self.max_concurrent_workers}, using {actual_workers})")
+
+            # Start workers in parallel for faster initialization
+            self.worker_tasks = []
+            worker_tasks_creation = []
+
+            for i in range(actual_workers):
+                # Create worker tasks in parallel - don't await each one
+                worker_task = asyncio.create_task(self._worker())
+                self.worker_tasks.append(worker_task)
+                worker_tasks_creation.append(worker_task)
+
+            # Small delay to allow workers to start up properly
+            await asyncio.sleep(0.01)
+
+            logger.info(f"{self.__class__.__name__} {len(self.worker_tasks)} workers started (coordination: {self.enable_work_coordination})")
+
+    def _is_stateful_processor(self) -> bool:
+        """Check if this processor manages stateful operations that require coordination.
+
+        Override in subclasses that manage incremental state like parsing.
+        """
+        # Default: assume stateless unless overridden
+        return False
+
+    async def stop_worker(self):
+        """Stop the worker task."""
+        if self.worker_tasks:
+            self.is_running = False
+            try:
+                # Signal workers to stop
+                for _ in range(len(self.worker_tasks)):
+                    await self.processing_queue.put(None)
+
+                # Wait for all workers to complete with timeout
+                await asyncio.wait_for(asyncio.gather(*self.worker_tasks, return_exceptions=True), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout stopping {self.__class__.__name__} workers, cancelling remaining tasks")
+                for task in self.worker_tasks:
+                    if not task.done():
+                        task.cancel()
+            except Exception as e:
+                logger.warning(f"Error stopping {self.__class__.__name__} workers: {e}")
+            finally:
+                self.worker_tasks = []
+                # Clear coordination state
+                if self.enable_work_coordination:
+                    self._processing_items.clear()
+                    self._processed_hashes.clear()
+                    self._processed_signatures.clear()
+                    self._processed_contents.clear()
+                logger.info(f"{self.__class__.__name__} workers stopped")
+
+    async def _worker(self):
+        """Worker task that processes queued items with coordination."""
+        worker_id = id(asyncio.current_task())
+        logger.info(f"{self.__class__.__name__} worker {worker_id} started")
+
+        while self.is_running:
+            try:
+                # Use timeout to prevent hanging workers
+                item = await asyncio.wait_for(self.processing_queue.get(), timeout=5.0)
+
+                if item is None:  # Shutdown signal
+                    break
+
+                # Handle work coordination if enabled
+                if self.enable_work_coordination:
+                    should_process, work_item = await self._coordinate_work(item, worker_id)
+                    if not should_process:
+                        self.processing_queue.task_done()
+                        continue
+                    actual_item = work_item.data
+                else:
+                    actual_item = item
+
+                # Track active workers for better queue status
+                self.active_workers += 1
+                start_time = time.time()
+
+                try:
+                    # Process the item
+                    await self._process_item(actual_item)
+
+                    # Track performance metrics with adaptive frequency
+                    processing_time = time.time() - start_time
+                    self.total_processed += 1
+                    self.total_processing_time += processing_time
+
+                    # Record completion for adaptive frequency calculation
+                    self._record_processing_completion(processing_time)
+
+                    # Log performance occasionally
+                    current_time = time.time()
+                    if current_time - self.last_performance_log > 60.0:  # Every minute
+                        avg_time = self.total_processing_time / max(self.total_processed, 1)
+                        logger.info(f"{self.__class__.__name__} performance: {self.total_processed} items processed, avg time: {avg_time:.2f}s, adaptive cooldown: {self.adaptive_cooldown:.2f}s")
+                        self.last_performance_log = current_time
+
+                except Exception as e:
+                    logger.warning(f"{self.__class__.__name__} worker {worker_id} processing failed: {e}")
+                finally:
+                    self.active_workers -= 1
+
+                    # Clean up coordination state
+                    if self.enable_work_coordination and isinstance(item, WorkItem):
+                        await self._cleanup_work_coordination(item)
+
+                    self.processing_queue.task_done()
+
+            except asyncio.TimeoutError:
+                # Worker timeout - continue to check if still running
+                continue
+            except Exception as e:
+                logger.error(f"Error in {self.__class__.__name__} worker {worker_id}: {e}")
+
+        logger.info(f"{self.__class__.__name__} worker {worker_id} stopped")
+
+    async def _coordinate_work(self, item: Any, worker_id: int) -> tuple[bool, Optional[WorkItem]]:
+        """Coordinate work to prevent duplicate processing with enhanced overlap detection.
+
+        Returns:
+            tuple: (should_process, work_item)
+        """
+        work_item = item if isinstance(item, WorkItem) else WorkItem(item)
+
+        async with self._coordination_lock:
+            # Check if this exact item is already being processed
+            if work_item.item_id in self._processing_items:
+                logger.debug(f"Worker {worker_id}: Skipping duplicate item {work_item.item_id}")
+                return False, None
+
+            # Check if we've already processed this content (exact hash)
+            content_hash = work_item.get_content_hash()
+            if content_hash in self._processed_hashes:
+                logger.debug(f"Worker {worker_id}: Skipping already processed content {content_hash[:8]}")
+                return False, None
+
+            # Check if we've already processed this content signature
+            content_signature = work_item.get_content_signature()
+            if content_signature in self._processed_signatures:
+                logger.debug(f"Worker {worker_id}: Skipping already processed signature {content_signature[:8]}")
+                return False, None
+
+            # Check for content overlap with recently processed items
+            if isinstance(work_item.data, str):
+                for processed_content in self._processed_contents:
+                    if work_item.has_content_overlap(processed_content):
+                        logger.debug(f"Worker {worker_id}: Skipping overlapping content (seq: {work_item.sequence_id})")
+                        return False, None
+
+            # Mark as being processed
+            self._processing_items.add(work_item.item_id)
+            logger.debug(f"Worker {worker_id}: Processing item {work_item.item_id} (seq: {work_item.sequence_id}, hash: {content_hash[:8]})")
+
+            return True, work_item
+
+    async def _cleanup_work_coordination(self, work_item: WorkItem):
+        """Clean up coordination state after processing."""
+        async with self._coordination_lock:
+            # Remove from processing set
+            self._processing_items.discard(work_item.item_id)
+
+            # Add to processed hashes and signatures
+            content_hash = work_item.get_content_hash()
+            content_signature = work_item.get_content_signature()
+            self._processed_hashes.add(content_hash)
+            self._processed_signatures.add(content_signature)
+
+            # Add to processed contents for overlap detection
+            if isinstance(work_item.data, str):
+                self._processed_contents.append(work_item.data)
+
+                # Limit memory usage for processed contents
+                if len(self._processed_contents) > self._max_processed_contents:
+                    self._processed_contents = self._processed_contents[-self._max_processed_contents :]
+
+            # Limit memory usage for processed hashes
+            if len(self._processed_hashes) > self._max_processed_hashes:
+                # Remove oldest hashes (simple FIFO approximation)
+                oldest_hashes = list(self._processed_hashes)[:10]
+                for old_hash in oldest_hashes:
+                    self._processed_hashes.discard(old_hash)
+
+            # Limit memory usage for processed signatures
+            if len(self._processed_signatures) > self._max_processed_hashes:
+                # Remove oldest signatures (simple FIFO approximation)
+                oldest_signatures = list(self._processed_signatures)[:10]
+                for old_signature in oldest_signatures:
+                    self._processed_signatures.discard(old_signature)
+
+    @abstractmethod
+    async def _process_item(self, item: Any):
+        """Process a single item from the queue.
+
+        Args:
+            item: The item to process
+        """
+        pass
+
+    def should_process(self, data: str, min_size: int = 100) -> bool:
+        """Check if processing should be triggered based on adaptive frequency matching actual processing times.
+
+        Args:
+            data: Current accumulated data
+            min_size: Minimum data size to trigger processing
+
+        Returns:
+            bool: True if processing should be triggered
+        """
+        import time
+
+        current_time = time.time()
+
+        # Calculate adaptive cooldown based on recent processing times
+        self._update_adaptive_cooldown()
+
+        # Use completion time rather than queue time for frequency calculation
+        # This ensures we trigger new requests as soon as the previous ones actually complete
+        time_since_completion = current_time - self.last_completion_time
+
+        # Skip if we haven't waited long enough based on adaptive frequency
+        # Use 90% of adaptive cooldown to slightly favor higher frequency
+        adaptive_threshold = self.adaptive_cooldown * 0.9
+        if time_since_completion < adaptive_threshold:
+            logger.debug(f"{self.__class__.__name__}: Waiting for adaptive frequency (completed {time_since_completion:.2f}s ago, need {adaptive_threshold:.2f}s)")
+            return False
+
+        # Skip if queue is getting full (but not completely full)
+        queue_threshold = int(self.processing_queue.maxsize * 0.9)  # 90% capacity
+        if self.processing_queue.qsize() >= queue_threshold:
+            logger.warning(f"{self.__class__.__name__} queue nearly full ({self.processing_queue.qsize()}/{self.processing_queue.maxsize}), throttling")
+            return False
+
+        # Check minimum size requirement
+        if len(data) < min_size:
+            return False
+
+        return True
+
+    def _update_adaptive_cooldown(self):
+        """Update adaptive cooldown based on recent processing times.
+
+        This ensures call frequency matches actual LLM processing speed:
+        - If LLM calls take 1 second on average, trigger new calls every ~1 second
+        - If LLM calls take 3 seconds, trigger every ~3 seconds
+        - Always maintain non-blocking behavior
+        """
+        if not self.recent_processing_times:
+            return
+
+        # Calculate average processing time from recent samples
+        avg_processing_time = sum(self.recent_processing_times) / len(self.recent_processing_times)
+
+        # Set adaptive cooldown to match processing time for optimal frequency
+        # Add small buffer (10%) to account for variance and prevent queue buildup
+        target_cooldown = avg_processing_time * 1.1
+
+        # Apply bounds to prevent extreme values
+        previous_cooldown = self.adaptive_cooldown
+        self.adaptive_cooldown = max(self.min_cooldown, min(self.max_cooldown, target_cooldown))
+
+        # Log significant changes in adaptive frequency
+        if abs(self.adaptive_cooldown - previous_cooldown) > 0.1:
+            frequency_hz = 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0
+            logger.info(f"{self.__class__.__name__}: 🎯 Adaptive frequency updated to {frequency_hz:.1f} Hz (every {self.adaptive_cooldown:.2f}s) based on avg processing time {avg_processing_time:.2f}s")
+        else:
+            logger.debug(f"{self.__class__.__name__}: Adaptive cooldown updated to {self.adaptive_cooldown:.2f}s (avg processing: {avg_processing_time:.2f}s)")
+
+    def _record_processing_completion(self, processing_time: float):
+        """Record completion of a processing operation for adaptive frequency calculation.
+
+        Args:
+            processing_time: Time taken to complete the processing
+        """
+        import time
+
+        # Update completion time
+        self.last_completion_time = time.time()
+
+        # Add to recent processing times for adaptive calculation
+        self.recent_processing_times.append(processing_time)
+
+        # Keep only recent samples
+        if len(self.recent_processing_times) > self.max_recent_samples:
+            self.recent_processing_times.pop(0)
+
+        # Update adaptive cooldown immediately
+        self._update_adaptive_cooldown()
+
+        # Log processing completion for visibility
+        if len(self.recent_processing_times) >= 3:  # After a few samples
+            frequency_hz = 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0
+            logger.debug(f"{self.__class__.__name__}: ✅ Processing completed in {processing_time:.2f}s, optimal frequency: {frequency_hz:.1f} Hz")
+
+    async def queue_for_processing(self, item: Any) -> bool:
+        """Queue an item for processing with deduplication support.
+
+        Args:
+            item: Item to queue
+
+        Returns:
+            bool: True if successfully queued, False otherwise
+        """
+        try:
+            # Wrap item for coordination if enabled
+            if self.enable_work_coordination:
+                work_item = item if isinstance(item, WorkItem) else WorkItem(item)
+
+                # Quick check for recent duplicates before queuing
+                async with self._coordination_lock:
+                    content_hash = work_item.get_content_hash()
+                    if content_hash in self._processed_hashes:
+                        logger.debug(f"Skipping duplicate content before queuing: {content_hash[:8]}")
+                        return False
+
+                self.processing_queue.put_nowait(work_item)
+            else:
+                self.processing_queue.put_nowait(item)
+
+            self.new_event.set()
+            return True
+        except asyncio.QueueFull:
+            logger.warning(f"{self.__class__.__name__} queue full, dropping item")
+            return False
+
+    def update_processing_time(self):
+        """Update the last processing time."""
+        import time
+
+        self.last_processing_time = time.time()
+
+    def get_queue_status(self) -> Dict[str, Any]:
+        """Get current queue status including adaptive frequency information.
+
+        Returns:
+            dict: Queue status information
+        """
+        avg_processing_time = self.total_processing_time / max(self.total_processed, 1)
+
+        status = {
+            "queue_size": self.processing_queue.qsize(),
+            "active_workers": self.active_workers,
+            "is_running": self.is_running,
+            "has_workers": self.worker_tasks != [],
+            "max_workers": self.max_concurrent_workers,
+            "total_processed": self.total_processed,
+            "avg_processing_time": avg_processing_time,
+            "adaptive_cooldown": self.adaptive_cooldown,
+            "recent_processing_times": self.recent_processing_times[-3:],  # Last 3 samples for debugging
+            "optimal_frequency_hz": 1.0 / self.adaptive_cooldown if self.adaptive_cooldown > 0 else 0,
+        }
+
+        # Add coordination info if enabled
+        if self.enable_work_coordination:
+            status.update(
+                {
+                    "work_coordination_enabled": True,
+                    "processing_items": len(getattr(self, "_processing_items", set())),
+                    "processed_hashes": len(getattr(self, "_processed_hashes", set())),
+                    "processed_signatures": len(getattr(self, "_processed_signatures", set())),
+                    "processed_contents": len(getattr(self, "_processed_contents", [])),
+                }
+            )
+
+        return status
+
+    async def scale_workers(self, target_workers: int):
+        """Dynamically scale the number of workers up or down.
+
+        Args:
+            target_workers: Target number of concurrent workers
+        """
+        if not self.is_running:
+            logger.warning(f"Cannot scale {self.__class__.__name__} workers when not running")
+            return
+
+        # For stateful processors, enforce single worker
+        if self.enable_work_coordination and self._is_stateful_processor():
+            if target_workers != 1:
+                logger.info(f"{self.__class__.__name__}: Stateful processor - maintaining single worker (requested {target_workers})")
+            return
+
+        current_workers = len(self.worker_tasks)
+
+        if target_workers == current_workers:
+            return  # Already at target
+
+        if target_workers > current_workers:
+            # Scale up - add new workers
+            for i in range(target_workers - current_workers):
+                worker_task = asyncio.create_task(self._worker())
+                self.worker_tasks.append(worker_task)
+                await asyncio.sleep(0.01)  # Small delay between new workers
+
+            self.max_concurrent_workers = target_workers
+            logger.info(f"Scaled {self.__class__.__name__} workers up to {target_workers}")
+
+        else:
+            # Scale down - stop excess workers
+            workers_to_stop = current_workers - target_workers
+            for _ in range(workers_to_stop):
+                await self.processing_queue.put(None)  # Signal worker to stop
+
+            # Wait a bit for workers to stop gracefully
+            await asyncio.sleep(0.1)
+
+            # Remove stopped tasks from the list
+            self.worker_tasks = [task for task in self.worker_tasks if not task.done()]
+            self.max_concurrent_workers = target_workers
+            logger.info(f"Scaled {self.__class__.__name__} workers down to {target_workers}")
+
+
 class UniversalLLM:
     """
     Universal LLM client that provides a consistent interface for all LLM operations.

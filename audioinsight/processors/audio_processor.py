@@ -51,7 +51,8 @@ class AudioProcessor(BaseProcessor):
         self.sep = " "  # Default separator
         self.last_response_content = ""
 
-        # Two global variables
+        # SINGLE GLOBAL MEMORY STORE - all workers access this atomically
+        # TWO GLOBAL VARIABLES/MEMORIES as requested
         self.committed_transcript = {
             "tokens": [],  # Committed ASR tokens (without s2hk conversion)
             "text": "",  # Full committed text (without s2hk conversion)
@@ -59,6 +60,7 @@ class AudioProcessor(BaseProcessor):
             "end_buffer": 0,  # Buffer end time
             "end_attributed_speaker": 0,  # Diarization progress
         }
+
         self.parsed_transcript = {
             "text": "",  # Parsed text (with s2hk conversion applied at final step)
             "tokens": [],  # Parsed tokens (if available)
@@ -123,6 +125,7 @@ class AudioProcessor(BaseProcessor):
             logger.info("🔧 Pre-initializing LLM processor to reduce connection latency")
             try:
                 trigger_config = LLMTrigger(
+                    max_text_length=getattr(self.args, "analyzer_max_input_length", 8000),
                     analysis_interval_seconds=getattr(self.args, "llm_analysis_interval", 5.0),
                     new_text_trigger_chars=getattr(self.args, "llm_new_text_trigger", 50),
                 )
@@ -132,20 +135,20 @@ class AudioProcessor(BaseProcessor):
                     trigger_config=trigger_config,
                 )
                 self.llm.add_inference_callback(self._handle_inference_callback)
-                logger.info(f"LLM inference pre-initialized with simplified direct await processing")
+                logger.info(f"LLM inference pre-initialized with model: {getattr(self.args, 'base_llm', 'openai/gpt-4.1-mini')}")
             except Exception as e:
                 logger.warning(f"Failed to pre-initialize LLM inference processor: {e}")
                 self.llm = None
 
         # Initialize transcript parser
         try:
-            parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), parser_window=getattr(self.args, "parser_window", 100))
+            parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0), parser_window=getattr(self.args, "parser_window", 100))
             self.transcript_parser = Parser(config=parser_config)
 
             # Set up callback to update transcript lines with parsed text
             self.transcript_parser.set_result_callback(self._handle_parsed_transcript_callback)
 
-            logger.info(f"Transcript parser pre-initialized with simplified direct await processing")
+            logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s, parser window: {getattr(self.args, 'parser_window', 100)} chars")
         except Exception as e:
             logger.warning(f"Failed to pre-initialize transcript parser: {e}")
             self.transcript_parser = None
@@ -241,9 +244,9 @@ class AudioProcessor(BaseProcessor):
             current_time = time() - self.beg_loop
             self.tokens.append(ASRToken(start=current_time, end=current_time + 1, text=".", speaker=0, is_dummy=True))
 
-    async def _handle_inference_callback(self, inference_response, trigger_reason):
-        """Handle callback when an inference result is generated (simplified from queue-based)."""
-        logger.info(f"📝 Inference result generated: {len(inference_response.key_points)} key points (trigger: {trigger_reason})")
+    async def _handle_inference_callback(self, inference_response, transcription_text):
+        """Handle callback when a inference result is generated."""
+        logger.info(f"📝 Inference result generated: {len(inference_response.key_points)} key points")
         logger.info(f"🔑 Key points: {', '.join(inference_response.key_points[:2])}...")
 
         # Store inference result in the response for client access
@@ -262,7 +265,7 @@ class AudioProcessor(BaseProcessor):
                 "key_points": inference_response.key_points,
                 "response_suggestions": inference_response.response_suggestions,
                 "action_plan": inference_response.action_plan,
-                "trigger_reason": trigger_reason,
+                "text_length": len(transcription_text),
             }
 
             self.analyses.append(new_result)
@@ -326,7 +329,7 @@ class AudioProcessor(BaseProcessor):
             logger.warning(f"Failed to handle parsed transcript callback: {e}")
 
     async def parse_and_store_transcript(self, text: str, speaker_info: Optional[list] = None, timestamps: Optional[dict] = None) -> Optional[ParsedTranscript]:
-        """Parse transcript text and store it using direct await (simplified from queue-based).
+        """Parse transcript text and store it for sharing across the application.
 
         Args:
             text: Transcript text to parse
@@ -340,8 +343,8 @@ class AudioProcessor(BaseProcessor):
             return None
 
         try:
-            # Parse the transcript using direct await (simplified from queue-based)
-            parsed_transcript = await self.transcript_parser.parse_transcript_direct(text, speaker_info, timestamps)
+            # Parse the transcript using the structured parser
+            parsed_transcript = await self.transcript_parser.parse_transcript(text, speaker_info, timestamps)
 
             # Store the parsed transcript
             async with self.lock:
@@ -352,7 +355,8 @@ class AudioProcessor(BaseProcessor):
                 if len(self.parsed_transcripts) > 50:
                     self.parsed_transcripts = self.parsed_transcripts[-50:]
 
-            logger.debug(f"📝 Parsed and stored transcript with direct await: {len(text)} -> {len(parsed_transcript.parsed_text)} chars")
+            # Note: LLM analyzer is now triggered by parser worker to ensure proper event order
+            logger.debug(f"📝 Parsed and stored transcript: {len(text)} -> {len(parsed_transcript.parsed_text)} chars")
             return parsed_transcript
 
         except Exception as e:
@@ -510,10 +514,26 @@ class AudioProcessor(BaseProcessor):
             if not self.transcription_queue:
                 self.transcription_queue = asyncio.Queue()
 
+            # OPTIMIZATION: Start parser workers in parallel with other tasks
+            parser_start_task = None
+            if self.transcript_parser:
+                parser_start_task = asyncio.create_task(self.transcription_processor.start_parser_worker())
+            else:
+                # If no parser instance but LLM features are enabled, create it
+                logger.warning("Transcript parser not found - re-initializing...")
+                self._initialize_llm_components()
+                if self.transcript_parser:
+                    parser_start_task = asyncio.create_task(self.transcription_processor.start_parser_worker())
+
             # FIXED: Now self.llm is properly initialized before creating transcription task
             self.transcription_task = asyncio.create_task(self.transcription_processor.process(self.transcription_queue, self.update_transcription, self.llm))
             self.all_tasks_for_cleanup.append(self.transcription_task)
             processing_tasks_for_watchdog.append(self.transcription_task)
+
+            # Wait for parser to start if it was created
+            if parser_start_task:
+                await parser_start_task
+                logger.info("Started parser worker from transcript parser")
 
         # Initialize diarization components if needed
         if self.args.diarization:
@@ -533,17 +553,21 @@ class AudioProcessor(BaseProcessor):
         self.all_tasks_for_cleanup.append(self.ffmpeg_reader_task)
         processing_tasks_for_watchdog.append(self.ffmpeg_reader_task)
 
-        # No need to start LLM monitoring since we're using direct await calls
-        # Removed llm_start_task and start_monitoring calls
+        # Start LLM inference processor monitoring if enabled - ALWAYS start monitoring
+        llm_start_task = None
         if self.llm:
-            logger.info("LLM inference processor ready for direct await calls")
+            llm_start_task = asyncio.create_task(self.llm.start_monitoring())
+            self.all_tasks_for_cleanup.append(llm_start_task)
+            logger.info("LLM inference processor monitoring task started")
         else:
             # If no LLM instance, check if we should create one
             if getattr(self.args, "llm_inference", False):
                 logger.warning("LLM inference enabled but no LLM instance - re-initializing...")
                 self._initialize_llm_components()
                 if self.llm:
-                    logger.info("LLM inference processor ready for direct await calls after re-initialization")
+                    llm_start_task = asyncio.create_task(self.llm.start_monitoring())
+                    self.all_tasks_for_cleanup.append(llm_start_task)
+                    logger.info("LLM inference processor monitoring task started after re-initialization")
 
         # Monitor overall system health
         self.watchdog_task = asyncio.create_task(self.watchdog(processing_tasks_for_watchdog))
@@ -615,8 +639,14 @@ class AudioProcessor(BaseProcessor):
         """Clean up resources when processing is complete."""
         logger.info("Starting cleanup of AudioProcessor resources.")
 
+        # Stop parser worker first
+        if self.transcription_processor:
+            await self.transcription_processor.stop_parser_worker()
+
+        # Stop LLM inference processor to generate final inference
         if self.llm:
-            logger.info("LLM inference processor cleanup (direct await mode)")
+            await self.llm.stop_monitoring()
+            logger.info("LLM inference processor stopped")
 
         for task in self.all_tasks_for_cleanup:
             if task and not task.done():

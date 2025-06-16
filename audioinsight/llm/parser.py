@@ -10,7 +10,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
-from .llm_base import UniversalLLM
+from .llm_base import EventBasedProcessor, UniversalLLM, WorkItem
 from .llm_config import LLMConfig, ParserConfig
 from .llm_utils import contains_chinese
 
@@ -199,121 +199,112 @@ class SentenceCache:
                 to_remove.append(sentence_hash)
 
         for sentence_hash in to_remove:
-            if sentence_hash in self.sentences:
-                old_sentence = self.sentences[sentence_hash]
-                if old_sentence in self.processed_sentences:
-                    self.processed_sentences.remove(old_sentence)
+            sentence_info = self.sentences[sentence_hash]
 
-                del self.sentences[sentence_hash]
-                self.processed_hashes.discard(sentence_hash)
-                if sentence_hash in self.insertion_order:
-                    self.insertion_order.remove(sentence_hash)
+            # Remove from processed sentences list
+            if sentence_info in self.processed_sentences:
+                self.processed_sentences.remove(sentence_info)
 
-        if to_remove:
-            logger.info(f"Cleared {len(to_remove)} old cache entries")
+            del self.sentences[sentence_hash]
+            self.processed_hashes.discard(sentence_hash)
+            if sentence_hash in self.insertion_order:
+                self.insertion_order.remove(sentence_hash)
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
+        """Get detailed cache statistics."""
         return {
             "total_sentences": len(self.sentences),
-            "processed_sentences": len(self.processed_hashes),
-            "cache_hit_rate": len(self.processed_hashes) / max(len(self.sentences), 1),
+            "processed_sentences": len(self.processed_sentences),
             "similarity_threshold": self.similarity_threshold,
             "max_size": self.max_size,
+            "cache_utilization": len(self.sentences) / self.max_size if self.max_size > 0 else 0,
         }
 
 
 # =============================================================================
-# Sentence Splitting
+# Sentence Splitter with Multi-Language Support
 # =============================================================================
 
 
 class SentenceSplitter:
-    """Enhanced sentence splitter with support for English and Chinese punctuation."""
+    """Advanced sentence splitter with support for English and Chinese punctuation."""
 
     def __init__(self):
         # Enhanced separators for better sentence boundary detection
-        self.splitter = RecursiveCharacterTextSplitter(
-            separators=[". ", "! ", "? ", "。", "！", "？"],
-            chunk_size=1000,  # Large chunk size to avoid premature splitting
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            separators=["。", "！", "？", ".", "!", "?"],
+            chunk_size=1000,  # Large chunk size for sentence-level splitting
             chunk_overlap=0,
             length_function=len,
+            is_separator_regex=False,
         )
 
+        # Regex patterns for sentence boundary detection
+        self.sentence_patterns = [r"[.!?。！？]+\s*"]
+
+        self.compiled_patterns = [re.compile(pattern) for pattern in self.sentence_patterns]
+
     def split_sentences(self, text: str) -> List[str]:
-        """Split text into sentences using enhanced separators."""
+        """Split text into sentences with advanced boundary detection."""
         if not text.strip():
             return []
 
-        # Use the text splitter to get initial chunks
-        chunks = self.splitter.split_text(text)
+        # First, use LangChain's splitter for initial chunking
+        initial_chunks = self.text_splitter.split_text(text)
 
-        # Further split chunks by sentence patterns
         sentences = []
-        for chunk in chunks:
+        for chunk in initial_chunks:
+            # Further split each chunk using regex patterns
             chunk_sentences = self._split_chunk_by_patterns(chunk)
             sentences.extend(chunk_sentences)
 
-        # Merge very short sentences with the next one
-        sentences = self._merge_short_sentences(sentences)
-
-        # Filter out empty sentences
+        # Clean up and filter sentences
         sentences = [s.strip() for s in sentences if s.strip()]
 
-        return sentences
+        # Merge very short sentences with previous ones
+        merged_sentences = self._merge_short_sentences(sentences)
+
+        return merged_sentences
 
     def _split_chunk_by_patterns(self, chunk: str) -> List[str]:
-        """Split a chunk by sentence patterns."""
-        # Pattern for sentence endings (English and Chinese)
-        sentence_pattern = r"([.!?;:。！？；：])\s*"
+        """Split a chunk using regex patterns for sentence boundaries."""
+        sentences = [chunk]
 
-        # Split by the pattern but keep the punctuation
-        parts = re.split(sentence_pattern, chunk)
-
-        sentences = []
-        current_sentence = ""
-
-        for i, part in enumerate(parts):
-            if i % 2 == 0:  # Text part
-                current_sentence += part
-            else:  # Punctuation part
-                current_sentence += part
-                if current_sentence.strip():
-                    sentences.append(current_sentence.strip())
-                current_sentence = ""
-
-        # Add any remaining text
-        if current_sentence.strip():
-            sentences.append(current_sentence.strip())
+        for pattern in self.compiled_patterns:
+            new_sentences = []
+            for sentence in sentences:
+                if not sentence.strip():
+                    continue
+                parts = pattern.split(sentence)
+                for part in parts:
+                    if part.strip():
+                        new_sentences.append(part.strip())
+            sentences = new_sentences if new_sentences else sentences
 
         return sentences
 
     def _merge_short_sentences(self, sentences: List[str], min_length: int = 10) -> List[str]:
-        """Merge very short sentences with the next one."""
+        """Merge very short sentences with previous ones to maintain context."""
         if not sentences:
-            return sentences
+            return []
 
         merged = []
-        i = 0
+        current_sentence = sentences[0]
 
-        while i < len(sentences):
-            current = sentences[i]
-
-            # If current sentence is too short and there's a next sentence, merge them
-            if len(current) < min_length and i + 1 < len(sentences):
-                next_sentence = sentences[i + 1]
-                merged_sentence = f"{current} {next_sentence}".strip()
-                merged.append(merged_sentence)
-                i += 2  # Skip the next sentence as it's been merged
+        for sentence in sentences[1:]:
+            if len(sentence) < min_length and merged:
+                # Merge with previous sentence
+                current_sentence += " " + sentence
             else:
-                merged.append(current)
-                i += 1
+                merged.append(current_sentence)
+                current_sentence = sentence
 
+        merged.append(current_sentence)
         return merged
 
 
 # =============================================================================
-# Pydantic Models
+# Type Definitions for Parsing
 # =============================================================================
 
 
@@ -328,83 +319,78 @@ class ParsedTranscript(BaseModel):
     parsing_time: float = Field(default=0.0, description="Time taken to parse the transcript")
 
 
-# =============================================================================
-# Statistics Tracking
-# =============================================================================
-
-
 class BaseStats:
-    """Base class for statistics tracking."""
+    """Base class for statistics tracking with common patterns."""
 
     def __init__(self):
         self.reset()
 
     def reset(self):
-        """Reset all statistics to initial values."""
+        """Reset all statistics. Should be overridden by subclasses."""
         pass
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert statistics to dictionary format."""
+        """Get statistics as a dictionary. Should be overridden by subclasses."""
         return {}
 
     def update_average_time(self, current_avg: float, count: int, new_time: float) -> float:
-        """Update running average with new time measurement."""
-        if count <= 1:
+        """Helper method to update running average time."""
+        if count == 0:
             return new_time
         return (current_avg * (count - 1) + new_time) / count
 
 
 class ParserStats(BaseStats):
-    """Statistics tracking for parser operations."""
+    """Statistics for sentence-level parser operations."""
 
     def reset(self):
-        """Reset all parser statistics."""
-        self.total_processed = 0
+        self.texts_processed = 0
+        self.sentences_processed = 0
+        self.sentences_cached = 0
         self.total_chars_processed = 0
-        self.total_sentences_processed = 0
         self.average_processing_time = 0.0
-        self.cache_hits = 0
-        self.cache_misses = 0
-        self.similarity_matches = 0
+        self.cache_hit_rate = 0.0
+        self.last_25_percent_processed = 0
 
     def record_processing(self, processing_time: float, chars_processed: int, sentences_processed: int = 0, cache_hits: int = 0, cache_misses: int = 0):
         """Record a processing operation."""
-        self.total_processed += 1
+        self.texts_processed += 1
         self.total_chars_processed += chars_processed
-        self.total_sentences_processed += sentences_processed
-        self.cache_hits += cache_hits
-        self.cache_misses += cache_misses
+        self.sentences_processed += sentences_processed
+        self.sentences_cached += cache_hits
+        self.last_25_percent_processed += cache_misses
 
-        # Update average processing time
-        self.average_processing_time = self.update_average_time(self.average_processing_time, self.total_processed, processing_time)
+        # Update averages
+        total_requests = cache_hits + cache_misses
+        if total_requests > 0:
+            self.cache_hit_rate = cache_hits / total_requests if total_requests > 0 else 0.0
+
+        self.average_processing_time = self.update_average_time(self.average_processing_time, self.texts_processed, processing_time)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Get statistics as dictionary."""
-        total_cache_operations = self.cache_hits + self.cache_misses
-        cache_hit_rate = self.cache_hits / max(total_cache_operations, 1)
-
         return {
-            "total_processed": self.total_processed,
+            "texts_processed": self.texts_processed,
+            "sentences_processed": self.sentences_processed,
+            "sentences_cached": self.sentences_cached,
             "total_chars_processed": self.total_chars_processed,
-            "total_sentences_processed": self.total_sentences_processed,
             "average_processing_time": self.average_processing_time,
-            "cache_hits": self.cache_hits,
-            "cache_misses": self.cache_misses,
-            "cache_hit_rate": cache_hit_rate,
-            "similarity_matches": self.similarity_matches,
+            "cache_hit_rate": self.cache_hit_rate,
+            "last_25_percent_processed": self.last_25_percent_processed,
         }
 
 
 # =============================================================================
-# Simplified Parser Implementation
+# Parser Implementation
 # =============================================================================
 
 
-class Parser:
+class Parser(EventBasedProcessor):
     """
-    Simplified LLM-powered transcript parser with sentence-level processing and caching.
-
-    Uses direct await calls instead of complex queue system for predictable time-ordered processing.
+    Enhanced LLM-based text parser with sentence-level validation and caching.
+    - Processes only the last 25% of sentences through LLM
+    - Uses caching to prevent duplicate processing
+    - Supports English and Chinese punctuation
+    - Returns structured ParsedTranscript objects for sharing between UI and analyzer
     """
 
     def __init__(
@@ -415,32 +401,52 @@ class Parser:
         cache_size: int = 1000,
         parser_window: int = 100,
     ):
-        """Initialize the parser with configuration."""
-        self.model_id = model_id
-        self.api_key = api_key
-        self.config = config or ParserConfig()
-        self.parser_window = parser_window
+        """Initialize the sentence-level parser.
 
-        # Initialize LLM client
-        llm_config = LLMConfig(model_id=model_id, api_key=api_key)
-        self._llm_client = UniversalLLM(llm_config)
+        Args:
+            model_id: The model ID to use (defaults to openai/gpt-4.1-nano for faster processing)
+            api_key: Optional API key override (defaults to OPENROUTER_API_KEY env var)
+            config: Configuration for the text parser
+            cache_size: Maximum number of sentences to cache
+        """
+        super().__init__(queue_maxsize=50, cooldown_seconds=0.3, max_concurrent_workers=2, enable_work_coordination=False)
 
-        # Initialize components
+        self.config = config or ParserConfig(model_id=model_id)
+        self.api_key = api_key  # Store for lazy initialization
+
+        # Initialize sentence processing components
         self.sentence_splitter = SentenceSplitter()
-        self.sentence_cache = SentenceCache(max_size=cache_size)
-        self.stats = ParserStats()
+        self.sentence_cache = SentenceCache(max_size=cache_size, similarity_threshold=0.85)
 
-        # Initialize prompt template for lazy loading
+        # Use parser_window from config if available, otherwise use parameter
+        if config and hasattr(config, "parser_window"):
+            self.parser_window = config.parser_window
+        else:
+            self.parser_window = parser_window
+
+        # Lazy initialization - only create when first needed
+        self._llm_client = None
         self._prompt = None
 
-        # Result callback
-        self.result_callback = None
+        # Enhanced statistics for sentence processing
+        self.stats = ParserStats()
 
-        logger.info("Parser initialized with direct await processing")
+        logger.info(f"Sentence-level parser initialized - processes sentences within {parser_window}-char window with caching")
+
+        # Callback for storing parsed results
+        self._result_callback = None
+
+    def _is_stateful_processor(self) -> bool:
+        """Parser maintains cache state."""
+        return True
 
     @property
     def llm_client(self) -> UniversalLLM:
         """Lazy initialization of LLM client to speed up startup."""
+        if self._llm_client is None:
+            llm_config = LLMConfig(model_id=self.config.model_id, api_key=self.api_key, timeout=15.0, temperature=0.0)
+            self._llm_client = UniversalLLM(llm_config)
+            logger.debug(f"Lazy-initialized LLM client for model: {self.config.model_id} with temperature=0.0")
         return self._llm_client
 
     @property
@@ -451,29 +457,59 @@ class Parser:
                 [
                     (
                         "system",
-                        """You are a transcript correction assistant. Your task is to:
+                        """Refine the given sentences from transcription:
+- Make minimal contextual changes
+- Fix typos only if highly confident
+- Add appropriate punctuation
+- For Chinese text, use Chinese punctuation (、，。！？)
+- Preserve original meaning and context
+- Maintain sentence boundaries
 
-1. Fix grammatical errors, typos, and speech recognition mistakes
-2. Improve sentence structure and flow while preserving the original meaning
-3. Maintain the speaker's tone, style, and intent
-4. Keep technical terms, names, and specific details accurate
-
-Guidelines:
-- Make minimal changes - only fix clear errors
-- Don't add new information or change the meaning
-- Keep the same language and regional conventions as the original
-- Maintain natural speech patterns and colloquialisms when appropriate
-- If unsure about a correction, leave the text as-is""",
+IMPORTANT: Always respond in the same language and script as the input text.""",
                     ),
-                    ("human", "{text}"),
+                    ("human", "Sentences to refine:\n{sentences}"),
                 ]
             )
-            logger.debug("Lazy-initialized prompt template")
+            logger.debug("Lazy-initialized prompt template for sentence parser")
         return self._prompt
 
-    async def parse_transcript_direct(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> ParsedTranscript:
+    async def _process_item(self, item):
         """
-        Parse transcript directly with await (simplified from queue-based processing).
+        Process a single parsing request from the queue using sentence-level validation.
+        """
+        start_time = time.time()
+        try:
+            # Handle WorkItem wrapper - extract the actual data
+            if hasattr(item, "data"):
+                text, speaker_info, timestamps = item.data
+            else:
+                # Direct tuple format
+                text, speaker_info, timestamps = item
+
+            if not text or not text.strip():
+                logger.debug("Skipping empty text for sentence parsing.")
+                return
+
+            logger.info(f"Processing sentence-level parsing: {len(text)} chars")
+
+            # Process using sentence-level validation
+            result = await self.parse_transcript(text, speaker_info, timestamps)
+
+            # Use the callback to send the result back
+            if self._result_callback:
+                await self._result_callback(result)
+                logger.debug(f"Sent sentence-parsed result via callback: {len(result.parsed_text)} chars")
+
+            # Record statistics
+            processing_time = time.time() - start_time
+            logger.info(f"Sentence parser processed {len(text)} chars in {processing_time:.2f}s")
+
+        except Exception as e:
+            logger.error(f"Sentence parser processing failed: {e}", exc_info=True)
+            # Do not re-raise, as it would stop the worker.
+
+    async def queue_parsing_request(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> bool:
+        """Queue a sentence-level parsing request.
 
         Args:
             text: Text to parse
@@ -481,192 +517,306 @@ Guidelines:
             timestamps: Optional timestamp information
 
         Returns:
-            ParsedTranscript with corrected text and metadata
+            bool: True if successfully queued, False otherwise
+        """
+        if not text.strip():
+            return False
+
+        try:
+            work_item = WorkItem(data=(text, speaker_info, timestamps), item_id=hashlib.md5(text.encode()).hexdigest())
+
+            success = await self.queue_for_processing(work_item)
+            if success:
+                logger.debug(f"Queued sentence parsing request: {len(text)} chars")
+            else:
+                logger.debug("Sentence parsing queue full, will retry later")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to queue sentence parsing request: {e}")
+            return False
+
+    async def parse_transcript(self, text: str, speaker_info: Optional[List[Dict]] = None, timestamps: Optional[Dict[str, float]] = None) -> ParsedTranscript:
+        """Parse transcript using sentence-level validation with caching.
+
+        Args:
+            text: Original transcript text to parse
+            speaker_info: Optional speaker information for context
+            timestamps: Optional timestamp information
+
+        Returns:
+            ParsedTranscript: Structured parsing result
         """
         start_time = time.time()
 
         try:
-            # Process the text using character window approach
-            corrected_text = await self._process_with_character_window(text)
+            # Quick validation
+            if not text.strip():
+                return ParsedTranscript(original_text=text, parsed_text="", parsing_time=time.time() - start_time)
 
-            # Create segments with metadata
-            segments = self._create_segments(corrected_text, speaker_info, timestamps)
+            # CHINESE PARSER FIX: Enhanced logging for Chinese text
+            is_chinese = contains_chinese(text)
+            logger.debug(f"Sentence parsing {len(text)} characters (Chinese: {is_chinese}): '{text[:50]}...'")
 
-            # Calculate processing time
-            processing_time = time.time() - start_time
+            # Split text into sentences using enhanced splitter
+            sentences = self.sentence_splitter.split_sentences(text)
+            if not sentences:
+                return ParsedTranscript(original_text=text, parsed_text=text, parsing_time=time.time() - start_time)
 
-            # Update statistics
-            self.stats.record_processing(processing_time=processing_time, chars_processed=len(text), sentences_processed=len(self.sentence_splitter.split_sentences(text)))
+            logger.debug(f"Split into {len(sentences)} sentences")
 
-            # Create result
-            result = ParsedTranscript(
-                original_text=text,
-                parsed_text=corrected_text,
-                segments=segments,
-                timestamps=timestamps or {},
-                speakers=speaker_info or [],
-                parsing_time=processing_time,
-            )
+            # Calculate sentences to process based on character window
+            # Find the character position that's parser_window characters from the end
+            text_length = len(text)
+            window_start_char = max(0, text_length - self.parser_window)
 
-            # Call result callback if set
-            if self.result_callback:
-                try:
-                    await self.result_callback(result)
-                except Exception as e:
-                    logger.error(f"Error in result callback: {e}")
+            # Find which sentences are touched by this character window
+            current_char_pos = 0
+            sentences_to_process_start = 0
 
-            logger.debug(f"Parsed transcript in {processing_time:.2f}s: {len(text)} chars -> {len(corrected_text)} chars")
+            for i, sentence in enumerate(sentences):
+                sentence_start = current_char_pos
+                sentence_end = current_char_pos + len(sentence)
+
+                # If this sentence overlaps with our window, we need to process from here
+                if sentence_end > window_start_char:
+                    sentences_to_process_start = i
+                    break
+
+                current_char_pos = sentence_end + 1  # +1 for separator
+
+            sentences_to_process_count = len(sentences) - sentences_to_process_start
+
+            logger.debug(f"Processing last {sentences_to_process_count} sentences (from index {sentences_to_process_start}) covering {self.parser_window}-char window")
+
+            # Process sentences with caching
+            processed_sentences = []
+            cache_hits = 0
+            cache_misses = 0
+
+            for i, sentence in enumerate(sentences):
+                sentence_info = self.sentence_cache.add_sentence(sentence, i)
+
+                if i >= sentences_to_process_start:
+                    # Process this sentence (within character window)
+                    if self.sentence_cache.is_processed(sentence_info.hash):
+                        # Use exact cached result
+                        processed_text = self.sentence_cache.get_processed_text(sentence_info.hash)
+                        processed_sentences.append(processed_text or sentence)
+                        cache_hits += 1
+                    else:
+                        # Check for similar processed sentence
+                        similar_processed = self.sentence_cache.find_similar_processed(sentence)
+                        if similar_processed:
+                            # Use similar cached result
+                            processed_sentences.append(similar_processed)
+                            cache_hits += 1
+                            logger.debug(f"🔄 Using similar cached result for: '{sentence[:30]}...'")
+                        else:
+                            # Process new sentence
+                            processed_text = await self._process_sentence(sentence)
+                            self.sentence_cache.mark_processed(sentence_info.hash, processed_text)
+                            processed_sentences.append(processed_text)
+                            cache_misses += 1
+                else:
+                    # Keep original sentence (outside character window)
+                    processed_sentences.append(sentence)
+
+            # Combine processed sentences
+            separator = " " if not is_chinese else ""
+            parsed_text = separator.join(processed_sentences)
+
+            # CHINESE PARSER FIX: Validate parsing result for Chinese text
+            if is_chinese:
+                if not parsed_text or not parsed_text.strip():
+                    logger.warning(f"Chinese text parsing returned empty result, using original text")
+                    parsed_text = text
+                elif not contains_chinese(parsed_text):
+                    logger.warning(f"Chinese text parsing lost Chinese characters, using original text")
+                    parsed_text = text
+                else:
+                    logger.info(f"Chinese text parsed successfully: '{text[:30]}...' -> '{parsed_text[:30]}...'")
+
+            # Create segments from the parsed content
+            segments = self._create_segments(parsed_text, speaker_info, timestamps)
+
+            parsing_time = time.time() - start_time
+
+            # Record enhanced statistics
+            self.stats.record_processing(processing_time=parsing_time, chars_processed=len(text), sentences_processed=len(sentences), cache_hits=cache_hits, cache_misses=cache_misses)
+
+            result = ParsedTranscript(original_text=text, parsed_text=parsed_text, segments=segments, timestamps=timestamps or {}, speakers=speaker_info or [], parsing_time=parsing_time)
+
+            logger.debug(f"Sentence parsing completed in {parsing_time:.2f}s: {cache_hits} cache hits, {cache_misses} cache misses")
             return result
 
         except Exception as e:
-            logger.error(f"Error parsing transcript: {e}")
-            # Return original text on error
-            return ParsedTranscript(
-                original_text=text,
-                parsed_text=text,
-                segments=self._create_segments(text, speaker_info, timestamps),
-                timestamps=timestamps or {},
-                speakers=speaker_info or [],
-                parsing_time=time.time() - start_time,
-            )
-
-    async def _process_with_character_window(self, text: str) -> str:
-        """Process text using character window approach with sentence-level protection."""
-        if not text.strip():
-            return text
-
-        # Split into sentences
-        sentences = self.sentence_splitter.split_sentences(text)
-        if not sentences:
-            return text
-
-        # Calculate character window - look at last N characters
-        window_start = max(0, len(text) - self.parser_window)
-        window_text = text[window_start:]
-
-        # Find which sentences are touched by the window
-        sentences_to_process = []
-        current_pos = 0
-
-        for i, sentence in enumerate(sentences):
-            sentence_start = current_pos
-            sentence_end = current_pos + len(sentence)
-
-            # Check if this sentence overlaps with the window
-            if sentence_end > window_start:
-                sentences_to_process.append(i)
-
-            current_pos = sentence_end + 1  # +1 for space between sentences
-
-        if not sentences_to_process:
-            return text
-
-        # Process the identified sentences
-        cache_hits = 0
-        cache_misses = 0
-
-        for sentence_idx in sentences_to_process:
-            sentence = sentences[sentence_idx]
-            sentence_info = self.sentence_cache.add_sentence(sentence, sentence_idx)
-
-            if sentence_info.processed:
-                # Use cached result
-                sentences[sentence_idx] = sentence_info.processed_text
-                cache_hits += 1
-            else:
-                # Process with LLM
-                try:
-                    processed_sentence = await self._process_sentence(sentence)
-                    sentences[sentence_idx] = processed_sentence
-                    self.sentence_cache.mark_processed(sentence_info.hash, processed_sentence)
-                    cache_misses += 1
-                except Exception as e:
-                    logger.error(f"Error processing sentence: {e}")
-                    # Keep original sentence on error
-                    cache_misses += 1
-
-        # Update cache statistics
-        self.stats.cache_hits += cache_hits
-        self.stats.cache_misses += cache_misses
-
-        # Reconstruct the text
-        return " ".join(sentences)
+            logger.error(f"Failed to parse transcript with sentences: {e}")
+            # Return original text as fallback
+            return ParsedTranscript(original_text=text, parsed_text=text, parsing_time=time.time() - start_time)
 
     async def _process_sentence(self, sentence: str) -> str:
-        """Process a single sentence with the LLM."""
+        """Process a single sentence through the LLM.
+
+        Args:
+            sentence: Sentence to process
+
+        Returns:
+            str: Processed sentence
+        """
         try:
-            result = await self.llm_client.invoke_text(self.prompt, {"text": sentence})
+            result = await self.llm_client.invoke_text(self.prompt, {"sentences": sentence})
             return result.strip()
         except Exception as e:
-            logger.error(f"Error processing sentence with LLM: {e}")
-            return sentence  # Return original on error
+            logger.warning(f"LLM sentence processing failed: {e}")
+            return sentence  # Fallback to original
+
+    async def parse_text(self, text: str) -> str:
+        """Parse text and return only the corrected text string.
+
+        Args:
+            text: Text to parse
+
+        Returns:
+            str: Corrected text
+        """
+        result = await self.parse_transcript(text)
+        return result.parsed_text
 
     def _create_segments(self, corrected_text: str, speaker_info: Optional[List[Dict]], timestamps: Optional[Dict[str, float]]) -> List[Dict]:
-        """Create text segments with metadata."""
+        """Create text segments with metadata using enhanced sentence splitting.
+
+        Args:
+            corrected_text: Corrected text from LLM
+            speaker_info: Speaker information
+            timestamps: Timestamp information
+
+        Returns:
+            List of segments with metadata
+        """
         segments = []
 
-        # Split corrected text into sentences for segmentation
+        # Use sentence splitter for better segmentation
         sentences = self.sentence_splitter.split_sentences(corrected_text)
+        start_pos = 0
 
-        current_pos = 0
         for i, sentence in enumerate(sentences):
+            if not sentence.strip():
+                continue
+
             segment = {
-                "index": i,
-                "text": sentence,
-                "start_pos": current_pos,
-                "end_pos": current_pos + len(sentence),
-                "word_count": len(sentence.split()),
-                "char_count": len(sentence),
+                "text": sentence.strip(),
+                "start_char": start_pos,
+                "end_char": start_pos + len(sentence),
+                "segment_id": i,
+                "confidence": 1.0,  # Placeholder
             }
 
             # Add speaker info if available
-            if speaker_info:
-                # Simple heuristic: assign speaker based on position
-                speaker_idx = min(i, len(speaker_info) - 1)
-                if speaker_idx < len(speaker_info):
-                    segment["speaker"] = speaker_info[speaker_idx]
+            if speaker_info and len(speaker_info) > i:
+                segment["speaker"] = speaker_info[i]
 
-            # Add timestamp info if available
+            # Add timing info if available
             if timestamps:
-                # Simple heuristic: interpolate timestamps
-                if "start" in timestamps and "end" in timestamps:
-                    total_duration = timestamps["end"] - timestamps["start"]
-                    segment_start = timestamps["start"] + (i / len(sentences)) * total_duration
-                    segment_end = timestamps["start"] + ((i + 1) / len(sentences)) * total_duration
-                    segment["start_time"] = segment_start
-                    segment["end_time"] = segment_end
+                segment["timestamps"] = timestamps
 
             segments.append(segment)
-            current_pos += len(sentence) + 1  # +1 for space
+            start_pos += len(sentence) + 1  # +1 for separator
 
         return segments
 
+    async def _process_chunk(self, text: str) -> str:
+        """Process a single chunk of text through the LLM (legacy support).
+
+        Args:
+            text: Text chunk to process
+
+        Returns:
+            str: Processed text
+        """
+        try:
+            result = await self.llm_client.invoke_text(self.prompt, {"sentences": text})
+            return result
+        except Exception as e:
+            logger.warning(f"LLM processing failed: {e}")
+            return text  # Fallback to original
+
+    async def _process_in_chunks(self, text: str) -> tuple[str, int]:
+        """Process long text by splitting into chunks (legacy support).
+
+        Args:
+            text: Long text to process
+
+        Returns:
+            tuple: (processed_text, chunks_used)
+        """
+        # For sentence-level processing, we use sentence splitting instead
+        sentences = self.sentence_splitter.split_sentences(text)
+        processed_chunks = []
+
+        for sentence in sentences:
+            processed_chunk = await self._process_sentence(sentence)
+            processed_chunks.append(processed_chunk)
+
+        return " ".join(processed_chunks), len(sentences)
+
+    def _split_by_output_tokens(self, text: str) -> list[str]:
+        """Split text into chunks based on sentences (updated for sentence processing).
+
+        Args:
+            text: Text to split
+
+        Returns:
+            list: Text chunks (sentences)
+        """
+        return self.sentence_splitter.split_sentences(text)
+
     def get_stats(self) -> dict:
-        """Get parser statistics."""
-        stats = self.stats.to_dict()
-        stats.update(self.sentence_cache.get_cache_stats())
-        return stats
+        """Get processing statistics with coordination info.
+
+        Returns:
+            dict: Statistics including base stats and sentence processing details
+        """
+        base_stats = super().get_queue_status()
+        parser_stats = self.stats.to_dict()
+
+        # Add processor info to stats
+        cache_stats = self.sentence_cache.get_cache_stats()
+        parser_stats.update(
+            {
+                "stateful_processor": True,
+                "cache_size": len(self.sentence_cache.sentences),
+                "processed_sentences": len(self.sentence_cache.processed_hashes),
+                "similarity_threshold": cache_stats["similarity_threshold"],
+                "cache_utilization": cache_stats["cache_utilization"],
+            }
+        )
+
+        return {**base_stats, **parser_stats}
+
+    async def reset_state(self):
+        """Reset parser state and clear sentence cache."""
+        self.sentence_cache = SentenceCache(max_size=self.sentence_cache.max_size)
+        self.stats.reset()
+        logger.info("Sentence parser state reset - cache cleared")
 
     def cleanup_cache(self, max_age_seconds: float = 3600):
         """Clean up old cache entries."""
         self.sentence_cache.clear_old_entries(max_age_seconds)
+        logger.debug(f"Cleaned up cache entries older than {max_age_seconds}s")
 
     def set_result_callback(self, callback):
-        """Set callback function for processing results."""
-        self.result_callback = callback
+        """Set a callback function to be called when parsing results are available.
 
-    async def reset_state(self):
-        """Reset parser state."""
-        self.stats.reset()
-        self.sentence_cache = SentenceCache(max_size=self.sentence_cache.max_size)
-        logger.info("Parser state reset")
-
-
-# =============================================================================
-# Factory Functions
-# =============================================================================
+        Args:
+            callback: Async function that takes a ParsedTranscript object
+        """
+        self._result_callback = callback
+        logger.debug("Sentence parser result callback set")
 
 
+# Convenience function for quick text parsing (returns structured data)
 async def parse_transcript(
     text: str,
     model_id: str = "openai/gpt-4.1-nano",
@@ -674,18 +824,19 @@ async def parse_transcript(
     speaker_info: Optional[List[Dict]] = None,
     timestamps: Optional[Dict[str, float]] = None,
 ) -> ParsedTranscript:
-    """
-    Factory function to parse transcript with simplified direct processing.
+    """Convenience function to quickly parse and structure transcript text using sentence-level processing.
+
+    Note: Always uses temperature=0.0 for consistent parsing results.
 
     Args:
-        text: Text to parse
-        model_id: LLM model identifier
-        api_key: API key for LLM service
+        text: The text to parse and correct
+        model_id: The model ID to use
+        api_key: Optional API key override
         speaker_info: Optional speaker information
         timestamps: Optional timestamp information
 
     Returns:
-        ParsedTranscript with corrected text and metadata
+        ParsedTranscript: Structured transcript data
     """
     parser = Parser(model_id=model_id, api_key=api_key)
-    return await parser.parse_transcript_direct(text, speaker_info, timestamps)
+    return await parser.parse_transcript(text, speaker_info, timestamps)

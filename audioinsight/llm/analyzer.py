@@ -5,9 +5,9 @@ from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..logging_config import get_logger
-from .llm_base import UniversalLLM
+from .llm_base import EventBasedProcessor, UniversalLLM
 from .llm_config import LLMConfig, LLMTrigger
-from .llm_utils import truncate_text
+from .llm_utils import s2hk, truncate_text
 from .performance_monitor import get_performance_monitor, log_performance_if_needed
 from .retriever import prepare_rag_context
 
@@ -79,15 +79,19 @@ class AnalyzerStats:
 
 
 # =============================================================================
-# Simplified Analyzer Implementation
+# LLM Analyzer Implementation
 # =============================================================================
 
 
-class Analyzer:
+class Analyzer(EventBasedProcessor):
     """
-    Simplified LLM-powered analysis processor for generating insights from transcription data.
+    LLM-powered analysis processor for generating insights from transcription data.
 
-    Uses direct await calls instead of complex queue system for predictable time-ordered processing.
+    Features:
+    - Event-based triggering (no polling)
+    - Adaptive frequency matching LLM processing times
+    - Non-blocking queue-based processing
+    - Work coordination to prevent duplicate analyses
     """
 
     def __init__(
@@ -107,6 +111,10 @@ class Analyzer:
         # Initialize prompt template for lazy loading
         self._prompt = None
 
+        # FIXED: Disable work coordination for analyzer to prevent over-aggressive deduplication
+        # The analyzer needs to process growing accumulated text each time, not skip based on content overlap
+        super().__init__(queue_maxsize=50, cooldown_seconds=5.0, max_concurrent_workers=2, enable_work_coordination=False)
+
         # Analysis state
         self.last_inference = None
         self.stats = AnalyzerStats()
@@ -116,12 +124,14 @@ class Analyzer:
         self.text_length_at_last_analysis = 0
         self.last_processed_data = ""
 
-        # Processing state
-        self.is_processing = False
-        self.last_processing_time = 0.0
-        self.last_completion_time = time.time()
+        # Add flag to prevent multiple simultaneous triggers
+        self._trigger_in_progress = False
 
-        logger.info("Analyzer initialized with direct await processing")
+        logger.info(f"Analyzer initialized with {self.max_concurrent_workers} workers and work coordination DISABLED to prevent over-deduplication")
+
+    def _is_stateful_processor(self) -> bool:
+        """Mark this processor as stateless to allow multiple workers with coordination."""
+        return False  # Analyzer is mostly stateless, just uses coordination for deduplication
 
     @property
     def llm_client(self) -> UniversalLLM:
@@ -179,174 +189,253 @@ Remember to respond in the same language, script, and regional conventions as th
             logger.debug("Lazy-initialized prompt template with dynamic RAG context")
         return self._prompt
 
-    def add_inference_callback(self, callback):
-        """Add a callback function to be called when inference is complete.
+    async def _process_item(self, item: Any):
+        """Process a single inference request from the queue.
 
         Args:
-            callback: Function that takes (AnalyzerResponse, trigger_reason) as arguments
+            item: The trigger reason string
         """
-        self.inference_callbacks.append(callback)
-        logger.debug(f"Added inference callback, total callbacks: {len(self.inference_callbacks)}")
-
-    async def update_transcription_direct(self, new_text: str, speaker_info: Optional[Any] = None):
-        """
-        Update transcription and potentially trigger analysis using direct await.
-
-        Args:
-            new_text: New transcription text
-            speaker_info: Optional speaker information
-        """
-        if not new_text or not new_text.strip():
-            return
-
-        # Check if we should trigger analysis
-        should_analyze = self._check_inference_triggers(new_text)
-
-        if should_analyze:
-            try:
-                # Generate analysis directly with await
-                result = await self._generate_inference_direct("auto_trigger")
-
-                # Call callbacks with result only if we have a valid result
-                if result is not None:
-                    for callback in self.inference_callbacks:
-                        try:
-                            await callback(result, "auto_trigger")
-                        except Exception as e:
-                            logger.error(f"Error in inference callback: {e}")
-
-            except Exception as e:
-                logger.error(f"Error in direct analysis: {e}")
-
-        # Update tracking
-        self.last_processed_data = new_text
-        self.text_length_at_last_analysis = len(new_text)
-
-    def _check_inference_triggers(self, new_text: str) -> bool:
-        """Check if inference should be triggered based on current conditions."""
-        current_time = time.time()
-
-        # Time-based trigger
-        time_since_last = current_time - self.last_completion_time
-        if time_since_last >= self.trigger_config.analysis_interval_seconds:
-            logger.debug(f"Time trigger: {time_since_last:.1f}s >= {self.trigger_config.analysis_interval_seconds}s")
-            return True
-
-        # Text length trigger
-        if not self.last_processed_data:
-            logger.debug("First text trigger")
-            return True
-
-        text_growth = len(new_text) - len(self.last_processed_data)
-        if text_growth >= self.trigger_config.new_text_trigger_chars:
-            logger.debug(f"Text growth trigger: {text_growth} chars >= {self.trigger_config.new_text_trigger_chars}")
-            return True
-
-        # Significant content change trigger
-        if len(new_text) > 0 and len(self.last_processed_data) > 0:
-            # Simple heuristic: if new text is significantly different
-            similarity_ratio = len(set(new_text.split()) & set(self.last_processed_data.split())) / max(len(set(new_text.split())), 1)
-            if similarity_ratio < 0.7:  # Less than 70% word overlap
-                logger.debug(f"Content change trigger: similarity {similarity_ratio:.2f} < 0.7")
-                return True
-
-        return False
-
-    async def _generate_inference_direct(self, trigger_reason: str = "manual") -> Optional[AnalyzerResponse]:
-        """
-        Generate inference directly with await (simplified from queue-based processing).
-
-        Args:
-            trigger_reason: Reason for triggering the inference
-
-        Returns:
-            AnalyzerResponse or None if processing fails
-        """
-        if self.is_processing:
-            logger.debug("Analysis already in progress, skipping")
-            return None
-
-        self.is_processing = True
         start_time = time.time()
         monitor = get_performance_monitor()
 
         try:
-            # Use the accumulated text for analysis
-            text_to_analyze = self.last_processed_data
+            trigger_reason = item
+            await self._generate_inference(trigger_reason=trigger_reason)
+            self.update_processing_time()
 
-            if not text_to_analyze or not text_to_analyze.strip():
-                logger.debug("No text to analyze")
-                return None
-
-            # Truncate text if too long for the model
-            truncated_text = truncate_text(text_to_analyze, max_length=3000)
-            if len(truncated_text) < len(text_to_analyze):
-                logger.debug(f"Truncated text from {len(text_to_analyze)} to {len(truncated_text)} chars")
-
-            # Generate analysis using LLM
-            logger.debug(f"Generating analysis for {len(truncated_text)} characters (trigger: {trigger_reason})")
-
-            result = await self.llm_client.invoke_structured(self.prompt, {"transcription": truncated_text}, AnalyzerResponse)
-
-            # Update state
-            self.last_inference = result
+            # Record successful processing
             processing_time = time.time() - start_time
-            self.last_processing_time = processing_time
-            self.last_completion_time = time.time()
+            monitor.record_request("analyzer", processing_time)
 
-            # Record statistics
-            self.stats.record_inference(trigger_reason, processing_time, len(truncated_text))
-
-            # Log performance
+            # Log performance periodically
             log_performance_if_needed()
 
-            logger.info(f"Generated analysis in {processing_time:.2f}s: {len(result.key_points)} key points, {len(result.response_suggestions)} questions, {len(result.action_plan)} actions")
+        except Exception as e:
+            # Record error
+            processing_time = time.time() - start_time
+            if "timeout" in str(e).lower():
+                monitor.record_error("analyzer", "timeout")
+            else:
+                monitor.record_error("analyzer", "general")
+            logger.error(f"Analyzer processing failed after {processing_time:.2f}s: {e}")
+            raise
 
-            return result
+    def add_inference_callback(self, callback):
+        """Add a callback function to be called when inference is generated.
+
+        Args:
+            callback: Function that takes (inference_response, transcription_text) as arguments
+        """
+        self.inference_callbacks.append(callback)
+
+    def update_transcription(self, new_text: str, speaker_info: Optional[Any] = None):
+        """Update with new transcription text - COMPLETELY NON-BLOCKING.
+
+        Args:
+            new_text: New transcription text to add
+            speaker_info: Optional speaker information (currently unused in analyzer)
+        """
+        if not new_text.strip():
+            return
+
+        try:
+            # Add to accumulated text without speaker info formatting
+            if self.accumulated_data:
+                self.accumulated_data += " " + new_text
+            else:
+                self.accumulated_data = new_text
+
+            logger.debug(f"Updated transcription: {len(self.accumulated_data)} chars total")
+
+            # CRITICAL: Defer inference checking to avoid blocking transcription
+            # Schedule inference check for next event loop iteration
+            try:
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                loop.call_soon(self._check_inference_triggers)
+            except Exception:
+                # If we can't schedule, just skip inference checking to avoid blocking
+                pass
 
         except Exception as e:
-            logger.error(f"Failed to generate analysis: {e}")
-            return None
+            # Never let transcription updates fail or block
+            logger.debug(f"Non-critical transcription update error: {e}")
 
+    def _check_inference_triggers(self):
+        """Check if conditions are met for inference and queue request if needed - NON-BLOCKING."""
+        if not self.accumulated_data.strip():
+            return
+
+        # Prevent multiple simultaneous triggers
+        if self._trigger_in_progress:
+            logger.debug("Skipping trigger check - another trigger already in progress")
+            return
+
+        # Check minimum text length requirement only (skip adaptive cooldown for analyzer)
+        if len(self.accumulated_data) < self.trigger_config.min_text_length:
+            return
+
+        text_length = len(self.accumulated_data)
+        current_time = time.time()
+
+        # Calculate conditions for both time and new text triggers
+        new_text_since_last_analysis = text_length - self.text_length_at_last_analysis
+        time_since_last_analysis = current_time - self.last_processing_time
+
+        # Check both trigger conditions
+        has_been_long_enough = time_since_last_analysis > self.trigger_config.analysis_interval_seconds
+        has_enough_new_text = new_text_since_last_analysis >= self.trigger_config.new_text_trigger_chars
+
+        # Add debug logging for trigger analysis
+        logger.debug(f"📊 Trigger check: {text_length} chars total, {new_text_since_last_analysis} new chars, {time_since_last_analysis:.1f}s elapsed")
+        logger.debug(f"📊 Thresholds: {self.trigger_config.new_text_trigger_chars} chars, {self.trigger_config.analysis_interval_seconds}s")
+        logger.debug(f"📊 Conditions: enough_text={has_enough_new_text}, enough_time={has_been_long_enough}")
+
+        # Trigger inference based on OR logic - either condition can trigger
+        if has_enough_new_text or has_been_long_enough:
+            trigger_reason = "new_text" if has_enough_new_text else "time_interval"
+
+            # Set flag to prevent multiple triggers
+            self._trigger_in_progress = True
+
+            # Use base class method to queue for processing - NON-BLOCKING
+            try:
+                # Create a task to handle the async queue operation
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                loop.create_task(self._queue_inference_async(trigger_reason))
+                logger.info(f"🎯 Triggering analysis: {trigger_reason} (new_chars={new_text_since_last_analysis}, time={time_since_last_analysis:.1f}s)")
+            except Exception as e:
+                # Don't let inference errors block transcription
+                logger.debug(f"Non-critical inference queue error: {e}")
+                # Reset flag on error
+                self._trigger_in_progress = False
+        else:
+            logger.debug(f"⏳ Not triggering analysis yet: need {self.trigger_config.new_text_trigger_chars - new_text_since_last_analysis} more chars or {self.trigger_config.analysis_interval_seconds - time_since_last_analysis:.1f}s")
+
+    async def _queue_inference_async(self, trigger_reason: str):
+        """Async helper to queue inference requests."""
+        try:
+            success = await self.queue_for_processing(trigger_reason)
+            if success:
+                logger.debug(f"Successfully queued inference: {trigger_reason}")
+            else:
+                logger.debug(f"Inference queue full for: {trigger_reason}")
+        except Exception as e:
+            logger.debug(f"Error queuing inference: {e}")
         finally:
-            self.is_processing = False
+            # Always reset trigger flag when queue operation completes
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
 
-    async def force_inference_direct(self) -> Optional[AnalyzerResponse]:
+    async def start_monitoring(self):
+        """Start monitoring for inference triggers."""
+        await self.start_worker()
+        logger.info("Started LLM inference monitoring")
+
+    async def stop_monitoring(self):
+        """Stop monitoring."""
+        await self.stop_worker()
+        logger.info("Stopped LLM inference monitoring")
+
+    async def _generate_inference(self, trigger_reason: str = "manual"):
+        """Generate inference using the LLM.
+
+        Args:
+            trigger_reason: Reason for triggering the inference ('new_text', 'text_length', 'forced', or 'manual')
         """
-        Force inference generation directly with await.
+        if not self.accumulated_data.strip():
+            # Reset trigger flag even if no data
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
+            return
 
-        Returns:
-            AnalyzerResponse or None if processing fails
-        """
-        logger.info("Forcing direct analysis generation")
-        result = await self._generate_inference_direct("forced")
+        try:
+            # CHANGE: Always process the entire accumulated text for comprehensive analyses
+            # This ensures analyses cover the full conversation context, not just incremental updates
+            text_to_process = self.accumulated_data.strip()
 
-        if result is not None:
-            # Call callbacks with result
+            if trigger_reason == "forced":
+                logger.info(f"Processing entire accumulated text for final comprehensive analysis: {len(text_to_process)} chars")
+            else:
+                logger.info(f"Processing entire accumulated text for comprehensive analysis: {len(text_to_process)} chars")
+
+            # Truncate if too long
+            if len(text_to_process) > self.trigger_config.max_text_length:
+                text_to_process = truncate_text(text_to_process, self.trigger_config.max_text_length)
+                logger.info(f"Truncated text to {self.trigger_config.max_text_length} characters")
+
+            start_time = time.time()
+            if trigger_reason == "forced":
+                logger.info(f"Generating comprehensive final inference for {len(text_to_process)} chars...")
+            else:
+                logger.info(f"Generating comprehensive inference for {len(text_to_process)} chars of entire transcript...")
+
+            # Generate structured response using universal LLM client
+            variables = {"transcription": text_to_process}
+            response: AnalyzerResponse = await self.llm_client.invoke_structured(self.prompt, variables, AnalyzerResponse)
+
+            generation_time = time.time() - start_time
+
+            # Apply s2hk conversion to ensure Traditional Chinese output
+            response.key_points = [s2hk(point) for point in response.key_points]
+            response.response_suggestions = [s2hk(suggestion) for suggestion in response.response_suggestions]
+            response.action_plan = [s2hk(action) for action in response.action_plan]
+
+            # Update statistics
+            self.stats.record_inference(trigger_reason, generation_time, len(text_to_process))
+
+            self.last_inference = response
+
+            logger.info(f"Generated inference in {generation_time:.2f}s: {len(response.key_points)} chars")
+            logger.debug(f"Inference: {response.key_points}")
+
+            # Call registered callbacks
             for callback in self.inference_callbacks:
                 try:
-                    await callback(result, "forced")
+                    await callback(response, text_to_process)
                 except Exception as e:
-                    logger.error(f"Error in forced inference callback: {e}")
+                    logger.error(f"Error in inference callback: {e}")
 
-        return result
+            # Reset text length tracking for new text trigger after processing
+            if trigger_reason != "forced":
+                self.text_length_at_last_analysis = len(self.accumulated_data)
+                logger.debug(f"Reset text length tracking to {self.text_length_at_last_analysis} chars")
+
+                # Update last_processed_data to the current accumulated text
+                self.last_processed_data = self.accumulated_data
+
+                # Keep the most recent text in buffer (last 5000 chars) to maintain context
+                if len(self.accumulated_data) > 5000:
+                    self.accumulated_data = self.accumulated_data[-5000:]
+                    self.last_processed_data = self.accumulated_data
+                    # Update text length tracking after truncation
+                    self.text_length_at_last_analysis = len(self.accumulated_data)
+
+        except Exception as e:
+            logger.error(f"Failed to generate inference: {e}")
+        finally:
+            # Always reset trigger flag when processing completes
+            if hasattr(self, "_trigger_in_progress"):
+                self._trigger_in_progress = False
 
     def get_last_inference(self) -> Optional[AnalyzerResponse]:
-        """Get the last generated inference result."""
+        """Get the most recent inference."""
         return self.last_inference
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get analyzer statistics."""
-        base_stats = self.stats.to_dict()
-        base_stats.update(
-            {
-                "is_processing": self.is_processing,
-                "last_processing_time": self.last_processing_time,
-                "text_length_at_last_analysis": self.text_length_at_last_analysis,
-                "trigger_config": {
-                    "analysis_interval_seconds": self.trigger_config.analysis_interval_seconds,
-                    "new_text_trigger_chars": self.trigger_config.new_text_trigger_chars,
-                },
-            }
-        )
-        return base_stats
+        """Get inference statistics."""
+        base_stats = self.get_queue_status()
+        inference_stats = self.stats.to_dict()
+        return {**base_stats, **inference_stats}
+
+    async def force_inference(self) -> Optional[AnalyzerResponse]:
+        """Force generate a inference of current accumulated text."""
+        if not self.accumulated_data.strip():
+            return None
+
+        # Force inference bypasses the queue system
+        await self._generate_inference(trigger_reason="forced")
+        return self.last_inference

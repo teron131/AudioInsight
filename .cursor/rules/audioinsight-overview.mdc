@@ -6,7 +6,7 @@ alwaysApply: true
 # AudioInsight Project Overview
 
 ## Project Description
-AudioInsight is a comprehensive audio processing platform that provides real-time transcription, speaker diarization, and intelligent analysis of audio content. The project combines advanced AI models with a modern web interface for seamless audio processing workflows featuring non-blocking concurrent LLM analysis that never interrupts real-time transcription.
+AudioInsight is a comprehensive audio processing platform that provides real-time transcription, speaker diarization, and intelligent analysis of audio content. The project combines advanced AI models with a modern web interface for seamless audio processing workflows featuring simple LLM analysis that integrates cleanly with real-time transcription.
 
 ## Key Components
 
@@ -22,7 +22,7 @@ The core backend is located in the `audioinsight/` package:
 - **Speaker Diarization**: [audioinsight/diarization/](mdc:audioinsight/diarization) - Speaker identification and separation
 - **Streaming**: [audioinsight/whisper_streaming/](mdc:audioinsight/whisper_streaming) - Real-time audio processing with LocalAgreement-2
 - **Server Components**: [audioinsight/server/](mdc:audioinsight/server) - Server utilities and helpers
-- **Non-Blocking LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Fire-and-forget language model features
+- **Simple LLM Integration**: [audioinsight/llm/](mdc:audioinsight/llm) - Direct async language model features
 
 ### Frontend (Next.js/React)
 The web interface is located in `audioinsight-ui/`:
@@ -33,7 +33,7 @@ The web interface is located in `audioinsight-ui/`:
 - **Custom Hooks**: [audioinsight-ui/hooks/](mdc:audioinsight-ui/hooks) - WebSocket and state management hooks
 - **Utility Libraries**: [audioinsight-ui/lib/](mdc:audioinsight-ui/lib) - Helper functions and utilities
 - **Styling**: [audioinsight-ui/styles/](mdc:audioinsight-ui/styles) - Tailwind CSS and modern styling
-- **Real-time progress tracking and results display with 20 FPS smooth updates**
+- **Real-time progress tracking and results display with smooth updates**
 - **Integration with backend via REST APIs and WebSockets**
 
 ### Infrastructure
@@ -50,7 +50,7 @@ The web interface is located in `audioinsight-ui/`:
 - **Whisper-based speech-to-text** with LocalAgreement-2 streaming algorithms
 - **Multiple model sizes** for accuracy vs speed tradeoffs (tiny, base, small, medium, large-v3-turbo)
 - **Support for multiple audio formats** via FFmpeg integration
-- **Zero-lag real-time output** with 20 FPS UI updates and smooth streaming
+- **Real-time output** with smooth streaming
 - **Context preservation** across streaming chunks for conversational coherence
 
 ### Speaker Diarization
@@ -61,18 +61,17 @@ The web interface is located in `audioinsight-ui/`:
 
 ### Real-time Processing
 - **Streaming audio processing** with LocalAgreement-2 policy for output stability
-- **WebSocket-based live updates** with 0.05s intervals (20 FPS)
+- **WebSocket-based live updates** with regular intervals
 - **Progressive result delivery** as speech is recognized
 - **Voice Activity Detection** for intelligent processing triggers
-- **Non-blocking background LLM analysis** that never interrupts transcription flow
+- **Simple LLM analysis** that integrates cleanly with transcription flow
 
-### LLM-Powered Analysis (Non-Blocking)
-- **Fire-and-forget transcript correction** with 1 stateful worker for atomic parsing
-- **Background conversation analysis** with 2 concurrent workers for high throughput
-- **Exception isolation** ensuring LLM failures never affect transcription
-- **Intelligent text processing** that operates transparently in background
-- **Adaptive performance optimization** with dynamic cooldown adjustment
-- **Shared thread pool** (8 workers) for 90% overhead reduction in LLM operations
+### LLM-Powered Analysis (Simple Integration)
+- **Direct async transcript processing** with simple text parsing
+- **Background conversation analysis** with clean async patterns
+- **Simple error handling** ensuring LLM failures don't affect transcription
+- **Intelligent text processing** that operates with direct async calls
+- **Configuration-based processing** with environment variable management
 
 ## Development Workflow
 
@@ -130,23 +129,20 @@ cd audioinsight-ui && npm run dev:frontend
 ### AI/ML Integration
 - **OpenAI Whisper**: Speech-to-text transcription with multiple model sizes
 - **PyAnnote**: Real-time speaker diarization and identification
-- **Non-blocking LLM integration**: Background conversation analysis and text enhancement
+- **Simple LLM integration**: Direct async conversation analysis and text enhancement
 - **LocalAgreement-2**: Advanced streaming algorithm for output stability
 
 ### Infrastructure & Deployment
 - **Docker**: Containerization with GPU support for production deployment
 - **Environment-based configuration**: Secure configuration via environment variables
-- **Event-based non-blocking architecture**: True parallel processing without delays
-- **Shared thread pools**: Optimized resource utilization for concurrent operations
-- **Fire-and-forget queuing**: Zero transcription lag with background processing
+- **Simple async architecture**: Clean parallel processing patterns
+- **Direct async processing**: Optimized resource utilization with standard patterns
 
-### Concurrency & Performance
-- **Event-based non-blocking architecture**: Eliminates all transcription blocking
-- **Shared thread pools**: 8-worker executor for optimized LLM operations  
-- **Fire-and-forget queuing**: Adaptive queue sizes with non-blocking operations
-- **Performance monitoring**: Real-time metrics and adaptive optimization
-- **Exception isolation**: Component failures don't propagate to transcription
-- **Ultra-fast UI updates**: 20 FPS smooth real-time display
+### Processing & Performance
+- **Simple async design**: Clean async/await patterns for all operations
+- **Direct LLM calls**: Straightforward async processing for language models
+- **Error isolation**: Simple error handling with recovery patterns
+- **Efficient processing**: Optimized async operations for real-time performance
 
 ## API Architecture
 
@@ -159,32 +155,32 @@ cd audioinsight-ui && npm run dev:frontend
 
 ### WebSocket Communication
 - **Real-time Transcription**: `/asr` - Unified live audio and file processing
-- **Background LLM Analysis**: Non-blocking analysis results via WebSocket
-- **Progress Updates**: 20 FPS update rate for smooth responsiveness
+- **Simple LLM Analysis**: Direct async analysis results via WebSocket
+- **Progress Updates**: Regular update intervals for responsive feedback
 - **Error Handling**: Graceful recovery with continued processing
 
 ### Processing Modes
 - **Live Recording**: Direct browser microphone with real-time LLM analysis
 - **File Upload + WebSocket**: Unified processing with real-time simulation
 - **Direct File Processing**: Complete JSON response with LLM insights
-- **Streaming File Processing**: Server-Sent Events with background analysis
+- **Streaming File Processing**: Server-Sent Events with integrated analysis
 
 ## Performance Features
 
-### Non-Blocking Architecture
-- **Zero Transcription Lag**: LLM processing never blocks speech recognition
-- **Fire-and-Forget Workers**: Background processing with immediate return
-- **Shared Resource Pool**: 90% overhead reduction through executor reuse
-- **Adaptive Optimization**: Dynamic performance tuning based on metrics
+### Simple Architecture
+- **Clean Async Processing**: Direct async/await patterns for all operations
+- **Simple LLM Integration**: Straightforward async processing for language models
+- **Efficient Resource Usage**: Optimized async operations for real-time performance
+- **Configuration-Based Processing**: Environment-driven feature management
 
 ### Real-time Capabilities
 - **LocalAgreement-2 Streaming**: Stable output through hypothesis validation
-- **Ultra-Fast Updates**: 0.05s intervals for 20 FPS smooth display
+- **Regular Updates**: Consistent intervals for smooth display
 - **Voice Activity Detection**: Intelligent processing triggers
 - **Context Preservation**: Conversational coherence across chunks
 
 ### Fault Tolerance
-- **Exception Isolation**: Component failures don't affect core processing
+- **Simple Error Handling**: Clean error recovery patterns
 - **Graceful Degradation**: System continues operating during partial failures
 - **Resource Cleanup**: Comprehensive session and file cleanup
-- **Health Monitoring**: Real-time status and performance tracking
+- **Health Monitoring**: Basic status and performance tracking
