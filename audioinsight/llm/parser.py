@@ -1,6 +1,5 @@
-import asyncio
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -8,8 +7,7 @@ from pydantic import BaseModel, Field
 from ..logging_config import get_logger
 from .llm_base import EventBasedProcessor, UniversalLLM, WorkItem
 from .llm_config import LLMConfig, ParserConfig
-from .llm_utils import contains_chinese, s2hk
-from .performance_monitor import get_performance_monitor, log_performance_if_needed
+from .llm_utils import contains_chinese
 
 logger = get_logger(__name__)
 
@@ -256,7 +254,7 @@ IMPORTANT: Always respond in the same language and script as the input text. For
                     logger.info(f"Chinese text parsed successfully: '{text[:30]}...' -> '{parsed_text[:30]}...'")
 
             # Create segments from the parsed content
-            segments = self._create_segments(text, parsed_text, speaker_info, timestamps)
+            segments = self._create_segments(parsed_text, speaker_info, timestamps)
 
             parsing_time = time.time() - start_time
 
@@ -282,11 +280,10 @@ IMPORTANT: Always respond in the same language and script as the input text. For
         result = await self.parse_transcript(text)
         return result.parsed_text
 
-    def _create_segments(self, original_text: str, corrected_text: str, speaker_info: Optional[List[Dict]], timestamps: Optional[Dict[str, float]]) -> List[Dict]:
+    def _create_segments(self, corrected_text: str, speaker_info: Optional[List[Dict]], timestamps: Optional[Dict[str, float]]) -> List[Dict]:
         """Create text segments with metadata.
 
         Args:
-            original_text: Original transcript text
             corrected_text: Corrected text from LLM
             speaker_info: Speaker information
             timestamps: Timestamp information

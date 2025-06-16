@@ -1,10 +1,8 @@
-from .base_processor import (
-    BaseProcessor,
-    _sentence_split_regex,
-    format_time,
-    logger,
-    s2hk,
-)
+import re
+
+from .base_processor import BaseProcessor, format_time, logger
+
+_sentence_split_regex = re.compile(r"[.!?。！？]+")
 
 
 class FormatProcessor(BaseProcessor):

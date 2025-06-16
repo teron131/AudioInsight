@@ -66,10 +66,3 @@ def get_logger(name=None):
         name = __name__
 
     return logging.getLogger(name)
-
-
-def get_log_filename():
-    """Get the current log filename."""
-    if not _logging_initialized:
-        setup_logging()
-    return _log_filename

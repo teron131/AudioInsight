@@ -6,27 +6,8 @@ export interface FileUploadResponse {
   message: string;
 }
 
-export interface ExportRequest {
-  lines: Array<{
-    speaker: number;
-    text: string;
-    beg?: string;
-    end?: string;
-  }>;
-  analysis?: {
-    key_points?: string[];
-    keywords?: string[];
-    response_suggestions?: string[];
-    action_plan?: string[];
-  };
-}
-
-export interface ExportResponse {
-  status: string;
-  format: string;
-  content: string;
-  filename: string;
-  message?: string;
+export interface APIConfigResponse {
+  // ... fields
 }
 
 export interface ModelStatus {
@@ -214,23 +195,6 @@ export class AudioInsightAPI {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.detail || `Upload failed: ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  async exportTranscript(data: ExportRequest, format: 'txt' | 'srt' | 'vtt' | 'json' = 'txt'): Promise<ExportResponse> {
-    const response = await fetch(`${this.baseUrl}/api/export/transcript?format=${format}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Export failed: ${response.statusText}`);
     }
 
     return response.json();

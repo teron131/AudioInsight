@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from . import AudioInsight, parse_args
-from .config import get_config, get_processing_parameters
+from .config import get_config
 from .logging_config import get_logger, setup_logging
 from .server.file_handlers import (
     handle_file_upload_and_process,
@@ -122,6 +122,7 @@ async def get_root():
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Health check endpoint that includes backend readiness status."""
     global backend_ready, kit
@@ -313,68 +314,6 @@ async def update_processing_config(config: dict):
 
 
 # =============================================================================
-# Export APIs
-# =============================================================================
-
-
-@app.post("/api/export/transcript")
-async def export_transcript(format: str = "txt", session_data: dict = None):
-    """Export transcript in various formats.
-
-    Args:
-        format: Export format (txt, srt, vtt, json)
-        session_data: Transcript data to export
-
-    Returns:
-        Exported transcript content
-    """
-    try:
-        if not session_data or "lines" not in session_data:
-            return {"status": "error", "message": "No transcript data provided"}
-
-        lines = session_data["lines"]
-
-        if format.lower() == "txt":
-            content = "\n\n".join([f"Speaker {line.get('speaker', 'Unknown')}: {line.get('text', '')}" for line in lines if line.get("text", "").strip()])
-
-        elif format.lower() == "srt":
-            content = ""
-            for i, line in enumerate(lines, 1):
-                if line.get("text", "").strip():
-                    start_time = _format_srt_time(line.get("beg", 0))
-                    end_time = _format_srt_time(line.get("end", 0))
-                    speaker = f"Speaker {line.get('speaker', 'Unknown')}"
-                    text = line.get("text", "")
-
-                    content += f"{i}\n{start_time} --> {end_time}\n{speaker}: {text}\n\n"
-
-        elif format.lower() == "vtt":
-            content = "WEBVTT\n\n"
-            for line in lines:
-                if line.get("text", "").strip():
-                    start_time = _format_vtt_time(line.get("beg", 0))
-                    end_time = _format_vtt_time(line.get("end", 0))
-                    speaker = f"Speaker {line.get('speaker', 'Unknown')}"
-                    text = line.get("text", "")
-
-                    content += f"{start_time} --> {end_time}\n{speaker}: {text}\n\n"
-
-        elif format.lower() == "json":
-            import json
-
-            content = json.dumps(session_data, indent=2)
-
-        else:
-            return {"status": "error", "message": f"Unsupported format: {format}"}
-
-        return {"status": "success", "format": format, "content": content, "filename": f"transcript.{format.lower()}"}
-
-    except Exception as e:
-        logger.error(f"Error exporting transcript: {e}")
-        return {"status": "error", "message": f"Error exporting transcript: {str(e)}"}
-
-
-# =============================================================================
 # Session Management APIs
 # =============================================================================
 
@@ -456,26 +395,8 @@ async def get_usage_analytics():
 
 
 # =============================================================================
-# Helper Functions
+# Main Function
 # =============================================================================
-
-
-def _format_srt_time(seconds: float) -> str:
-    """Format seconds to SRT time format (HH:MM:SS,mmm)."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    milliseconds = int((seconds % 1) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
-
-
-def _format_vtt_time(seconds: float) -> str:
-    """Format seconds to WebVTT time format (HH:MM:SS.mmm)."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    milliseconds = int((seconds % 1) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
 
 
 def main():

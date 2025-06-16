@@ -145,7 +145,7 @@ class OpenAIAPIASR(ASRBase):
     def segments_end_ts(self, res) -> List[float]:
         return [s.end for s in res.words]
 
-    def transcribe(self, audio_data, prompt=None, *args, **kwargs):
+    def transcribe(self, audio_data, prompt=None):
         buffer = io.BytesIO()
         buffer.name = "temp.wav"
         sf.write(buffer, audio_data, samplerate=16000, format="WAV", subtype="PCM_16")

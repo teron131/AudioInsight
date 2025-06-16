@@ -1,9 +1,8 @@
 import asyncio
-import math
 from time import time
 
 from ..whisper_streaming.whisper_online import online_factory
-from .base_processor import SENTINEL, BaseProcessor, _sentence_split_regex, logger, s2hk
+from .base_processor import SENTINEL, BaseProcessor, logger, s2hk
 
 
 class TranscriptionProcessor(BaseProcessor):

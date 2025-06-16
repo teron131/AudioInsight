@@ -1,6 +1,5 @@
 "use client"
 
-import { ExportMenu } from '@/components/export-menu';
 import { TranscriptDisplay } from '@/components/transcript-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,7 +24,6 @@ export default function AudioInsightPage() {
     uploadFile,
     transcriptData,
     analysis,
-    exportTranscript,
     clearSession,
     systemHealth,
     diarizationEnabled,
@@ -142,11 +140,6 @@ export default function AudioInsightPage() {
                 className="hidden"
               />
 
-              <ExportMenu 
-                onExport={exportTranscript}
-                disabled={!hasTranscriptData}
-                isIconOnly={true}
-              />
             </div>
           </div>
           

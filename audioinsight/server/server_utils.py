@@ -196,12 +196,11 @@ async def stream_chunks_realtime(
     return total_elapsed
 
 
-def validate_file_type(content_type: str, allowed_types: set, filename: str = None) -> bool:
+def validate_file_type(content_type: str, filename: str = None) -> bool:
     """Validate if file type is allowed (very permissive - let FFmpeg handle format validation).
 
     Args:
         content_type: MIME type of the file
-        allowed_types: Set of allowed MIME types (used for reference but not strictly enforced)
         filename: Optional filename for extension-based validation
 
     Returns:

@@ -16,11 +16,6 @@ from ..timed_objects import SpeakerSegment
 logger = get_logger(__name__)
 
 
-def extract_number(s: str) -> int:
-    m = re.search(r"\d+", s)
-    return int(m.group()) if m else None
-
-
 class DiarizationObserver(Observer):
     """Observer that logs all data emitted by the diarization pipeline and stores speaker segments."""
 

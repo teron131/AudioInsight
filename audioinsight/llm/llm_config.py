@@ -1,4 +1,3 @@
-import os
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -27,7 +26,7 @@ class LLMConfig(BaseModel):
 
         arbitrary_types_allowed = True
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __pydantic_context__) -> None:
         """Ensure temperature is always 0.0 for consistent results."""
         object.__setattr__(self, "temperature", 0.0)
 

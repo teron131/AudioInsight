@@ -1,6 +1,5 @@
 import time
 from pathlib import Path
-from typing import Optional
 
 from ..logging_config import get_logger
 
@@ -9,7 +8,6 @@ logger = get_logger(__name__)
 # RAG knowledge base cache
 _rag_content_cache = None
 _rag_cache_timestamp = 0
-_cache_ttl = 300  # Cache for 5 minutes
 
 
 class SimpleRetriever:
@@ -195,17 +193,3 @@ def prepare_rag_context(include_separator: bool = True) -> str:
         str: Formatted RAG context or empty string if no context available
     """
     return get_default_retriever().prepare_context(include_separator)
-
-
-def get_rag_info() -> dict:
-    """Convenience function to get RAG context info using the default retriever.
-
-    Returns:
-        dict: Context information
-    """
-    return get_default_retriever().get_context_info()
-
-
-def clear_rag_cache():
-    """Convenience function to clear RAG cache using the default retriever."""
-    get_default_retriever().clear_cache()

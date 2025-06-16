@@ -228,12 +228,12 @@ Remember to respond in the same language, script, and regional conventions as th
         """
         self.inference_callbacks.append(callback)
 
-    def update_transcription(self, new_text: str, speaker_info: Optional[Dict] = None):
+    def update_transcription(self, new_text: str, speaker_info: Optional[Any] = None):
         """Update with new transcription text - COMPLETELY NON-BLOCKING.
 
         Args:
             new_text: New transcription text to add
-            speaker_info: Optional speaker/diarization information (ignored, not passed to LLM)
+            speaker_info: Optional speaker information (currently unused in analyzer)
         """
         if not new_text.strip():
             return

@@ -1,4 +1,4 @@
-import { AudioInsightAPI, ExportRequest, ProcessingParameters } from '@/lib/api';
+import { AudioInsightAPI, ProcessingParameters } from '@/lib/api';
 import { AudioInsightWebSocket, TranscriptData, WebSocketMessage } from '@/lib/websocket';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioRecording } from './use-audio-recording';
@@ -34,9 +34,6 @@ export interface UseAudioInsightReturn {
   
   // Analysis data
   analysis: AnalysisData | null;
-  
-  // Export functionality
-  exportTranscript: (format: 'txt' | 'srt' | 'vtt' | 'json') => Promise<void>;
   
   // Utility functions
   clearSession: () => void;
@@ -370,30 +367,6 @@ export function useAudioInsight(): UseAudioInsightReturn {
     }
   }, [initializeWebSocket, toast, diarizationEnabled]);
 
-  const exportTranscript = useCallback(async (format: 'txt' | 'srt' | 'vtt' | 'json') => {
-    if (!transcriptData || !transcriptData.lines || transcriptData.lines.length === 0) {
-      toast({ title: "No Data", description: "No transcript data available for export", variant: "destructive" });
-      return;
-    }
-    try {
-      const exportData: ExportRequest = {
-        lines: transcriptData.lines,
-        analysis: transcriptData.analysis, 
-      };
-      const result = await apiRef.current.exportTranscript(exportData, format);
-      if (result.status === 'success') {
-        const mimeType = format === 'json' ? 'application/json' : 'text/plain';
-        apiRef.current.downloadFile(result.content, result.filename, mimeType);
-        toast({ title: "Export Success", description: `Transcript exported as ${format.toUpperCase()}` });
-      } else {
-        throw new Error(result.message || 'Export failed');
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Export failed';
-      toast({ title: "Export Error", description: errorMessage, variant: "destructive" });
-    }
-  }, [transcriptData, toast]);
-
   const clearSession = useCallback(async () => {
     try {
       // Disconnect WebSocket first
@@ -468,7 +441,6 @@ export function useAudioInsight(): UseAudioInsightReturn {
     uploadFile,
     transcriptData,
     analysis,
-    exportTranscript,
     clearSession,
     systemHealth,
     diarizationEnabled,
