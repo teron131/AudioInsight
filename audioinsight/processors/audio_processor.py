@@ -51,7 +51,6 @@ class AudioProcessor(BaseProcessor):
         self.sep = " "  # Default separator
         self.last_response_content = ""
 
-        # SINGLE GLOBAL MEMORY STORE - all workers access this atomically
         # TWO GLOBAL VARIABLES/MEMORIES as requested
         self.committed_transcript = {
             "tokens": [],  # Committed ASR tokens (without s2hk conversion)
@@ -60,7 +59,6 @@ class AudioProcessor(BaseProcessor):
             "end_buffer": 0,  # Buffer end time
             "end_attributed_speaker": 0,  # Diarization progress
         }
-
         self.parsed_transcript = {
             "text": "",  # Parsed text (with s2hk conversion applied at final step)
             "tokens": [],  # Parsed tokens (if available)
@@ -102,11 +100,27 @@ class AudioProcessor(BaseProcessor):
         self._final_analysis_generated = False  # Flag to prevent multiple final analyses
         self._final_analysis_in_progress = False  # Flag to prevent simultaneous final analysis generation
 
-        # Initialize transcript parser for structured processing
-        self.transcript_parser = None
+        # Initialize transcript parser only if enabled
+        if getattr(self.args, "parser_enabled", False):
+            try:
+                parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0), parser_window=getattr(self.args, "parser_window", 100))
+                self.transcript_parser = Parser(config=parser_config)
+
+                # Set up callback to update transcript lines with parsed text
+                self.transcript_parser.set_result_callback(self._handle_parsed_transcript_callback)
+
+                logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s, parser window: {getattr(self.args, 'parser_window', 100)} chars")
+            except Exception as e:
+                logger.warning(f"Failed to pre-initialize transcript parser: {e}")
+                self.transcript_parser = None
+        else:
+            logger.info("Transcript parser disabled by configuration")
+            self.transcript_parser = None
+
+        # Initialize parser-related fields regardless of whether parser is enabled
         self.parsed_transcripts = []  # Store parsed transcript data
         self.last_parsed_transcript = None  # Most recent parsed transcript
-        self._parser_enabled = True  # Enable transcript parsing by default
+        self._parser_enabled = getattr(self.args, "parser_enabled", False)  # Track parser enabled state
         self.last_parsed_text = ""  # Track what text has been parsed to avoid re-processing
         self.min_text_threshold = 100  # Variable: parse all if text < this many chars
         self.sentence_percentage = 0.40  # Variable: parse last 40% of sentences if text >= threshold
@@ -140,17 +154,21 @@ class AudioProcessor(BaseProcessor):
                 logger.warning(f"Failed to pre-initialize LLM inference processor: {e}")
                 self.llm = None
 
-        # Initialize transcript parser
-        try:
-            parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0), parser_window=getattr(self.args, "parser_window", 100))
-            self.transcript_parser = Parser(config=parser_config)
+        # Initialize transcript parser only if enabled
+        if getattr(self.args, "parser_enabled", False):
+            try:
+                parser_config = ParserConfig(model_id=getattr(self.args, "fast_llm", "openai/gpt-4.1-nano"), max_output_tokens=getattr(self.args, "parser_output_tokens", 33000), trigger_interval_seconds=getattr(self.args, "parser_trigger_interval", 1.0), parser_window=getattr(self.args, "parser_window", 100))
+                self.transcript_parser = Parser(config=parser_config)
 
-            # Set up callback to update transcript lines with parsed text
-            self.transcript_parser.set_result_callback(self._handle_parsed_transcript_callback)
+                # Set up callback to update transcript lines with parsed text
+                self.transcript_parser.set_result_callback(self._handle_parsed_transcript_callback)
 
-            logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s, parser window: {getattr(self.args, 'parser_window', 100)} chars")
-        except Exception as e:
-            logger.warning(f"Failed to pre-initialize transcript parser: {e}")
+                logger.info(f"Transcript parser pre-initialized with model: {getattr(self.args, 'fast_llm', 'openai/gpt-4.1-nano')}, max_output_tokens: {getattr(self.args, 'parser_output_tokens', 33000)}, trigger interval: {getattr(self.args, 'parser_trigger_interval', 1.0)}s, parser window: {getattr(self.args, 'parser_window', 100)} chars")
+            except Exception as e:
+                logger.warning(f"Failed to pre-initialize transcript parser: {e}")
+                self.transcript_parser = None
+        else:
+            logger.info("Transcript parser disabled by configuration")
             self.transcript_parser = None
 
     @classmethod

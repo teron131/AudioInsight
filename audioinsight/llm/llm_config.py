@@ -121,6 +121,7 @@ def get_runtime_settings() -> dict:
         "base_llm": config.llm.base_llm,
         "llm_analysis_interval": config.llm.llm_analysis_interval,
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
+        "parser_enabled": config.llm.parser_enabled,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
         "parser_window": config.llm.parser_window,
@@ -147,7 +148,7 @@ def update_runtime_config(updates: dict) -> dict:
     updated = {}
 
     # LLM-specific fields that can be updated at runtime
-    llm_fields = {"fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "parser_window", "analyzer_output_tokens", "analyzer_max_input_length"}
+    llm_fields = {"fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_enabled", "parser_trigger_interval", "parser_output_tokens", "parser_window", "analyzer_output_tokens", "analyzer_max_input_length"}
 
     for key, value in updates.items():
         if key in llm_fields and hasattr(config.llm, key):

@@ -67,6 +67,7 @@ export interface ProcessingParameters {
   base_llm: string;
   llm_analysis_interval: number;
   llm_new_text_trigger: number;
+  parser_enabled: boolean;
   parser_trigger_interval: number;
   parser_output_tokens: number;
   parser_window: number;

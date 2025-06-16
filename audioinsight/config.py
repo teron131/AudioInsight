@@ -86,6 +86,7 @@ class LLMConfig(BaseSettings):
     llm_new_text_trigger: int = Field(default=50, gt=0, description="Characters to trigger new analysis")
 
     # Parser Configuration
+    parser_enabled: bool = Field(default=False, description="Enable transcript parser")
     parser_trigger_interval: float = Field(default=1.0, gt=0, description="Parser trigger interval")
     parser_output_tokens: int = Field(default=33000, gt=1000, le=100000, description="Parser max output tokens")
     parser_window: int = Field(default=100, gt=10, le=1000, description="Character window size for sentence processing")
@@ -215,6 +216,7 @@ DEFAULT_CONFIG = {
         "base_llm": "openai/gpt-4.1-mini",
         "llm_analysis_interval": 1.0,
         "llm_new_text_trigger": 50,
+        "parser_enabled": False,
         "parser_trigger_interval": 1.0,
         "parser_output_tokens": 33000,
         "parser_window": 100,
@@ -308,6 +310,7 @@ def get_processing_parameters() -> Dict[str, Any]:
         "base_llm": config.llm.base_llm,
         "llm_analysis_interval": config.llm.llm_analysis_interval,
         "llm_new_text_trigger": config.llm.llm_new_text_trigger,
+        "parser_enabled": config.llm.parser_enabled,
         "parser_trigger_interval": config.llm.parser_trigger_interval,
         "parser_output_tokens": config.llm.parser_output_tokens,
         "parser_window": config.llm.parser_window,
@@ -340,7 +343,7 @@ def apply_parameter_updates(parameters: Dict[str, Any]) -> List[str]:
         elif backend_field in ["transcription", "diarization", "vad", "vac", "confidence_validation", "llm_inference"]:
             setattr(config.features, backend_field, value)
             updated_fields.append(frontend_field)
-        elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_trigger_interval", "parser_output_tokens", "parser_window"]:
+        elif backend_field in ["fast_llm", "base_llm", "llm_analysis_interval", "llm_new_text_trigger", "parser_enabled", "parser_trigger_interval", "parser_output_tokens", "parser_window"]:
             setattr(config.llm, backend_field, value)
             updated_fields.append(frontend_field)
         elif backend_field in ["show_lag_info", "show_speakers"]:

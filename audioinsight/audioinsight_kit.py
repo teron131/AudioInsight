@@ -62,6 +62,8 @@ def _get_argument_parser() -> ArgumentParser:
     llm_group.add_argument("--base_llm", type=str, default=DEFAULT_CONFIG["llm"]["base_llm"], help="Base LLM model for analysis. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--llm_analysis_interval", type=float, default=DEFAULT_CONFIG["llm"]["llm_analysis_interval"], help="LLM analysis trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--llm_new_text_trigger", type=int, default=DEFAULT_CONFIG["llm"]["llm_new_text_trigger"], help="Text length trigger for LLM processing. [RUNTIME CONFIGURABLE]")
+    llm_group.add_argument("--parser", action="store_true", default=DEFAULT_CONFIG["llm"]["parser_enabled"], help="Enable transcript parser for text correction. [RUNTIME CONFIGURABLE]")
+    llm_group.add_argument("--no_parser", action="store_true", help="Disable transcript parser. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_trigger_interval", type=float, default=DEFAULT_CONFIG["llm"]["parser_trigger_interval"], help="Parser trigger interval in seconds. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_output_tokens", type=int, default=DEFAULT_CONFIG["llm"]["parser_output_tokens"], help="Maximum parser output tokens. [RUNTIME CONFIGURABLE]")
     llm_group.add_argument("--parser_window", type=int, default=DEFAULT_CONFIG["llm"]["parser_window"], help="Character window size for sentence processing. [RUNTIME CONFIGURABLE]")
@@ -133,8 +135,14 @@ def _optimize_args(args: Namespace) -> Namespace:
         # If llm_inference flag wasn't set, use the default (True)
         args.llm_inference = DEFAULT_CONFIG["features"]["llm_inference"] and not getattr(args, "no_llm_inference", False)
 
+    # Handle parser flag - default to False unless explicitly enabled
+    args.parser_enabled = getattr(args, "parser", False) and not getattr(args, "no_parser", False)
+    if not hasattr(args, "parser_enabled"):
+        # If parser flag wasn't set, use the default (False)
+        args.parser_enabled = DEFAULT_CONFIG["llm"]["parser_enabled"] and not getattr(args, "no_parser", False)
+
     # Remove the temporary negative flags
-    for attr in ["no_transcription", "no_vad", "no_llm_inference"]:
+    for attr in ["no_transcription", "no_vad", "no_llm_inference", "parser", "no_parser"]:
         if hasattr(args, attr):
             delattr(args, attr)
 
@@ -166,6 +174,7 @@ def _optimize_args(args: Namespace) -> Namespace:
         "vac": getattr(args, "vac", False),
         "confidence_validation": getattr(args, "confidence_validation", False),
         "llm_inference": getattr(args, "llm_inference", True),
+        "parser_enabled": getattr(args, "parser_enabled", False),
     }
 
     return args
@@ -364,6 +373,8 @@ class AudioInsight:
             self.config.llm.llm_analysis_interval = self.args.llm_analysis_interval
         if hasattr(self.args, "llm_new_text_trigger"):
             self.config.llm.llm_new_text_trigger = self.args.llm_new_text_trigger
+        if hasattr(self.args, "parser_enabled"):
+            self.config.llm.parser_enabled = self.args.parser_enabled
         if hasattr(self.args, "parser_trigger_interval"):
             self.config.llm.parser_trigger_interval = self.args.parser_trigger_interval
         if hasattr(self.args, "parser_output_tokens"):

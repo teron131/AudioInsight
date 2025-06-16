@@ -450,6 +450,17 @@ export default function SettingsPage() {
                     Characters of new text to trigger analysis (~50 words = 300 chars)
                   </p>
                 </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="parser_enabled"
+                    checked={processingParams.parser_enabled ?? false}
+                    onCheckedChange={(checked) => updateProcessingParam('parser_enabled', checked)}
+                  />
+                  <Label htmlFor="parser_enabled">Enable Transcript Parser</Label>
+                  <p className="text-xs text-muted-foreground ml-2">
+                    Automatic text correction and formatting
+                  </p>
+                </div>
                 <div className="space-y-1">
                   <Label htmlFor="parser_trigger_interval">Parser Trigger Interval (seconds)</Label>
                   <Input
